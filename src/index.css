@@ -1,0 +1,139 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+
+  --font-sans: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
+}
+
+:root {
+  --c-canvas: #eef1f6;
+  --c-surface: #ffffff;
+  --c-raised: #f7f9fc;
+  --c-line: #dfe5ee;
+  --c-line-strong: #c3cddc;
+  --c-ink: #101823;
+  --c-muted: #5b6b80;
+  --c-faint: #8695a8;
+  --c-accent: #1d63d8;
+  --c-accent-soft: #e5edfd;
+  --c-danger: #c2283b;
+  --c-danger-soft: #fdeaec;
+  --c-warn: #9a6206;
+  --c-warn-soft: #fdf2dc;
+  --c-ok: #0f7350;
+  --c-ok-soft: #e2f6ee;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --c-canvas: #080c12;
+  --c-surface: #111823;
+  --c-raised: #18212f;
+  --c-line: #24303f;
+  --c-line-strong: #38475b;
+  --c-ink: #e8eef6;
+  --c-muted: #94a6bb;
+  --c-faint: #6b7d93;
+  --c-accent: #5b9bff;
+  --c-accent-soft: #16243c;
+  --c-danger: #ff7583;
+  --c-danger-soft: #2e1519;
+  --c-warn: #f5bc4f;
+  --c-warn-soft: #2c2313;
+  --c-ok: #4ade9f;
+  --c-ok-soft: #10261e;
+
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--c-line);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--c-canvas);
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Focus ring used on every interactive control. */
+.ring-focus:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Applied briefly when the app jumps the user to a field. */
+.field-flash {
+  animation: field-flash 1.5s ease-out;
+  border-radius: 10px;
+}
+
+@keyframes field-flash {
+  0%,
+  30% {
+    box-shadow: 0 0 0 3px var(--c-accent), 0 0 0 9px color-mix(in srgb, var(--c-accent) 25%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent, 0 0 0 9px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-flash {
+    animation-duration: 0.01ms;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbars that do not shout. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-line-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

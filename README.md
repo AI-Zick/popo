@@ -1,0 +1,138 @@
+# Aegis RMS
+
+A law-enforcement records management system built around the premise that the
+report writing is the hard part, and that most RMS software makes it harder
+than it needs to be.
+
+This repository is a working prototype of the **incident / case report** module:
+the screen an officer spends the most time in. It stores data in the browser, so
+it runs with nothing but `npm install`.
+
+## Running it
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm test         # validation rule suite
+npm run build    # typecheck + production build
+```
+
+Three sample reports are seeded on first load. The one marked **2026-000431** is
+deliberately half-finished — it is the fastest way to see the validation surface
+behave on a real, incomplete case.
+
+## What it does differently
+
+### The report adapts to the offense
+
+Offense codes are data, not branching logic. Each entry in
+`src/domain/codes.ts` carries the structural facts about that offense:
+
+```ts
+{ code: '220', label: 'Burglary / Breaking & Entering', category: 'property',
+  isBurglary: true, requiresProperty: true }
+```
+
+Choosing *Burglary* makes the method-of-entry and premises-entered fields
+appear, and adds a property-record requirement. Choosing *Motor Vehicle Theft*
+instead requires a vehicle with a plate or VIN. The form tells you this up
+front, before you have filled anything in, rather than at submission time.
+
+### Errors know where they live, and how to fix themselves
+
+Every validation issue carries a field path, a plain-language message, a
+remediation tip, and — where there is an unambiguous correct action — an
+executable quick fix:
+
+```ts
+{
+  severity: 'error',
+  path: 'persons[per7f2].injuries',
+  title: 'Injury type is required',
+  message: 'A victim of a violent offense must have an injury recorded.',
+  tip: 'If the victim was not hurt, select "None". Leaving it blank reads as an
+        unanswered question and will bounce back from records.',
+  quickFix: { label: 'Set to "None"', apply: (draft) => { /* … */ } },
+}
+```
+
+The path is what makes *"take me there"* work: the store keeps a registry of
+mounted fields, so jumping to an issue switches to the right section, scrolls
+the field into view, focuses it, and flashes it — including for records that a
+quick fix has only just created. `F8` walks to the next unresolved item from
+anywhere in the app.
+
+### The tips are written for 3am
+
+The messages explain *why*, not just *what*. Exceptional clearance spells out
+all four conditions that have to hold. "Unfounded" says it means the offense
+never happened, not that it went unsolved. Method of entry explains that a
+stolen key is No Force. This is the knowledge that otherwise lives in a records
+clerk's head and reaches the officer as a rejected report two weeks later.
+
+### Errors surface when they are useful
+
+A blank field you have not reached yet is not an error. Inline errors appear
+once you have touched a field, jumped to it, or attempted to submit. The
+right-hand panel always shows the full picture, split into **Must fix** (blocks
+submission) and **Review** (worth a second look, but will not stop you).
+
+## Architecture
+
+```
+src/
+  domain/         Types and reference data. Offense codes carry the flags
+                  that drive conditional validation.
+  validation/
+    engine.ts     Issue/Rule types, the runner, field-path helpers.
+    rules/        Rules by area — incident, offenses, persons, property,
+                  vehicles, narrative. Each is (context) => Issue[].
+  state/          Store, browser persistence, seed data.
+  components/     Field primitives that render their own issues, and the
+                  issue panel.
+  features/       Dashboard and the incident editor's seven sections.
+```
+
+A rule is a plain function, which is what lets cross-record checks — "this
+victim is related to that offender, so this is a domestic" — stay readable:
+
+```ts
+export const rule: Rule = (ctx) =>
+  ctx.anyOffense('requiresVehicle') && ctx.vehicles.length === 0
+    ? [{ /* issue */ }]
+    : [];
+```
+
+Rules never throw into the UI; a rule that fails is logged and skipped, because
+a bug in validation must never stop an officer from writing a report.
+
+## Rule coverage
+
+Roughly 60 rules across six areas, modelled on the NIBRS structural edits that
+state submissions actually reject on:
+
+- **Timing** — occurrence after report, inverted date ranges, future dates
+- **Clearance** — cleared-by-arrest with no arrestee, exceptional clearance
+  reasons, unfounded cases lacking explanation
+- **Offense structure** — burglary entry detail, weapon requirements, criminal
+  activity for drug and weapon offenses, attempted-homicide rejection
+- **Victims** — individual victim required for crimes against persons,
+  victim-to-offender relationships, injury consistency, juvenile handling
+- **Property** — loss types, theft values, narcotics detail, arson requiring
+  burned property, structures that cannot be stolen
+- **Vehicles** — MVT requiring a vehicle, VIN validity, tow destinations
+- **Narrative** — length, people named in the report but absent from the story,
+  arrests with no rights advisement
+
+Each is covered by `src/validation/__tests__/rules.test.ts`, including a
+property test asserting that every quick fix actually clears the issue it is
+attached to.
+
+## Deliberately not here yet
+
+This is one module, not a system. Absent: a real backend and database, auth and
+role-based access, the supervisor review queue as a working screen, master name
+and vehicle indices with dedupe, supplements and case management, evidence and
+chain of custody, CAD integration, and the actual NIBRS export. The validation
+engine is written to move to a server unchanged — it is a pure function of the
+incident.
