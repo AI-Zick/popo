@@ -1,5 +1,5 @@
 import { blank, path, type Issue, type Rule } from '../engine';
-import { createPerson } from '@/domain/factory';
+import { attachNewPerson } from '@/domain/factory';
 import { ageAt } from '@/lib/format';
 import { DOMESTIC_RELATIONSHIPS } from '@/domain/codes';
 
@@ -28,10 +28,11 @@ export const personRules: Rule[] = [
           tip: 'If the victim refused to identify themselves, add them anyway and check "Identity unknown" — the record still has to exist. A business cannot be the victim of an assault; if the target was a store, the victim is the employee who was assaulted.',
           quickFix: {
             label: 'Add a victim',
-            apply: (draft) => {
-              const person = createPerson('victim', { victimType: 'I' });
-              person.offenseIds = draft.offenses.map((o) => o.id);
-              draft.persons.push(person);
+            apply: (draft, people) => {
+              const person = attachNewPerson(draft, people, 'victim', {}, {
+                victimType: 'I',
+                offenseIds: draft.offenses.map((o) => o.id),
+              });
               return path.person(person.id, 'lastName');
             },
           },
@@ -96,7 +97,7 @@ export const personRules: Rule[] = [
   (ctx) => {
     const issues: Issue[] = [];
 
-    for (const person of ctx.incident.persons) {
+    for (const person of ctx.persons) {
       const scope = ctx.personLabel(person);
       const at = (field: Parameters<typeof path.person>[1]) => path.person(person.id, field);
       const isOrg = person.role === 'victim' && person.victimType !== 'I' && person.victimType !== '';
@@ -382,7 +383,7 @@ export const personRules: Rule[] = [
     const issues: Issue[] = [];
     const reference = ctx.incident.occurredFrom || ctx.incident.reportedAt;
 
-    const juveniles = ctx.incident.persons.filter((p) => {
+    const juveniles = ctx.persons.filter((p) => {
       const age = ageAt(p.dob, reference);
       return age !== null && age < 18;
     });

@@ -1,13 +1,12 @@
 import { newId } from '@/lib/id';
-import type {
-  Charge,
-  Incident,
-  Offense,
-  Person,
-  PersonRole,
-  PropertyItem,
-  Vehicle,
-} from './types';
+import type { Incident, Offense, PropertyItem, UUID, Vehicle } from './types';
+import {
+  emptyMaster,
+  type Charge,
+  type IncidentPerson,
+  type MasterPerson,
+  type PersonRole,
+} from './person';
 
 export function nowLocalISO(d = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -36,32 +35,21 @@ export function createOffense(partial: Partial<Offense> = {}): Offense {
   };
 }
 
-export function createPerson(role: PersonRole, partial: Partial<Person> = {}): Person {
+export function createMasterPerson(partial: Partial<MasterPerson> = {}): MasterPerson {
+  const now = new Date().toISOString();
+  return { ...emptyMaster(newId('mp')), createdAt: now, updatedAt: now, ...partial };
+}
+
+export function createIncidentPerson(
+  role: PersonRole,
+  masterId: UUID,
+  partial: Partial<IncidentPerson> = {},
+): IncidentPerson {
   return {
-    id: newId('per'),
+    id: newId('ip'),
+    masterId,
     role,
     offenseIds: [],
-    lastName: '',
-    firstName: '',
-    middleName: '',
-    suffix: '',
-    businessName: '',
-    dob: '',
-    ageFrom: '',
-    ageTo: '',
-    sex: '',
-    race: '',
-    ethnicity: '',
-    height: '',
-    weight: '',
-    eyeColor: '',
-    hairColor: '',
-    address: '',
-    city: '',
-    state: '',
-    zip: '',
-    phone: '',
-    email: '',
     victimType: role === 'victim' ? 'I' : '',
     injuries: [],
     relationships: [],
@@ -166,4 +154,23 @@ export function createIncident(partial: Partial<Incident> = {}): Incident {
     returnedReason: '',
     ...partial,
   };
+}
+
+/**
+ * Adds a brand-new person to a report, creating the master identity and the
+ * incident link together. Used by validation quick fixes, which mutate drafts
+ * of both the incident and the index.
+ */
+export function attachNewPerson(
+  incident: Incident,
+  people: Record<UUID, MasterPerson>,
+  role: PersonRole,
+  identity: Partial<MasterPerson> = {},
+  involvement: Partial<IncidentPerson> = {},
+): IncidentPerson {
+  const master = createMasterPerson(identity);
+  people[master.id] = master;
+  const link = createIncidentPerson(role, master.id, involvement);
+  incident.persons.push(link);
+  return link;
 }

@@ -8,7 +8,7 @@ import { personDisplayName } from '@/validation/engine';
 import { cn } from '@/lib/cn';
 
 export function SectionReview() {
-  const { incident, validation, goToIssue, setSection, attemptSubmit } = useStore();
+  const { incident, persons, validation, goToIssue, setSection, attemptSubmit } = useStore();
   if (!incident) return null;
 
   const { errors, warnings } = validation;
@@ -161,11 +161,7 @@ export function SectionReview() {
           />
           <Row
             label="People"
-            value={
-              incident.persons.length
-                ? incident.persons.map((p) => personDisplayName(p)).join(', ')
-                : '—'
-            }
+            value={persons.length ? persons.map((p) => personDisplayName(p)).join(', ') : '—'}
           />
           <Row label="Property items" value={String(incident.property.length)} />
           <Row label="Stolen property value" value={stolenTotal ? currency(stolenTotal) : '—'} />

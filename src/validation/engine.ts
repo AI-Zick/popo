@@ -1,4 +1,5 @@
-import type { Incident, Offense, Person, PropertyItem, SectionId, Vehicle } from '@/domain/types';
+import type { Incident, Offense, PropertyItem, SectionId, Vehicle } from '@/domain/types';
+import { displayName, resolvePeople, type Person, type PersonIndex } from '@/domain/person';
 import { OFFENSE_BY_CODE, type OffenseCode } from '@/domain/codes';
 
 export type Severity = 'error' | 'warning';
@@ -6,12 +7,12 @@ export type Severity = 'error' | 'warning';
 export interface QuickFix {
   label: string;
   /**
-   * Mutates a draft copy of the incident. May return a field path to focus
-   * once the fix has been applied, so "add the missing victim" lands the
+   * Mutates draft copies of the incident and the Master Name Index. May return
+   * a field path to focus once applied, so "add the missing victim" lands the
    * cursor in the new victim's name field instead of dumping the user at the
    * top of a section.
    */
-  apply: (draft: Incident) => string | void;
+  apply: (draft: Incident, people: PersonIndex) => string | void;
 }
 
 export interface Issue {
@@ -38,6 +39,8 @@ export interface Issue {
 
 export interface RuleContext {
   incident: Incident;
+  /** Every participant, joined to their master identity. */
+  persons: Person[];
   /** Offense definitions resolved from the codes table, in report order. */
   offenses: { offense: Offense; def: OffenseCode | undefined; index: number }[];
   victims: Person[];
@@ -62,7 +65,8 @@ export type Rule = (ctx: RuleContext) => Issue[];
 export const path = {
   incident: (field: keyof Incident) => `incident.${String(field)}`,
   offense: (id: string, field: keyof Offense) => `offenses[${id}].${String(field)}`,
-  person: (id: string, field: keyof Person) => `persons[${id}].${String(field)}`,
+  person: (id: string, field: keyof Person | 'ageFrom' | 'ageTo') =>
+    `persons[${id}].${String(field)}`,
   property: (id: string, field: keyof PropertyItem) => `property[${id}].${String(field)}`,
   vehicle: (id: string, field: keyof Vehicle) => `vehicles[${id}].${String(field)}`,
   section: (s: SectionId) => s,
@@ -81,22 +85,17 @@ export function entityIdFromPath(p: string): string | null {
 export const blank = (v: string | undefined | null): boolean =>
   v === undefined || v === null || String(v).trim() === '';
 
-export function personDisplayName(p: Person): string {
-  if (p.businessName.trim()) return p.businessName.trim();
-  const name = [p.firstName, p.lastName].filter((s) => s.trim()).join(' ').trim();
-  if (name) return name;
-  if (p.isUnknown) return 'Unknown person';
-  return 'Unnamed person';
-}
+export const personDisplayName = displayName;
 
-export function buildContext(incident: Incident): RuleContext {
+export function buildContext(incident: Incident, people: PersonIndex): RuleContext {
+  const persons = resolvePeople(incident.persons, people);
   const offenses = incident.offenses.map((offense, index) => ({
     offense,
     def: OFFENSE_BY_CODE.get(offense.code),
     index,
   }));
 
-  const byRole = (role: Person['role']) => incident.persons.filter((p) => p.role === role);
+  const byRole = (role: Person['role']) => persons.filter((p) => p.role === role);
   const suspects = byRole('suspect');
   const arrestees = byRole('arrestee');
 
@@ -107,6 +106,7 @@ export function buildContext(incident: Incident): RuleContext {
 
   return {
     incident,
+    persons,
     offenses,
     victims: byRole('victim'),
     suspects,
@@ -158,8 +158,12 @@ const ZERO_SECTIONS = (): Record<SectionId, number> => ({
 
 const SEVERITY_WEIGHT: Record<Severity, number> = { error: 0, warning: 1 };
 
-export function runRules(incident: Incident, rules: Rule[]): ValidationResult {
-  const ctx = buildContext(incident);
+export function runRules(
+  incident: Incident,
+  rules: Rule[],
+  people: PersonIndex = {},
+): ValidationResult {
+  const ctx = buildContext(incident, people);
   const issues: Issue[] = [];
 
   for (const rule of rules) {

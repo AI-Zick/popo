@@ -35,7 +35,7 @@ export const narrativeRules: Rule[] = [
     }
 
     // People mentioned in the report but never in the narrative
-    const unmentioned = ctx.incident.persons.filter((p) => {
+    const unmentioned = ctx.persons.filter((p) => {
       const name = p.lastName.trim() || p.businessName.trim();
       if (!name || name.length < 3) return false;
       return !text.toLowerCase().includes(name.toLowerCase());

@@ -77,12 +77,43 @@ once you have touched a field, jumped to it, or attempted to submit. The
 right-hand panel always shows the full picture, split into **Must fix** (blocks
 submission) and **Review** (worth a second look, but will not stop you).
 
+### One person, one record
+
+Identity lives in a Master Name Index and is referenced by every report that
+involves that person; only the *involvement* — role, injuries, charges, what
+they were wearing — is stored on the incident. Add a suspect today and they are
+available to every officer tomorrow, as a witness, a victim or anything else.
+
+De-duplication is deliberately tiered, because a false merge is far worse than a
+duplicate. Putting one person's criminal history onto another is close to
+impossible to unpick once reports and charges have accumulated against it:
+
+- **A hit on a unique identifier** — SSN, driver licence plus state, state ID —
+  links automatically, with an undo.
+- **Anything weaker** is *proposed*, never applied. Candidates are scored on
+  name similarity (Jaro-Winkler plus a phonetic key, so `Whitfeild` still finds
+  `Whitfield`), date-of-birth proximity that tells a typo from a different date,
+  address, and phone — then shown with the evidence for and against.
+- **Contradicting evidence caps the tier.** A differing SSN, or a `Jr`/`Sr`
+  suffix mismatch, bars an automatic link however well the rest agrees — that
+  case is usually a father and son, not a duplicate.
+
+Name alone never links anything.
+
+### Provenance
+
+Identity fields record where their value came from and whether an officer
+confirmed it. A registered owner is not necessarily the driver and an address on
+file is not necessarily current, so a value returned by a licence query is shown
+as unconfirmed until someone verifies it against the person in front of them.
+
 ## Architecture
 
 ```
 src/
   domain/         Types and reference data. Offense codes carry the flags
-                  that drive conditional validation.
+                  that drive conditional validation; `matching.ts` holds the
+                  identity-resolution scoring.
   validation/
     engine.ts     Issue/Rule types, the runner, field-path helpers.
     rules/        Rules by area — incident, offenses, persons, property,
@@ -131,8 +162,9 @@ attached to.
 ## Deliberately not here yet
 
 This is one module, not a system. Absent: a real backend and database, auth and
-role-based access, the supervisor review queue as a working screen, master name
-and vehicle indices with dedupe, supplements and case management, evidence and
-chain of custody, CAD integration, and the actual NIBRS export. The validation
+role-based access, the supervisor review queue as a working screen, a master
+vehicle index, supplements and case management, evidence and chain of custody,
+CAD integration, and the actual NIBRS export. Merging two identities that are
+*already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

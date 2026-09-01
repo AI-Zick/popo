@@ -18,7 +18,7 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
 };
 
 export function Dashboard() {
-  const { incidents, openIncident, createNew } = useStore();
+  const { incidents, people, openIncident, createNew } = useStore();
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -26,7 +26,7 @@ export function Dashboard() {
     return incidents
       .map((incident) => ({
         incident,
-        errors: runRules(incident, ALL_RULES).errors.length,
+        errors: runRules(incident, ALL_RULES, people).errors.length,
       }))
       .filter(({ incident }) => {
         if (!q) return true;
@@ -35,10 +35,16 @@ export function Dashboard() {
           incident.address.toLowerCase().includes(q) ||
           incident.reportingOfficer.toLowerCase().includes(q) ||
           incident.offenses.some((o) => (OFFENSE_BY_CODE.get(o.code)?.label ?? '').toLowerCase().includes(q)) ||
-          incident.persons.some((p) => `${p.firstName} ${p.lastName} ${p.businessName}`.toLowerCase().includes(q))
+          incident.persons.some((link) => {
+            const master = people[link.masterId];
+            if (!master) return false;
+            return `${master.firstName} ${master.lastName} ${master.businessName}`
+              .toLowerCase()
+              .includes(q);
+          })
         );
       });
-  }, [incidents, query]);
+  }, [incidents, people, query]);
 
   const openCount = incidents.filter((i) => i.status === 'draft' || i.status === 'returned').length;
   const blockedCount = rows.filter((r) => r.errors > 0 && r.incident.status === 'draft').length;

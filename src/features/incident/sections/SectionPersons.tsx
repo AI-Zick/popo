@@ -1,10 +1,17 @@
-import { Users } from 'lucide-react';
+import { History, ShieldAlert, Users } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
-import { personDisplayName } from '@/validation/engine';
-import { createCharge, createPerson } from '@/domain/factory';
-import type { Charge, Person, PersonRole } from '@/domain/types';
-import { ageAt } from '@/lib/format';
+import { createCharge } from '@/domain/factory';
+import {
+  displayName,
+  SOURCE_LABEL,
+  type Charge,
+  type MasterPerson,
+  type Person,
+  type PersonRole,
+  type ProvenancedField,
+} from '@/domain/person';
+import { ageAt, formatDate } from '@/lib/format';
 import {
   AddButton,
   Badge,
@@ -22,6 +29,8 @@ import {
   ToggleField,
   useFieldIssues,
 } from '@/components/ui/fields';
+import { AddExistingPersonButton } from '@/components/person/PersonPicker';
+import { AutoLinkNotice, DuplicateCandidates } from '@/components/person/DuplicateCandidates';
 import {
   ARREST_TYPES,
   ETHNICITY_CODES,
@@ -47,69 +56,40 @@ const ROLE_TONE: Record<PersonRole, 'danger' | 'warn' | 'accent' | 'neutral'> = 
 };
 
 export function SectionPersons() {
-  const { incident, update } = useStore();
+  const { incident, persons, addNewPerson } = useStore();
   if (!incident) return null;
-
-  const setPerson = (id: string, patch: Partial<Person>) =>
-    update((d) => {
-      const target = d.persons.find((p) => p.id === id);
-      if (target) Object.assign(target, patch);
-    });
-
-  const addPerson = (role: PersonRole) =>
-    update((d) => {
-      const person = createPerson(role);
-      // A single-offense report has only one sensible answer, so pre-link it.
-      if (d.offenses.length === 1) person.offenseIds = [d.offenses[0].id];
-      d.persons.push(person);
-    });
-
-  const removePerson = (id: string) =>
-    update((d) => {
-      d.persons = d.persons.filter((p) => p.id !== id);
-      for (const person of d.persons) {
-        person.relationships = person.relationships.filter((r) => r.offenderId !== id);
-      }
-      for (const item of d.property) if (item.ownerPersonId === id) item.ownerPersonId = '';
-      for (const v of d.vehicles) if (v.ownerPersonId === id) v.ownerPersonId = '';
-    });
 
   return (
     <SectionAnchor section="persons">
-      {incident.persons.length === 0 ? (
+      <AutoLinkNotice />
+
+      {persons.length === 0 ? (
         <EmptyState
           icon={<Users size={20} />}
           title="Nobody on this report yet"
-          body="Add everyone involved — victims, suspects, witnesses and anyone arrested. The fields each person needs depend on their role and on the offenses you listed."
+          body="Add everyone involved. Anyone you enter joins the agency index, so the next officer who needs them can pull them up instead of retyping — and if they are already on file, this will spot it."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="primary" onClick={() => addPerson('victim')}>
+              <Button variant="primary" onClick={() => addNewPerson('victim')}>
                 Add a victim
               </Button>
-              <Button onClick={() => addPerson('suspect')}>Add a suspect</Button>
-              <Button onClick={() => addPerson('witness')}>Add a witness</Button>
+              <Button onClick={() => addNewPerson('suspect')}>Add a suspect</Button>
+              <AddExistingPersonButton />
             </div>
           }
         />
       ) : (
         <>
-          {incident.persons.map((person, index) => (
-            <PersonCard
-              key={person.id}
-              person={person}
-              index={index}
-              onChange={(patch) => setPerson(person.id, patch)}
-              onRemove={() => removePerson(person.id)}
-            />
+          {persons.map((person, index) => (
+            <PersonCard key={person.id} person={person} index={index} />
           ))}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {(['victim', 'suspect', 'arrestee', 'witness'] as PersonRole[]).map((role) => (
-              <AddButton
-                key={role}
-                label={`Add ${role}`}
-                onClick={() => addPerson(role)}
-              />
+              <AddButton key={role} label={`Add ${role}`} onClick={() => addNewPerson(role)} />
             ))}
+            <div className="flex items-center justify-center">
+              <AddExistingPersonButton />
+            </div>
           </div>
         </>
       )}
@@ -117,19 +97,13 @@ export function SectionPersons() {
   );
 }
 
-function PersonCard({
-  person,
-  index,
-  onChange,
-  onRemove,
-}: {
-  person: Person;
-  index: number;
-  onChange: (patch: Partial<Person>) => void;
-  onRemove: () => void;
-}) {
-  const { incident } = useStore();
-  const at = (field: keyof Person) => path.person(person.id, field);
+function PersonCard({ person, index }: { person: Person; index: number }) {
+  const { incident, updateInvolvement, updateIdentity, removePerson, historyFor } = useStore();
+  const at = (field: string) => `persons[${person.id}].${field}`;
+
+  const setLink = (patch: Parameters<typeof updateInvolvement>[1]) =>
+    updateInvolvement(person.id, patch);
+  const setIdentity = (patch: Partial<MasterPerson>) => updateIdentity(person.masterId, patch);
 
   const isOrgVictim = person.role === 'victim' && person.victimType !== 'I' && person.victimType !== '';
   const isIndividualVictim = person.role === 'victim' && person.victimType === 'I';
@@ -143,37 +117,50 @@ function PersonCard({
   );
   const collectsInjury = linkedOffenses.some((o) => OFFENSE_BY_CODE.get(o.code)?.collectsInjury);
 
+  // Other reports this identity appears on — the payoff of a shared index.
+  const priors = historyFor(person.masterId).filter((h) => h.incident.id !== incident?.id);
+
   return (
     <RecordCard
       index={index}
-      title={personDisplayName(person)}
+      title={displayName(person)}
       subtitle={
-        [
-          PERSON_ROLES.find((r) => r.value === person.role)?.label,
-          age !== null ? `${age} yrs` : null,
-        ]
+        [PERSON_ROLES.find((r) => r.value === person.role)?.label, age !== null ? `${age} yrs` : null]
           .filter(Boolean)
           .join(' · ') || undefined
       }
       badge={
         <div className="flex items-center gap-1.5">
+          {person.cautions.map((c) => (
+            <Badge key={c} tone="danger">
+              <ShieldAlert size={11} aria-hidden />
+              {c}
+            </Badge>
+          ))}
           {age !== null && age < 18 && <Badge tone="warn">Juvenile</Badge>}
           <Badge tone={ROLE_TONE[person.role]}>
             {PERSON_ROLES.find((r) => r.value === person.role)?.label}
           </Badge>
         </div>
       }
-      onRemove={onRemove}
+      onRemove={() => removePerson(person.id)}
     >
-      <FieldGrid cols={isIndividualVictim || person.role === 'victim' ? 2 : 1}>
+      {priors.length > 0 && <PriorCases priors={priors} />}
+
+      <FieldGrid cols={person.role === 'victim' ? 2 : 1}>
         <SelectField
           path={at('role')}
-          label="Role"
+          label="Role on this report"
           required
           placeholder="Select a role…"
           options={PERSON_ROLES}
           value={person.role}
-          onChange={(v) => onChange({ role: v as PersonRole, victimType: v === 'victim' ? person.victimType || 'I' : '' })}
+          onChange={(v) =>
+            setLink({
+              role: v as PersonRole,
+              victimType: v === 'victim' ? person.victimType || 'I' : '',
+            })
+          }
         />
         {person.role === 'victim' && (
           <SelectField
@@ -183,15 +170,19 @@ function PersonCard({
             options={VICTIM_TYPES}
             hint="Individual means a natural person. A business cannot be assaulted."
             value={person.victimType}
-            onChange={(v) => onChange({ victimType: v as Person['victimType'] })}
+            onChange={(v) => setLink({ victimType: v as Person['victimType'] })}
           />
         )}
       </FieldGrid>
 
-      <OffenseLinks person={person} onChange={onChange} />
+      <OffenseLinks person={person} onChange={setLink} />
 
-      {/* ---- Identity --------------------------------------------------- */}
+      {/* ---- Identity — shared across every report ---------------------- */}
       <div className="mt-4 border-t border-line pt-4">
+        <p className="mb-3 text-[11.5px] uppercase tracking-wider text-faint">
+          Identity · shared with every report this person appears on
+        </p>
+
         {isOrgVictim ? (
           <TextField
             path={at('businessName')}
@@ -199,7 +190,7 @@ function PersonCard({
             required
             placeholder="Riverside Mini Mart"
             value={person.businessName}
-            onChange={(v) => onChange({ businessName: v })}
+            onChange={(v) => setIdentity({ businessName: v })}
           />
         ) : (
           <>
@@ -210,7 +201,7 @@ function PersonCard({
                   label="Identity unknown"
                   description="Use this instead of leaving the name blank — it tells records this was a dead end, not an oversight."
                   checked={person.isUnknown}
-                  onChange={(v) => onChange({ isUnknown: v })}
+                  onChange={(v) => setLink({ isUnknown: v })}
                 />
               </div>
             )}
@@ -220,38 +211,39 @@ function PersonCard({
                 label="Last name"
                 required={!person.isUnknown}
                 value={person.lastName}
-                onChange={(v) => onChange({ lastName: v })}
+                onChange={(v) => setIdentity({ lastName: v })}
               />
               <TextField
                 path={at('firstName')}
                 label="First name"
                 value={person.firstName}
-                onChange={(v) => onChange({ firstName: v })}
+                onChange={(v) => setIdentity({ firstName: v })}
               />
               <TextField
                 path={at('middleName')}
                 label="Middle"
                 value={person.middleName}
-                onChange={(v) => onChange({ middleName: v })}
+                onChange={(v) => setIdentity({ middleName: v })}
               />
               <TextField
                 path={at('suffix')}
                 label="Suffix"
                 placeholder="Jr."
+                hint="Distinguishes a father from a son."
                 value={person.suffix}
-                onChange={(v) => onChange({ suffix: v })}
+                onChange={(v) => setIdentity({ suffix: v })}
               />
             </FieldGrid>
 
             <div className="mt-4">
               <FieldGrid cols={4}>
-                <TextField
-                  path={at('dob')}
+                <ProvenancedText
+                  person={person}
+                  field="dob"
                   label="Date of birth"
                   type="date"
                   required={isIndividualVictim}
-                  value={person.dob}
-                  onChange={(v) => onChange({ dob: v })}
+                  onChange={(v) => setIdentity({ dob: v })}
                 />
                 <SelectField
                   path={at('sex')}
@@ -259,7 +251,7 @@ function PersonCard({
                   required={isIndividualVictim}
                   options={SEX_CODES}
                   value={person.sex}
-                  onChange={(v) => onChange({ sex: v })}
+                  onChange={(v) => setIdentity({ sex: v })}
                 />
                 <SelectField
                   path={at('race')}
@@ -267,71 +259,89 @@ function PersonCard({
                   required={isIndividualVictim}
                   options={RACE_CODES}
                   value={person.race}
-                  onChange={(v) => onChange({ race: v })}
+                  onChange={(v) => setIdentity({ race: v })}
                 />
                 <SelectField
                   path={at('ethnicity')}
                   label="Ethnicity"
                   options={ETHNICITY_CODES}
                   value={person.ethnicity}
-                  onChange={(v) => onChange({ ethnicity: v })}
+                  onChange={(v) => setIdentity({ ethnicity: v })}
                 />
               </FieldGrid>
             </div>
 
-            {!person.dob && (
-              <div className="mt-4 grid grid-cols-4 gap-4">
+            {/* Strong identifiers are what make de-duplication safe. */}
+            <div className="mt-4">
+              <FieldGrid cols={4}>
                 <TextField
-                  path={at('ageFrom')}
-                  label="Estimated age from"
-                  type="number"
-                  hint="Use this when the exact date of birth is unknown."
-                  value={person.ageFrom}
-                  onChange={(v) => onChange({ ageFrom: v })}
+                  path={at('driverLicense')}
+                  label="Driver licence #"
+                  hint="Unique per state — the surest way to match a record."
+                  value={person.driverLicense}
+                  onChange={(v) => setIdentity({ driverLicense: v.toUpperCase() })}
+                  inputClassName="font-mono uppercase"
+                />
+                <SelectField
+                  path={at('driverLicenseState')}
+                  label="Licence state"
+                  options={STATES}
+                  value={person.driverLicenseState}
+                  onChange={(v) => setIdentity({ driverLicenseState: v })}
                 />
                 <TextField
-                  path={at('ageTo')}
-                  label="to"
-                  type="number"
-                  value={person.ageTo}
-                  onChange={(v) => onChange({ ageTo: v })}
+                  path={at('ssn')}
+                  label="SSN"
+                  placeholder="000-00-0000"
+                  value={person.ssn}
+                  onChange={(v) => setIdentity({ ssn: v })}
+                  inputClassName="font-mono"
                 />
-              </div>
-            )}
+                <TextField
+                  path={at('stateId')}
+                  label="State ID"
+                  value={person.stateId}
+                  onChange={(v) => setIdentity({ stateId: v.toUpperCase() })}
+                  inputClassName="font-mono uppercase"
+                />
+              </FieldGrid>
+            </div>
           </>
         )}
+
+        <DuplicateCandidates incidentPersonId={person.id} />
       </div>
 
       {/* ---- Contact ---------------------------------------------------- */}
       {!person.isUnknown && (
         <div className="mt-4 border-t border-line pt-4">
           <div className="grid grid-cols-4 gap-4">
-            <TextField
+            <ProvenancedText
               className="col-span-2"
-              path={at('address')}
+              person={person}
+              field="address"
               label="Address"
-              value={person.address}
-              onChange={(v) => onChange({ address: v })}
+              onChange={(v) => setIdentity({ address: v })}
             />
             <TextField
               path={at('city')}
               label="City"
               value={person.city}
-              onChange={(v) => onChange({ city: v })}
+              onChange={(v) => setIdentity({ city: v })}
             />
             <SelectField
               path={at('state')}
               label="State"
               options={STATES}
               value={person.state}
-              onChange={(v) => onChange({ state: v })}
+              onChange={(v) => setIdentity({ state: v })}
             />
-            <TextField
-              path={at('phone')}
+            <ProvenancedText
+              person={person}
+              field="phone"
               label="Phone"
               type="tel"
-              value={person.phone}
-              onChange={(v) => onChange({ phone: v })}
+              onChange={(v) => setIdentity({ phone: v })}
             />
             <TextField
               className="col-span-2"
@@ -339,7 +349,7 @@ function PersonCard({
               label="Email"
               type="email"
               value={person.email}
-              onChange={(v) => onChange({ email: v })}
+              onChange={(v) => setIdentity({ email: v })}
             />
           </div>
         </div>
@@ -356,32 +366,32 @@ function PersonCard({
             hint="Pick “None” if the victim was not hurt. Blank is not the same answer."
             options={INJURY_TYPES}
             values={person.injuries}
-            onChange={(v) => onChange({ injuries: v })}
+            onChange={(v) => setLink({ injuries: v })}
           />
         </div>
       )}
 
-      {isIndividualVictim && <RelationshipEditor victim={person} onChange={onChange} />}
+      {isIndividualVictim && <RelationshipEditor victim={person} onChange={setLink} />}
 
       {/* ---- Suspect detail --------------------------------------------- */}
       {isOffender && (
-        <div className="mt-4 border-t border-line pt-4 space-y-4">
+        <div className="mt-4 space-y-4 border-t border-line pt-4">
           <MultiSelectField
             path={at('armedWith')}
             label="Armed with"
             columns={3}
             options={WEAPONS}
             values={person.armedWith}
-            onChange={(v) => onChange({ armedWith: v })}
+            onChange={(v) => setLink({ armedWith: v })}
           />
           <TextareaField
             path={at('description')}
-            label="Physical description"
+            label="Description at the time"
             rows={3}
-            placeholder="Height, build, clothing, tattoos, accent, direction of travel…"
-            hint="Partial detail still links cases. Write what the witness actually said."
+            placeholder="Clothing, demeanour, direction of travel…"
+            hint="What they looked like that day, not their permanent description."
             value={person.description}
-            onChange={(v) => onChange({ description: v })}
+            onChange={(v) => setLink({ description: v })}
           />
         </div>
       )}
@@ -397,7 +407,7 @@ function PersonCard({
               type="date"
               required
               value={person.arrestDate}
-              onChange={(v) => onChange({ arrestDate: v })}
+              onChange={(v) => setLink({ arrestDate: v })}
             />
             <SelectField
               path={at('arrestType')}
@@ -405,10 +415,10 @@ function PersonCard({
               required
               options={ARREST_TYPES}
               value={person.arrestType}
-              onChange={(v) => onChange({ arrestType: v })}
+              onChange={(v) => setLink({ arrestType: v })}
             />
           </FieldGrid>
-          <ChargeEditor person={person} onChange={onChange} />
+          <ChargeEditor person={person} onChange={setLink} />
         </div>
       )}
 
@@ -418,7 +428,7 @@ function PersonCard({
           label="Notes"
           rows={2}
           value={person.notes}
-          onChange={(v) => onChange({ notes: v })}
+          onChange={(v) => setLink({ notes: v })}
         />
       </div>
     </RecordCard>
@@ -427,7 +437,102 @@ function PersonCard({
 
 /* ------------------------------------------------------------------ */
 
-function OffenseLinks({ person, onChange }: { person: Person; onChange: (p: Partial<Person>) => void }) {
+/**
+ * A text field that shows where its value came from when that was not an
+ * officer. A registered owner is not necessarily the driver, and the report
+ * should not imply otherwise.
+ */
+function ProvenancedText({
+  person,
+  field,
+  label,
+  type,
+  required,
+  className,
+  onChange,
+}: {
+  person: Person;
+  field: ProvenancedField;
+  label: string;
+  type?: 'text' | 'date' | 'tel';
+  required?: boolean;
+  className?: string;
+  onChange: (value: string) => void;
+}) {
+  const { updateIdentity } = useStore();
+  const record = person.provenance?.[field];
+  const external = record && record.source !== 'officer';
+
+  return (
+    <div className={className}>
+      <TextField
+        path={`persons[${person.id}].${field}`}
+        label={label}
+        type={type}
+        required={required}
+        value={String(person[field] ?? '')}
+        onChange={onChange}
+      />
+      {external && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md bg-raised px-2 py-1.5">
+          <span className="text-[11.5px] text-muted">
+            {SOURCE_LABEL[record.source]}
+            {record.verified ? ' · confirmed' : ' · not confirmed with this person'}
+          </span>
+          {!record.verified && (
+            <button
+              type="button"
+              onClick={() =>
+                updateIdentity(person.masterId, { [field]: person[field] } as Partial<MasterPerson>)
+              }
+              className="text-[11.5px] font-medium text-accent hover:underline"
+            >
+              I confirmed this
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PriorCases({
+  priors,
+}: {
+  priors: { incident: { id: string; caseNumber: string; reportedAt: string }; role: PersonRole }[];
+}) {
+  const { openIncident } = useStore();
+  return (
+    <div className="mb-4 rounded-lg border border-line bg-raised px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+        <History size={13} className="text-muted" aria-hidden />
+        Known to the agency — {priors.length} other {priors.length === 1 ? 'report' : 'reports'}
+      </p>
+      <ul className="mt-1.5 flex flex-wrap gap-1.5">
+        {priors.slice(0, 6).map((prior) => (
+          <li key={prior.incident.id}>
+            <button
+              type="button"
+              onClick={() => openIncident(prior.incident.id)}
+              className="rounded-md border border-line bg-surface px-2 py-1 font-mono text-[11.5px] text-muted transition hover:border-accent hover:text-accent"
+              title={`${PERSON_ROLES.find((r) => r.value === prior.role)?.label} · ${formatDate(prior.incident.reportedAt)}`}
+            >
+              {prior.incident.caseNumber}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function OffenseLinks({
+  person,
+  onChange,
+}: {
+  person: Person;
+  onChange: (patch: { offenseIds: string[] }) => void;
+}) {
   const { incident, registerField, revealField } = useStore();
   const fieldPath = path.person(person.id, 'offenseIds');
   const { visible } = useFieldIssues(fieldPath);
@@ -494,7 +599,6 @@ function OffenseLinks({ person, onChange }: { person: Person; onChange: (p: Part
   );
 }
 
-/** Renders one already-computed issue by key, reusing the shared note styling. */
 function InlineIssue({ issueKey }: { issueKey: string }) {
   const { validation, applyQuickFix } = useStore();
   const issue = validation.issues.find((i) => i.key === issueKey);
@@ -523,15 +627,13 @@ function RelationshipEditor({
   onChange,
 }: {
   victim: Person;
-  onChange: (p: Partial<Person>) => void;
+  onChange: (patch: { relationships: Person['relationships'] }) => void;
 }) {
-  const { incident, registerField } = useStore();
+  const { persons, registerField } = useStore();
   const fieldPath = path.person(victim.id, 'relationships');
   const { visible } = useFieldIssues(fieldPath);
 
-  const offenders = (incident?.persons ?? []).filter(
-    (p) => p.role === 'suspect' || p.role === 'arrestee',
-  );
+  const offenders = persons.filter((p) => p.role === 'suspect' || p.role === 'arrestee');
   if (offenders.length === 0) return null;
 
   const setRelationship = (offenderId: string, relationship: string) => {
@@ -557,15 +659,18 @@ function RelationshipEditor({
         {offenders.map((offender) => {
           const current = victim.relationships.find((r) => r.offenderId === offender.id);
           return (
-            <div key={offender.id} className="flex items-center gap-3 rounded-lg border border-line bg-raised px-3 py-2">
+            <div
+              key={offender.id}
+              className="flex items-center gap-3 rounded-lg border border-line bg-raised px-3 py-2"
+            >
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-                {personDisplayName(offender)}
+                {displayName(offender)}
               </span>
               <select
                 value={current?.relationship ?? ''}
                 onChange={(e) => setRelationship(offender.id, e.target.value)}
                 className="w-64 shrink-0 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink"
-                aria-label={`Relationship to ${personDisplayName(offender)}`}
+                aria-label={`Relationship to ${displayName(offender)}`}
               >
                 <option value="">Select relationship…</option>
                 {RELATIONSHIPS.map((r) => (
@@ -585,15 +690,19 @@ function RelationshipEditor({
   );
 }
 
-function ChargeEditor({ person, onChange }: { person: Person; onChange: (p: Partial<Person>) => void }) {
+function ChargeEditor({
+  person,
+  onChange,
+}: {
+  person: Person;
+  onChange: (patch: { charges: Charge[] }) => void;
+}) {
   const { registerField } = useStore();
   const fieldPath = path.person(person.id, 'charges');
   const { visible } = useFieldIssues(fieldPath);
 
   const setCharge = (id: string, patch: Partial<Charge>) =>
-    onChange({
-      charges: person.charges.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-    });
+    onChange({ charges: person.charges.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
 
   return (
     <div ref={(el) => registerField(fieldPath, el)} data-field-path={fieldPath} className="mt-4">
@@ -641,11 +750,7 @@ function ChargeEditor({ person, onChange }: { person: Person; onChange: (p: Part
           </div>
         ))}
       </div>
-      <Button
-        size="sm"
-        className="mt-2"
-        onClick={() => onChange({ charges: [...person.charges, createCharge()] })}
-      >
+      <Button size="sm" className="mt-2" onClick={() => onChange({ charges: [...person.charges, createCharge()] })}>
         Add charge
       </Button>
       {visible.map((issue) => (

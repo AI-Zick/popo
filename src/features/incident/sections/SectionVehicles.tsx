@@ -66,13 +66,10 @@ function VehicleCard({
   onChange: (patch: Partial<Vehicle>) => void;
   onRemove: () => void;
 }) {
-  const { incident } = useStore();
+  const { persons } = useStore();
   const at = (field: keyof Vehicle) => path.vehicle(vehicle.id, field);
 
-  const owners = (incident?.persons ?? []).map((p) => ({
-    value: p.id,
-    label: personDisplayName(p),
-  }));
+  const owners = persons.map((p) => ({ value: p.id, label: personDisplayName(p) }));
 
   const title =
     [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details pending';

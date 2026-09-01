@@ -3,13 +3,48 @@ import { runRules, type Issue } from '../engine';
 import { ALL_RULES } from '../rules';
 import {
   createIncident,
+  createIncidentPerson,
+  createMasterPerson,
   createOffense,
-  createPerson,
   createProperty,
   createVehicle,
   createCharge,
 } from '@/domain/factory';
 import type { Incident } from '@/domain/types';
+import {
+  emptyMaster,
+  type IncidentPerson,
+  type MasterPerson,
+  type PersonIndex,
+  type PersonRole,
+} from '@/domain/person';
+
+/**
+ * Shared Master Name Index for the suite. Record ids are unique per call, so
+ * tests cannot collide through it.
+ */
+const PEOPLE: PersonIndex = {};
+
+const MASTER_KEYS = new Set(Object.keys(emptyMaster('probe')));
+
+/**
+ * Builds a participant from a flat set of fields, routing each one to the
+ * master identity or the incident involvement as appropriate.
+ */
+function mkPerson(
+  role: PersonRole,
+  fields: Partial<MasterPerson & IncidentPerson> = {},
+): IncidentPerson {
+  const identity: Record<string, unknown> = {};
+  const involvement: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (MASTER_KEYS.has(key)) identity[key] = value;
+    else involvement[key] = value;
+  }
+  const master = createMasterPerson(identity as Partial<MasterPerson>);
+  PEOPLE[master.id] = master;
+  return createIncidentPerson(role, master.id, involvement as Partial<IncidentPerson>);
+}
 
 /** A report with the universally-required fields already satisfied. */
 function baseIncident(partial: Partial<Incident> = {}): Incident {
@@ -29,7 +64,7 @@ function baseIncident(partial: Partial<Incident> = {}): Incident {
 }
 
 const ruleIds = (issues: Issue[]) => issues.map((i) => i.ruleId);
-const check = (incident: Incident) => runRules(incident, ALL_RULES);
+const check = (incident: Incident) => runRules(incident, ALL_RULES, PEOPLE);
 
 describe('incident-level rules', () => {
   it('requires the core fields', () => {
@@ -140,7 +175,7 @@ describe('victim rules', () => {
       baseIncident({
         offenses: [offense],
         persons: [
-          createPerson('victim', {
+          mkPerson('victim', {
             victimType: 'B',
             businessName: 'Riverside Mini Mart',
             offenseIds: [offense.id],
@@ -157,7 +192,7 @@ describe('victim rules', () => {
       baseIncident({
         offenses: [offense],
         persons: [
-          createPerson('victim', { lastName: 'Whitfield', victimType: 'I', offenseIds: [offense.id] }),
+          mkPerson('victim', { lastName: 'Whitfield', victimType: 'I', offenseIds: [offense.id] }),
         ],
       }),
     );
@@ -168,8 +203,8 @@ describe('victim rules', () => {
 
   it('requires a victim-to-offender relationship, and the quick fix resolves it', () => {
     const offense = createOffense({ code: '13B', locationType: '20' });
-    const suspect = createPerson('suspect', { lastName: 'Mercer', offenseIds: [offense.id] });
-    const victim = createPerson('victim', {
+    const suspect = mkPerson('suspect', { lastName: 'Mercer', offenseIds: [offense.id] });
+    const victim = mkPerson('victim', {
       lastName: 'Whitfield',
       victimType: 'I',
       dob: '1985-03-14',
@@ -185,8 +220,11 @@ describe('victim rules', () => {
     expect(issue).toBeDefined();
 
     const draft = structuredClone(incident);
-    issue!.quickFix!.apply(draft);
-    expect(ruleIds(check(draft).errors)).not.toContain('person.relationship');
+    const draftPeople = structuredClone(PEOPLE);
+    issue!.quickFix!.apply(draft, draftPeople);
+    expect(ruleIds(runRules(draft, ALL_RULES, draftPeople).errors)).not.toContain(
+      'person.relationship',
+    );
   });
 
   it('rejects a homicide victim marked as uninjured', () => {
@@ -195,7 +233,7 @@ describe('victim rules', () => {
       baseIncident({
         offenses: [offense],
         persons: [
-          createPerson('victim', {
+          mkPerson('victim', {
             lastName: 'Doe',
             victimType: 'I',
             dob: '1980-01-01',
@@ -216,7 +254,7 @@ describe('victim rules', () => {
       baseIncident({
         offenses: [offense],
         persons: [
-          createPerson('victim', {
+          mkPerson('victim', {
             lastName: 'Doe',
             victimType: 'I',
             dob: '1980-01-01',
@@ -237,7 +275,7 @@ describe('arrestee rules', () => {
     const result = check(
       baseIncident({
         offenses: [offense],
-        persons: [createPerson('arrestee', { lastName: 'Mercer', offenseIds: [offense.id] })],
+        persons: [mkPerson('arrestee', { lastName: 'Mercer', offenseIds: [offense.id] })],
       }),
     );
     expect(ruleIds(result.errors)).toEqual(
@@ -251,7 +289,7 @@ describe('arrestee rules', () => {
       baseIncident({
         offenses: [offense],
         persons: [
-          createPerson('arrestee', {
+          mkPerson('arrestee', {
             lastName: 'Mercer',
             arrestDate: '2026-01-10',
             arrestType: 'O',
@@ -358,8 +396,9 @@ describe('quick fixes', () => {
 
     for (const issue of withFixes) {
       const draft = structuredClone(incident);
-      issue.quickFix!.apply(draft);
-      const after = check(draft).issues.map((i) => i.key);
+      const draftPeople = structuredClone(PEOPLE);
+      issue.quickFix!.apply(draft, draftPeople);
+      const after = runRules(draft, ALL_RULES, draftPeople).issues.map((i) => i.key);
       expect(after, `quick fix "${issue.quickFix!.label}" did not clear ${issue.key}`).not.toContain(
         issue.key,
       );

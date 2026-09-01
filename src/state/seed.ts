@@ -1,12 +1,36 @@
 import type { Incident } from '@/domain/types';
+import type { IncidentPerson, MasterPerson, PersonIndex, PersonRole } from '@/domain/person';
 import {
   createIncident,
+  createIncidentPerson,
+  createMasterPerson,
   createOffense,
-  createPerson,
   createProperty,
   createVehicle,
   createCharge,
 } from '@/domain/factory';
+
+const PEOPLE: PersonIndex = {};
+
+/** Registers a master identity and returns the incident link for it. */
+function person(
+  role: PersonRole,
+  identity: Partial<MasterPerson>,
+  involvement: Partial<IncidentPerson> = {},
+): IncidentPerson {
+  const master = createMasterPerson(identity);
+  PEOPLE[master.id] = master;
+  return createIncidentPerson(role, master.id, involvement);
+}
+
+/** Adds a second involvement for an identity already in the index. */
+function samePerson(
+  link: IncidentPerson,
+  role: PersonRole,
+  involvement: Partial<IncidentPerson> = {},
+): IncidentPerson {
+  return createIncidentPerson(role, link.masterId, involvement);
+}
 
 function isoDaysAgo(days: number, hour = 14, minute = 30): string {
   const d = new Date();
@@ -20,7 +44,7 @@ function isoDaysAgo(days: number, hour = 14, minute = 30): string {
  * Demo data. The second report is deliberately incomplete — it is the fastest
  * way to see how the validation surface behaves on a real, half-written case.
  */
-export function seedIncidents(): Incident[] {
+export function seedState(): { incidents: Incident[]; people: PersonIndex } {
   /* ---- 1. A complete, submitted residential burglary ------------------ */
   const burglary = createOffense({
     code: '220',
@@ -39,22 +63,26 @@ export function seedIncidents(): Incident[] {
     biasMotivation: '88',
   });
 
-  const victim1 = createPerson('victim', {
-    lastName: 'Whitfield',
-    firstName: 'Dana',
-    dob: '1985-03-14',
-    sex: 'F',
-    race: 'W',
-    ethnicity: 'N',
-    address: '1142 Ashwood Ln',
-    city: 'Cedar Falls',
-    state: 'AL',
-    zip: '35004',
-    phone: '(205) 555-0148',
-    victimType: 'I',
-    injuries: ['N'],
-    offenseIds: [burglary.id, larceny.id],
-  });
+  const victim1 = person(
+    'victim',
+    {
+      lastName: 'Whitfield',
+      firstName: 'Dana',
+      middleName: 'Marie',
+      dob: '1985-03-14',
+      sex: 'F',
+      race: 'W',
+      ethnicity: 'N',
+      address: '1142 Ashwood Ln',
+      city: 'Cedar Falls',
+      state: 'AL',
+      zip: '35004',
+      phone: '(205) 555-0148',
+      driverLicense: 'AL7729140',
+      driverLicenseState: 'AL',
+    },
+    { victimType: 'I', injuries: ['N'], offenseIds: [burglary.id, larceny.id] },
+  );
 
   const complete = createIncident({
     caseNumber: '2026-000418',
@@ -132,14 +160,17 @@ export function seedIncidents(): Incident[] {
     clearanceStatus: 'open',
     offenses: [mvt],
     persons: [
-      createPerson('victim', {
-        lastName: 'Okafor',
-        firstName: 'Samuel',
-        sex: 'M',
-        race: 'B',
-        victimType: 'I',
-        phone: '(205) 555-0193',
-      }),
+      person(
+        'victim',
+        {
+          lastName: 'Okafor',
+          firstName: 'Samuel',
+          sex: 'M',
+          race: 'B',
+          phone: '(205) 555-0193',
+        },
+        { victimType: 'I' },
+      ),
     ],
     property: [],
     vehicles: [],
@@ -154,26 +185,44 @@ export function seedIncidents(): Incident[] {
     locationType: '13',
     biasMotivation: '88',
   });
-  const arrestee = createPerson('arrestee', {
-    lastName: 'Mercer',
-    firstName: 'Travis',
-    middleName: 'Ray',
-    dob: '1994-11-02',
-    sex: 'M',
-    race: 'W',
-    ethnicity: 'N',
-    address: '88 Perch St',
-    city: 'Cedar Falls',
-    state: 'AL',
-    arrestDate: isoDaysAgo(6).slice(0, 10),
-    arrestType: 'O',
-    offenseIds: [dui.id],
-    charges: [createCharge({ statute: '32-5A-191', description: 'DUI — Alcohol', counts: '1', degree: 'Misdemeanor' })],
-  });
-  const societyVictim = createPerson('victim', {
-    victimType: 'S',
-    offenseIds: [dui.id],
-  });
+  const arrestee = person(
+    'arrestee',
+    {
+      lastName: 'Mercer',
+      firstName: 'Travis',
+      middleName: 'Ray',
+      dob: '1994-11-02',
+      sex: 'M',
+      race: 'W',
+      ethnicity: 'N',
+      address: '88 Perch St',
+      city: 'Cedar Falls',
+      state: 'AL',
+      driverLicense: 'AL5518203',
+      driverLicenseState: 'AL',
+      cautions: ['Known to resist'],
+      // The address came back on the licence query and was never confirmed
+      // with him at the roadside — the report should not imply otherwise.
+      provenance: {
+        address: { source: 'dmv', verified: false, at: new Date().toISOString() },
+        driverLicense: { source: 'dmv', verified: true, at: new Date().toISOString() },
+      },
+    },
+    {
+      arrestDate: isoDaysAgo(6).slice(0, 10),
+      arrestType: 'O',
+      offenseIds: [dui.id],
+      charges: [
+        createCharge({
+          statute: '32-5A-191',
+          description: 'DUI — Alcohol',
+          counts: '1',
+          degree: 'Misdemeanor',
+        }),
+      ],
+    },
+  );
+  const societyVictim = person('victim', {}, { victimType: 'S', offenseIds: [dui.id] });
 
   const approved = createIncident({
     caseNumber: '2026-000402',
@@ -215,5 +264,10 @@ export function seedIncidents(): Incident[] {
     submittedAt: new Date(Date.now() - 5 * 864e5).toISOString(),
   });
 
-  return [incomplete, complete, approved];
+  // Travis Mercer turns up again as a suspect, which is the point of a shared
+  // index: one identity, many reports.
+  const priorSuspect = samePerson(arrestee, 'suspect', { offenseIds: [] });
+  incomplete.persons.push(priorSuspect);
+
+  return { incidents: [incomplete, complete, approved], people: PEOPLE };
 }

@@ -1,6 +1,6 @@
 import { blank, path, type Issue, type Rule } from '../engine';
 import { parseLocal } from '@/lib/format';
-import { createPerson } from '@/domain/factory';
+import { attachNewPerson } from '@/domain/factory';
 import { DOMESTIC_RELATIONSHIPS } from '@/domain/codes';
 
 const required = (
@@ -160,11 +160,10 @@ export const incidentRules: Rule[] = [
         tip: 'Either add the person you arrested, or — if the suspect was only identified and not taken into custody — change the disposition to Open or Cleared Exceptionally.',
         quickFix: {
           label: 'Add an arrestee',
-          apply: (draft) => {
-            const person = createPerson('arrestee', {
+          apply: (draft, people) => {
+            const person = attachNewPerson(draft, people, 'arrestee', {}, {
               arrestDate: draft.reportedAt.slice(0, 10),
             });
-            draft.persons.push(person);
             return path.person(person.id, 'lastName');
           },
         },
@@ -230,7 +229,7 @@ export const incidentRules: Rule[] = [
       });
     }
 
-    const hasDomesticRelationship = incident.persons.some((p) =>
+    const hasDomesticRelationship = ctx.persons.some((p) =>
       p.relationships.some((r) => DOMESTIC_RELATIONSHIPS.has(r.relationship)),
     );
 

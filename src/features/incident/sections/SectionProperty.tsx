@@ -92,16 +92,13 @@ function PropertyCard({
   onChange: (patch: Partial<PropertyItem>) => void;
   onRemove: () => void;
 }) {
-  const { incident } = useStore();
+  const { persons } = useStore();
   const at = (field: keyof PropertyItem) => path.property(item.id, field);
 
   const isDrugItem = item.descriptionCode === '10' || item.descriptionCode === '11';
   const showDrugFields = isDrugItem || (forceDrugFields && item.lossType === 'seized');
 
-  const owners = (incident?.persons ?? []).map((p) => ({
-    value: p.id,
-    label: personDisplayName(p),
-  }));
+  const owners = persons.map((p) => ({ value: p.id, label: personDisplayName(p) }));
 
   const typeLabel = PROPERTY_DESCRIPTIONS.find((p) => p.value === item.descriptionCode)?.label;
   const lossLabel = LOSS_TYPES.find((l) => l.value === item.lossType)?.label;

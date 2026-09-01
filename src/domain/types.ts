@@ -4,6 +4,8 @@
  * layout only ever existed to satisfy a fixed-width export format.
  */
 
+import type { IncidentPerson } from './person';
+
 export type UUID = string;
 
 export type SectionId =
@@ -61,91 +63,26 @@ export interface Offense {
 }
 
 /* ------------------------------------------------------------------ */
-/* Person                                                              */
+/* Person                                                             */
 /* ------------------------------------------------------------------ */
 
-export type PersonRole =
-  | 'victim'
-  | 'suspect'
-  | 'arrestee'
-  | 'witness'
-  | 'complainant'
-  | 'other';
-
-export type VictimType =
-  | 'I' // Individual
-  | 'B' // Business
-  | 'F' // Financial institution
-  | 'G' // Government
-  | 'L' // Law enforcement officer
-  | 'R' // Religious organization
-  | 'S' // Society / public
-  | 'O' // Other
-  | '';
-
-export interface Person {
-  id: UUID;
-  role: PersonRole;
-  /** Which offenses this person is tied to (offense ids). */
-  offenseIds: UUID[];
-
-  // Identity
-  lastName: string;
-  firstName: string;
-  middleName: string;
-  suffix: string;
-  businessName: string;
-  dob: string; // yyyy-mm-dd
-  ageFrom: string; // used when DOB unknown
-  ageTo: string;
-  sex: string; // M F U
-  race: string;
-  ethnicity: string;
-  height: string;
-  weight: string;
-  eyeColor: string;
-  hairColor: string;
-
-  // Contact
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  phone: string;
-  email: string;
-
-  // Victim-specific
-  victimType: VictimType;
-  injuries: string[];
-  /** Offender ids this victim has a relationship with */
-  relationships: VictimOffenderRelationship[];
-
-  // Suspect/arrestee-specific
-  armedWith: string[];
-  /** Free-text description used when identity is unknown */
-  description: string;
-  isUnknown: boolean;
-
-  // Arrestee-specific
-  arrestDate: string;
-  arrestType: string;
-  charges: Charge[];
-
-  notes: string;
-}
-
-export interface VictimOffenderRelationship {
-  offenderId: UUID;
-  relationship: string;
-}
-
-export interface Charge {
-  id: UUID;
-  statute: string;
-  description: string;
-  counts: string;
-  degree: string;
-}
+/**
+ * Identity lives in the Master Name Index and is shared across every report;
+ * only the involvement is stored on the incident. See `domain/person.ts`.
+ */
+export type {
+  Charge,
+  FieldProvenance,
+  FieldSource,
+  IncidentPerson,
+  MasterPerson,
+  Person,
+  PersonIndex,
+  PersonRole,
+  ProvenancedField,
+  VictimOffenderRelationship,
+  VictimType,
+} from './person';
 
 /* ------------------------------------------------------------------ */
 /* Property & vehicles                                                 */
@@ -254,7 +191,7 @@ export interface Incident {
   clearedAt: string;
 
   offenses: Offense[];
-  persons: Person[];
+  persons: IncidentPerson[];
   property: PropertyItem[];
   vehicles: Vehicle[];
 
