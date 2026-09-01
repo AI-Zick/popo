@@ -135,6 +135,53 @@ Withdrawal is not deletion. The note, its author, who withdrew it and why are al
 kept; it simply stops showing on the location. "Who removed the gate code, and
 when" is a question that gets asked after something goes wrong at an address.
 
+### Sign-in — and what it is not
+
+**This is not yet a security boundary, and the app says so on its own sign-in
+screen.** Passwords are hashed with PBKDF2-HMAC-SHA256 at OWASP's iteration
+floor, salted per record, compared in constant time, and never stored in
+readable form. But the check runs in the browser, where the person being
+verified controls the code doing the verifying — anyone can bypass it with dev
+tools.
+
+What exists is the correct *mechanism*, written as pure functions over explicit
+state with no browser assumptions, so moving verification behind an API is a
+relocation rather than a rewrite. Argon2id should replace PBKDF2 on the server;
+the stored format carries its own parameters so records upgrade in place.
+
+The parts that are already right:
+
+- **Failures are indistinguishable.** Wrong password, unknown username and
+  deactivated account all return one message, because saying which was wrong
+  tells an attacker which usernames exist. A missing account still does the
+  hashing work so it cannot answer faster and reveal itself by timing.
+- **Five failures locks the account for fifteen minutes**, per account rather
+  than per password.
+- **Sessions expire twice over** — thirty minutes idle, twelve hours absolute.
+  Activity pushes the idle window back and never the absolute one, because a
+  car laptop gets left unattended and a shift has to end.
+- **Issued passwords must be changed.** An administrator creating an account
+  gets a temporary password shown once; the holder cannot keep it.
+- **Policy favours length over composition.** Twelve characters minimum, no
+  obvious passwords, nothing containing the username or name — and no mandate
+  to include a symbol, which only ever produces `P@ssw0rd`.
+
+### Audit log
+
+Append-only and hash-chained: every entry carries the hash of the one before
+it, so altering or removing one breaks every hash after it and the log says
+exactly where. That is not unfalsifiable — anyone who can rewrite the whole
+chain can rewrite history — but it does stop quiet, selective edits, which is
+the realistic threat.
+
+Sign-ins and failures, lockouts, account changes, report submissions, and every
+note added, withdrawn or restored are recorded. So is **reading a restricted
+note**: looking up a gate code is an access event in its own right.
+
+Reading the log is its own permission, deliberately separate from account
+management — the people who review access are not always the people who grant
+it.
+
 ### Accounts
 
 Provisioning is two-tier. An **agency administrator** sets up accounts for their
@@ -270,11 +317,13 @@ role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
 CAD integration, and the actual NIBRS export.
 
-Most importantly: **authentication does not exist.** The user menu is a
-switcher, not a login. Roles, permissions and the provisioning guards are real
-and tested, but nothing verifies identity, there are no credentials, and no
-access is logged. That work and the audit trail in `ARCHITECTURE.md` are the
-same job, and they belong together before this touches live data. Merging two identities that are
+Most importantly, **the security boundary is still missing.** Sign-in, hashing,
+sessions, lockout and the audit log are all implemented correctly, but they run
+in the browser, so none of them constrains a determined user. Moving
+`credentials.ts` and `session.ts` behind an API — with the session id in an
+httpOnly cookie and the audit log written server-side — is what turns this from
+a faithful model into actual security. Everything above is written to make that
+a relocation rather than a rewrite. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

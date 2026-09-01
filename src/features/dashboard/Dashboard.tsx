@@ -80,7 +80,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
 
         <UserMenu />
 
-        {(can('agency.configure') || can('users.manage')) && (
+        {(can('agency.configure') || can('users.manage') || can('audit.view')) && (
           <button
             type="button"
             onClick={onOpenSetup}

@@ -86,6 +86,7 @@ export function PremiseNotes({ location }: { location: MasterLocation }) {
               <li key={note.id}>
                 <NoteCard
                   note={note}
+                  locationName={location.commonName || location.address}
                   mayRetract={mayRetract}
                   mayViewRestricted={mayViewRestricted}
                   onRetract={(reason) => retractNote(location.id, note.id, reason)}
@@ -170,17 +171,20 @@ function WithdrawnNote({
 
 function NoteCard({
   note,
+  locationName,
   mayRetract,
   mayViewRestricted,
   onRetract,
   onConfirm,
 }: {
   note: PremiseNote;
+  locationName: string;
   mayRetract: boolean;
   mayViewRestricted: boolean;
   onRetract: (reason: string) => void;
   onConfirm: () => void;
 }) {
+  const { record, currentUser } = useStore();
   const [retracting, setRetracting] = useState(false);
   const [reason, setReason] = useState('');
   // Access codes are masked by default. In a real deployment this is where a
@@ -219,7 +223,17 @@ function NoteCard({
           ) : mayViewRestricted ? (
             <button
               type="button"
-              onClick={() => setRevealed(true)}
+              onClick={() => {
+                setRevealed(true);
+                // Reading a gate code is an access event in its own right.
+                record({
+                  actorId: currentUser.id,
+                  actorName: currentUser.name,
+                  action: 'note.restrictedViewed',
+                  target: locationName,
+                  detail: NOTE_KIND_LABEL[note.kind],
+                });
+              }}
               className="mt-1.5 flex items-center gap-1.5 rounded-md border border-dashed border-line-strong px-2.5 py-1.5 text-[12.5px] text-muted transition hover:border-accent hover:text-accent"
             >
               <Eye size={13} aria-hidden />

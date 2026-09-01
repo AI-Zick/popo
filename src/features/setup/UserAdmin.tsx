@@ -30,6 +30,7 @@ export function UserAdmin() {
   const { users, currentUser, createAccount, deactivateUser, reactivateUser } = useStore();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [issued, setIssued] = useState<{ name: string; password: string } | null>(null);
 
   const active = users.filter((u) => u.active);
   const inactive = users.filter((u) => !u.active);
@@ -48,11 +49,15 @@ export function UserAdmin() {
       {adding && (
         <NewAccountForm
           onCancel={() => setAdding(false)}
-          onCreate={(input) => {
-            const result = createAccount(input);
+          onCreate={async (input) => {
+            const result = await createAccount(input);
             if (result.ok) {
               setAdding(false);
               setError(null);
+              setIssued({
+                name: input.name?.trim() ?? 'the new account',
+                password: result.temporaryPassword ?? '',
+              });
             } else {
               setError(result.reason ?? 'Could not create the account.');
             }
@@ -62,6 +67,24 @@ export function UserAdmin() {
 
       {error && (
         <p className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</p>
+      )}
+
+      {issued && (
+        <div className="mb-4 rounded-xl border border-ok/35 bg-ok-soft p-4">
+          <p className="text-[13px] font-medium text-ink">
+            Account created for {issued.name}
+          </p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+            Give them this temporary password. It is shown once and never stored in readable form,
+            and they must change it the first time they sign in.
+          </p>
+          <p className="mt-2 rounded-lg bg-surface px-3 py-2 font-mono text-[15px] tracking-wide text-ink">
+            {issued.password}
+          </p>
+          <Button size="sm" className="mt-3" onClick={() => setIssued(null)}>
+            I have passed it on
+          </Button>
+        </div>
       )}
 
       <ul className="divide-y divide-line">
@@ -185,7 +208,7 @@ function NewAccountForm({
   onCreate,
   onCancel,
 }: {
-  onCreate: (input: Partial<User>) => void;
+  onCreate: (input: Partial<User>) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const { currentUser } = useStore();
@@ -301,8 +324,8 @@ function NewAccountForm({
         <Button
           size="sm"
           variant="primary"
-          disabled={!draft.name.trim()}
-          onClick={() => onCreate(draft)}
+          disabled={!draft.name.trim() || !draft.username.trim()}
+          onClick={() => void onCreate(draft)}
         >
           Create account
         </Button>

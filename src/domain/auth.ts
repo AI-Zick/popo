@@ -51,7 +51,14 @@ export type Permission =
   /** Create and manage accounts for this agency. */
   | 'users.manage'
   /** Stand up a new customer agency and its first administrator. */
-  | 'agency.provision';
+  | 'agency.provision'
+  /**
+   * Read the audit log. Deliberately separate from account management — the
+   * people who review access are not always the people who grant it, and an
+   * internal affairs or records reviewer needs this without the ability to
+   * hand out permissions.
+   */
+  | 'audit.view';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -62,12 +69,20 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'reports.approve': 'Approve reports',
   'users.manage': 'Create and manage accounts',
   'agency.provision': 'Provision new agencies',
+  'audit.view': 'Read the audit log',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   officer: ['notes.add', 'notes.viewRestricted'],
-  supervisor: ['notes.add', 'notes.viewRestricted', 'notes.retract', 'notes.viewRetracted', 'reports.approve'],
-  records: ['notes.add', 'notes.viewRestricted', 'notes.retract', 'notes.viewRetracted'],
+  supervisor: [
+    'notes.add',
+    'notes.viewRestricted',
+    'notes.retract',
+    'notes.viewRetracted',
+    'reports.approve',
+    'audit.view',
+  ],
+  records: ['notes.add', 'notes.viewRestricted', 'notes.retract', 'notes.viewRetracted', 'audit.view'],
   admin: [
     'notes.add',
     'notes.viewRestricted',
@@ -76,6 +91,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'agency.configure',
     'reports.approve',
     'users.manage',
+    'audit.view',
   ],
   vendor: [
     'notes.add',
@@ -86,6 +102,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'reports.approve',
     'users.manage',
     'agency.provision',
+    'audit.view',
   ],
 };
 

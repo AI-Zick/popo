@@ -122,6 +122,13 @@ import {
   createCharge,
 } from '@/domain/factory';
 
+/**
+ * The shared password for the demo accounts. Obviously not a pattern for a real
+ * deployment — it exists so the sign-in screen can be tried without a server to
+ * issue credentials from.
+ */
+export const DEMO_PASSWORD = 'cedar-falls-2026';
+
 const PEOPLE: PersonIndex = {};
 const LOCATIONS: LocationIndex = {};
 
@@ -169,6 +176,8 @@ export function seedState(): {
   locations: LocationIndex;
   agency: AgencyProfile;
   users: User[];
+  credentials: Record<string, never>;
+  auditLog: never[];
 } {
   /* ---- Places the agency knows -------------------------------------- */
 
@@ -448,5 +457,9 @@ export function seedState(): {
     locations: LOCATIONS,
     agency: AGENCY,
     users: USERS,
+    // Password hashing is async, so demo credentials are provisioned by a
+    // bootstrap effect in the store rather than here.
+    credentials: {},
+    auditLog: [],
   };
 }

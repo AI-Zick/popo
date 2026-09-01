@@ -7,6 +7,7 @@ import { STATES } from '@/domain/codes';
 import { Button, FieldGrid, Panel } from '@/components/ui/primitives';
 import { ZoneMap } from '@/components/location/ZoneMap';
 import { UserAdmin } from './UserAdmin';
+import { AuditLog } from './AuditLog';
 import { cn } from '@/lib/cn';
 
 /**
@@ -14,14 +15,17 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab = 'jurisdiction' | 'accounts';
+type Tab = 'jurisdiction' | 'accounts' | 'audit';
 
 export function AgencySetup({ onClose }: { onClose: () => void }) {
   const { agency, updateAgency, can } = useStore();
 
   const mayConfigure = can('agency.configure');
   const mayManageUsers = can('users.manage');
-  const [tab, setTab] = useState<Tab>(mayConfigure ? 'jurisdiction' : 'accounts');
+  const mayViewAudit = can('audit.view');
+  const [tab, setTab] = useState<Tab>(
+    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : 'audit',
+  );
 
   const control =
     'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint';
@@ -46,12 +50,18 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Accounts
             </TabButton>
           )}
+          {mayViewAudit && (
+            <TabButton active={tab === 'audit'} onClick={() => setTab('audit')}>
+              Audit log
+            </TabButton>
+          )}
         </nav>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
+          {tab === 'audit' && mayViewAudit && <AuditLog />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>

@@ -58,6 +58,7 @@ describe('edge cases', () => {
 
   it('lists the permissions actually held', () => {
     expect(effectivePermissions(officer)).toEqual(['notes.add', 'notes.viewRestricted']);
+    expect(effectivePermissions(officer)).not.toContain('audit.view');
     expect(effectivePermissions(admin)).toContain('agency.configure');
   });
 });
@@ -77,6 +78,23 @@ import {
 } from '../auth';
 
 const vendor = createUser({ id: 'v1', name: 'Platform', role: 'vendor' });
+
+describe('reading the audit log', () => {
+  it('is separate from account management', () => {
+    const reviewer = createUser({ id: 'r2', name: 'Records', role: 'records' });
+    expect(can(reviewer, 'audit.view')).toBe(true);
+    expect(can(reviewer, 'users.manage')).toBe(false);
+  });
+
+  it('is not open to patrol officers by default', () => {
+    expect(can(officer, 'audit.view')).toBe(false);
+  });
+
+  it('can be designated to a named officer', () => {
+    const designated: User = { ...officer, grants: ['audit.view'] };
+    expect(can(designated, 'audit.view')).toBe(true);
+  });
+});
 
 describe('who may set up accounts', () => {
   it('agency administrators may', () => {
