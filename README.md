@@ -125,6 +125,35 @@ addresses and the gate code ends up on whichever one you did not open.
 Access notes are masked until deliberately revealed, and notes older than a year
 are flagged for re-check — a gate code from 2019 is worse than no gate code.
 
+### Jurisdiction and coordinates
+
+Setup takes the agency's name, ORI and jurisdiction, plus two boundary layers as
+GeoJSON: the outer city or county limit, and the patrol areas within it. Both
+already exist — county GIS, the CAD vendor or the 911 addressing authority has
+them, because dispatch draws its map from the same files.
+
+Loading them buys three things:
+
+- **New locations default to the jurisdiction**, so nobody types the same town
+  four hundred times a year.
+- **The patrol area is derived, not recalled.** Drop a pin and the beat fills
+  itself by point-in-polygon. It is stored on the shared location record, so
+  it is answered once for every future report at that address.
+- **Calls outside the boundary are flagged** — fine for mutual aid, worth
+  catching when it is a typo.
+
+The map is drawn from the agency's own polygons as inline SVG. No tile server,
+no API key, no basemap request: crime-scene coordinates are not sent to a third
+party on every keystroke. Agencies say what they call their patrol areas — beat,
+zone, district, sector — and the app uses that word throughout.
+
+There is deliberately **no automatic address-to-coordinate geocoding**. Sending
+every incident address to a commercial geocoder is a data-sharing decision an
+agency should make consciously, and most already hold authoritative address
+points from their 911/NG911 addressing authority that are better than anything a
+public geocoder returns. Coordinates come from dropping a pin, and the seam for
+a local geocoder is a single call site.
+
 ### Provenance
 
 Identity fields record where their value came from and whether an officer
@@ -190,8 +219,8 @@ attached to.
 This is one module, not a system. Absent: a real backend and database, auth and
 role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
-CAD integration, and the actual NIBRS export. Geocoding is absent, so locations
-match on text alone rather than on proximity. Merging two identities that are
+CAD integration, and the actual NIBRS export. Address matching is textual —
+coordinates are recorded but not yet used to rank candidates by proximity. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

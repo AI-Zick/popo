@@ -2,6 +2,7 @@ import { blank, path, type Issue, type Rule } from '../engine';
 import { parseLocal } from '@/lib/format';
 import { attachNewPerson } from '@/domain/factory';
 import { DOMESTIC_RELATIONSHIPS } from '@/domain/codes';
+import { featureAt } from '@/domain/geo';
 
 const required = (
   ruleId: string,
@@ -80,6 +81,39 @@ export const incidentRules: Rule[] = [
         title: 'This location has no premises type',
         message: 'Every location needs a coded premises type for the state submission.',
         tip: 'Pick the option that best describes the place — "Residence / Home" for a house or apartment, "Highway / Road / Alley / Street" for anything on a roadway.',
+      });
+    }
+
+    // Coordinates settle the patrol area, so their absence is worth a nudge
+    // once an agency has actually loaded its boundaries.
+    if (ctx.agency.zones && (location.latitude === null || location.longitude === null)) {
+      issues.push({
+        key: 'location.noPoint',
+        ruleId: 'location.noPoint',
+        severity: 'warning',
+        section: 'incident',
+        path: path.incident('locationId'),
+        scope: location.commonName || location.address,
+        title: 'This location is not on the map yet',
+        message: `No coordinates are set, so the ${ctx.agency.zoneLabel.toLowerCase()} cannot be worked out automatically.`,
+        tip: `Open the location and drop a pin. It fills the ${ctx.agency.zoneLabel.toLowerCase()} in for you and, because the record is shared, does it once for every future report at this address.`,
+      });
+    } else if (
+      ctx.agency.boundary &&
+      location.latitude !== null &&
+      location.longitude !== null &&
+      !featureAt(location.longitude, location.latitude, ctx.agency.boundary)
+    ) {
+      issues.push({
+        key: 'location.outside',
+        ruleId: 'location.outside',
+        severity: 'warning',
+        section: 'incident',
+        path: path.incident('locationId'),
+        scope: location.commonName || location.address,
+        title: 'This location is outside your jurisdiction',
+        message: `The pin for this address falls outside the ${ctx.agency.name || 'agency'} boundary.`,
+        tip: 'Fine if this was a mutual aid call or an arrest made elsewhere — say so in the narrative. If it was not, the pin or the address is wrong.',
       });
     }
 

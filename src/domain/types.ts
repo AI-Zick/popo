@@ -6,6 +6,7 @@
 
 import type { IncidentPerson } from './person';
 
+export type { AgencyProfile } from './agency';
 export type {
   LocationIndex,
   MasterLocation,

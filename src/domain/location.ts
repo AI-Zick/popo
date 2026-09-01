@@ -70,6 +70,17 @@ export interface MasterLocation {
   unitLabel: string;
 
   beat: string;
+
+  /**
+   * Where this is on the ground. Set by dropping a pin on the jurisdiction map
+   * or typed in; there is no automatic geocoding, deliberately — see the
+   * README on why an agency's own address points beat a third-party service.
+   */
+  latitude: number | null;
+  longitude: number | null;
+  /** How the coordinates were arrived at. */
+  geoSource: 'pin' | 'typed' | 'import' | '';
+
   notes: PremiseNote[];
 
   createdAt: string;
@@ -92,6 +103,9 @@ export function emptyLocation(id: UUID): MasterLocation {
     hasUnits: false,
     unitLabel: 'Unit',
     beat: '',
+    latitude: null,
+    longitude: null,
+    geoSource: '',
     notes: [],
     createdAt: now,
     updatedAt: now,
@@ -114,6 +128,14 @@ export function fullAddress(location: MasterLocation | undefined, unit = ''): st
     .filter((s) => s.trim())
     .join(', ');
   return [line, location.city, location.state].filter((s) => s && s.trim()).join(', ');
+}
+
+export function hasCoordinates(
+  location: MasterLocation | null | undefined,
+): location is MasterLocation & { latitude: number; longitude: number } {
+  return (
+    !!location && typeof location.latitude === 'number' && typeof location.longitude === 'number'
+  );
 }
 
 export function activeNotes(location: MasterLocation | undefined): PremiseNote[] {

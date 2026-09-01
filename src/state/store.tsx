@@ -30,6 +30,8 @@ import {
   newCaseNumber,
 } from '@/domain/factory';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
+import { emptyAgency, type AgencyProfile } from '@/domain/agency';
+import { featureAt, featureName } from '@/domain/geo';
 import {
   activeNotes,
   type LocationIndex,
@@ -62,6 +64,8 @@ interface StoreValue {
   people: PersonIndex;
   /** Every place the agency has been, with the notes left on it. */
   locations: LocationIndex;
+  /** Jurisdiction and boundary configuration, set once at install. */
+  agency: AgencyProfile;
   incident: Incident | null;
   /** Participants on the active incident, joined to their identities. */
   persons: Person[];
@@ -113,6 +117,13 @@ interface StoreValue {
   notesFor: (locationId: string) => PremiseNote[];
   /** Reports previously taken at a location, most recent first. */
   locationHistory: (locationId: string) => Incident[];
+  /** Sets a location's coordinates and re-derives its patrol area. */
+  setLocationPoint: (locationId: string, lon: number, lat: number, source?: 'pin' | 'typed') => void;
+  /** The patrol area a point falls in, or '' when outside every zone. */
+  zoneAt: (lon: number, lat: number) => string;
+  /** False when the point sits outside the configured jurisdiction. */
+  insideJurisdiction: (lon: number, lat: number) => boolean;
+  updateAgency: (patch: Partial<AgencyProfile>) => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -125,6 +136,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>(initial.incidents);
   const [people, setPeople] = useState<PersonIndex>(initial.people);
   const [locations, setLocations] = useState<LocationIndex>(initial.locations);
+  const [agency, setAgency] = useState<AgencyProfile>(initial.agency ?? emptyAgency());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeSection, setActiveSectionState] = useState<SectionId>('incident');
   const [visitedSections, setVisitedSections] = useState<Set<SectionId>>(() => new Set(['incident']));
@@ -154,15 +166,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const validation = useMemo(
-    () => (incident ? runRules(incident, ALL_RULES, { people, locations }) : EMPTY_VALIDATION),
-    [incident, people, locations],
+    () =>
+      incident ? runRules(incident, ALL_RULES, { people, locations, agency }) : EMPTY_VALIDATION,
+    [incident, people, locations, agency],
   );
 
   incidentRef.current = incident;
 
   useEffect(() => {
-    saveState({ incidents, people, locations });
-  }, [incidents, people, locations]);
+    saveState({ incidents, people, locations, agency });
+  }, [incidents, people, locations, agency]);
 
   /* -------------------------------------------------- field registry --- */
   const registerField = useCallback((path: string, el: HTMLElement | null) => {
@@ -526,11 +539,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setLocation(existing.location.id);
         return;
       }
-      const created = createLocation(draft);
+      const created = createLocation({
+        // Anything the form did not fill in falls back to the jurisdiction.
+        city: agency.city,
+        state: agency.state,
+        ...draft,
+      });
       setLocations((prev) => ({ ...prev, [created.id]: created }));
       setLocation(created.id);
     },
-    [locations, setLocation],
+    [locations, setLocation, agency.city, agency.state],
   );
 
   const updateLocation = useCallback((locationId: string, patch: Partial<MasterLocation>) => {
@@ -622,6 +640,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incidents],
   );
 
+  const zoneAt = useCallback(
+    (lon: number, lat: number) => featureName(featureAt(lon, lat, agency.zones)),
+    [agency.zones],
+  );
+
+  const insideJurisdiction = useCallback(
+    (lon: number, lat: number) => {
+      // With no boundary loaded there is nothing to be outside of.
+      if (!agency.boundary) return true;
+      return featureAt(lon, lat, agency.boundary) !== null;
+    },
+    [agency.boundary],
+  );
+
+  /**
+   * Dropping a pin also settles the patrol area. Deriving it from the boundary
+   * file is the whole point of loading one — a beat typed from memory is the
+   * field that most often comes back wrong.
+   */
+  const setLocationPoint = useCallback(
+    (locationId: string, lon: number, lat: number, source: 'pin' | 'typed' = 'pin') => {
+      const derived = featureName(featureAt(lon, lat, agency.zones));
+      setLocations((prev) => {
+        const current = prev[locationId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [locationId]: {
+            ...current,
+            latitude: lat,
+            longitude: lon,
+            geoSource: source,
+            // Never silently overwrite a beat someone set by hand.
+            beat: derived || current.beat,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      });
+      setSavedAt(new Date().toISOString());
+    },
+    [agency.zones],
+  );
+
+  const updateAgency = useCallback((patch: Partial<AgencyProfile>) => {
+    setAgency((prev) => ({ ...prev, ...patch }));
+    setSavedAt(new Date().toISOString());
+  }, []);
+
   /* -------------------------------------------------- lifecycle -------- */
   const resetEditorState = useCallback(() => {
     setActiveSectionState('incident');
@@ -680,6 +746,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     incidents,
     people,
     locations,
+    agency,
     incident,
     persons,
     location,
@@ -722,6 +789,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     locationMatches,
     notesFor,
     locationHistory,
+    setLocationPoint,
+    zoneAt,
+    insideJurisdiction,
+    updateAgency,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

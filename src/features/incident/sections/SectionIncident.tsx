@@ -6,6 +6,7 @@ import { SelectField, TextField, ToggleField } from '@/components/ui/fields';
 import { CLEARANCE_OPTIONS, EXCEPTIONAL_CLEARANCE_REASONS } from '@/domain/codes';
 import { LocationField } from '@/components/location/LocationField';
 import { PremiseNotes } from '@/components/location/PremiseNotes';
+import { LocationPin } from '@/components/location/LocationPin';
 
 export function SectionIncident() {
   const { incident, location, update } = useStore();
@@ -90,7 +91,8 @@ export function SectionIncident() {
         )}
 
         {location && (
-          <div className="mt-4">
+          <div className="mt-4 space-y-4">
+            <LocationPin location={location} />
             <PremiseNotes location={location} />
           </div>
         )}

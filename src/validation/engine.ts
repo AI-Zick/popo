@@ -1,6 +1,7 @@
 import type { Incident, Offense, PropertyItem, SectionId, Vehicle } from '@/domain/types';
 import { displayName, resolvePeople, type Person, type PersonIndex } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
+import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { OFFENSE_BY_CODE, type OffenseCode } from '@/domain/codes';
 
 export type Severity = 'error' | 'warning';
@@ -46,6 +47,8 @@ export interface RuleContext {
   persons: Person[];
   /** The place this incident happened, from the location index. */
   location: MasterLocation | null;
+  /** Jurisdiction configuration, for boundary and default checks. */
+  agency: AgencyProfile;
   /** Offense definitions resolved from the codes table, in report order. */
   offenses: { offense: Offense; def: OffenseCode | undefined; index: number }[];
   victims: Person[];
@@ -95,11 +98,13 @@ export const personDisplayName = displayName;
 export interface RuleData {
   people?: PersonIndex;
   locations?: LocationIndex;
+  agency?: AgencyProfile;
 }
 
 export function buildContext(incident: Incident, data: RuleData = {}): RuleContext {
   const persons = resolvePeople(incident.persons, data.people ?? {});
   const location = (incident.locationId && data.locations?.[incident.locationId]) || null;
+  const agency = data.agency ?? emptyAgency();
   const offenses = incident.offenses.map((offense, index) => ({
     offense,
     def: OFFENSE_BY_CODE.get(offense.code),
@@ -119,6 +124,7 @@ export function buildContext(incident: Incident, data: RuleData = {}): RuleConte
     incident,
     persons,
     location,
+    agency,
     offenses,
     victims: byRole('victim'),
     suspects,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, FilePlus2, Search, Shield } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FilePlus2, Search, Settings, Shield } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -18,8 +18,8 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
   returned: { label: 'Returned', tone: 'warn' },
 };
 
-export function Dashboard() {
-  const { incidents, people, locations, openIncident, createNew } = useStore();
+export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
+  const { incidents, people, locations, agency, openIncident, createNew } = useStore();
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -59,7 +59,9 @@ export function Dashboard() {
           </span>
           <div>
             <h1 className="text-[15px] font-semibold tracking-tight text-ink">Aegis RMS</h1>
-            <p className="text-[11.5px] text-faint">Cedar Falls Police Department</p>
+            <p className="text-[11.5px] text-faint">
+              {agency.name || 'Agency not configured'}
+            </p>
           </div>
         </div>
 
@@ -74,6 +76,15 @@ export function Dashboard() {
             className="w-full rounded-lg border border-line bg-canvas py-2 pl-9 pr-3 text-[13.5px] text-ink placeholder:text-faint"
           />
         </div>
+
+        <button
+          type="button"
+          onClick={onOpenSetup}
+          aria-label="Agency setup"
+          className="flex size-9 items-center justify-center rounded-lg border border-line text-muted transition hover:bg-raised hover:text-ink"
+        >
+          <Settings size={16} aria-hidden />
+        </button>
 
         <ThemeToggle />
 

@@ -1,6 +1,65 @@
 import type { Incident } from '@/domain/types';
 import type { IncidentPerson, MasterPerson, PersonIndex, PersonRole } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
+import type { AgencyProfile } from '@/domain/agency';
+import type { GeoFeatureCollection } from '@/domain/geo';
+
+/**
+ * A stand-in jurisdiction. A real department loads its own boundary file from
+ * county GIS or its CAD vendor; this exists so the map has something to draw.
+ */
+const WEST = -86.53;
+const EAST = -86.45;
+const SOUTH = 33.55;
+const NORTH = 33.63;
+const MID_LON = (WEST + EAST) / 2;
+const MID_LAT = (SOUTH + NORTH) / 2;
+
+const box = (w: number, s: number, e: number, n: number): [number, number][] => [
+  [w, s],
+  [e, s],
+  [e, n],
+  [w, n],
+  [w, s],
+];
+
+const BOUNDARY: GeoFeatureCollection = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      properties: { name: 'Cedar Falls city limits' },
+      geometry: { type: 'Polygon', coordinates: [box(WEST, SOUTH, EAST, NORTH)] },
+    },
+  ],
+};
+
+const ZONES: GeoFeatureCollection = {
+  type: 'FeatureCollection',
+  features: [
+    { beat: '1A', ring: box(WEST, MID_LAT, MID_LON, NORTH) },
+    { beat: '2C', ring: box(MID_LON, MID_LAT, EAST, NORTH) },
+    { beat: '3B', ring: box(WEST, SOUTH, MID_LON, MID_LAT) },
+    { beat: '4D', ring: box(MID_LON, SOUTH, EAST, MID_LAT) },
+  ].map(({ beat, ring }) => ({
+    type: 'Feature' as const,
+    properties: { beat },
+    geometry: { type: 'Polygon' as const, coordinates: [ring] },
+  })),
+};
+
+const AGENCY: AgencyProfile = {
+  name: 'Cedar Falls Police Department',
+  ori: 'AL0010200',
+  city: 'Cedar Falls',
+  county: 'St. Clair',
+  state: 'AL',
+  zip: '35004',
+  zoneLabel: 'Beat',
+  boundary: BOUNDARY,
+  zones: ZONES,
+  configured: true,
+};
 import {
   createLocation,
   createNote,
@@ -58,6 +117,7 @@ export function seedState(): {
   incidents: Incident[];
   people: PersonIndex;
   locations: LocationIndex;
+  agency: AgencyProfile;
 } {
   /* ---- Places the agency knows -------------------------------------- */
 
@@ -68,6 +128,9 @@ export function seedState(): {
     zip: '35004',
     locationType: '20',
     beat: '3B',
+    latitude: 33.5715,
+    longitude: -86.5102,
+    geoSource: 'pin',
   });
 
   // The case this whole feature exists for: one facility, many units, and the
@@ -81,6 +144,9 @@ export function seedState(): {
     zip: '35004',
     locationType: '25',
     beat: '1A',
+    latitude: 33.6104,
+    longitude: -86.5148,
+    geoSource: 'pin',
     hasUnits: true,
     unitLabel: 'Unit',
     notes: [
@@ -110,6 +176,9 @@ export function seedState(): {
     zip: '35004',
     locationType: '13',
     beat: '2C',
+    latitude: 33.6008,
+    longitude: -86.4703,
+    geoSource: 'pin',
   });
 
   /* ---- 1. A complete, submitted residential burglary ------------------ */
@@ -322,5 +391,10 @@ export function seedState(): {
   const priorSuspect = samePerson(arrestee, 'suspect', { offenseIds: [] });
   incomplete.persons.push(priorSuspect);
 
-  return { incidents: [incomplete, complete, approved], people: PEOPLE, locations: LOCATIONS };
+  return {
+    incidents: [incomplete, complete, approved],
+    people: PEOPLE,
+    locations: LOCATIONS,
+    agency: AGENCY,
+  };
 }
