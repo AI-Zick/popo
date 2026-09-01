@@ -1,6 +1,9 @@
 import type { Incident } from '@/domain/types';
 import type { IncidentPerson, MasterPerson, PersonIndex, PersonRole } from '@/domain/person';
+import type { LocationIndex, MasterLocation } from '@/domain/location';
 import {
+  createLocation,
+  createNote,
   createIncident,
   createIncidentPerson,
   createMasterPerson,
@@ -11,6 +14,13 @@ import {
 } from '@/domain/factory';
 
 const PEOPLE: PersonIndex = {};
+const LOCATIONS: LocationIndex = {};
+
+function place(partial: Partial<MasterLocation>): MasterLocation {
+  const location = createLocation(partial);
+  LOCATIONS[location.id] = location;
+  return location;
+}
 
 /** Registers a master identity and returns the incident link for it. */
 function person(
@@ -44,7 +54,64 @@ function isoDaysAgo(days: number, hour = 14, minute = 30): string {
  * Demo data. The second report is deliberately incomplete — it is the fastest
  * way to see how the validation surface behaves on a real, half-written case.
  */
-export function seedState(): { incidents: Incident[]; people: PersonIndex } {
+export function seedState(): {
+  incidents: Incident[];
+  people: PersonIndex;
+  locations: LocationIndex;
+} {
+  /* ---- Places the agency knows -------------------------------------- */
+
+  const ashwood = place({
+    address: '1142 Ashwood Ln',
+    city: 'Cedar Falls',
+    state: 'AL',
+    zip: '35004',
+    locationType: '20',
+    beat: '3B',
+  });
+
+  // The case this whole feature exists for: one facility, many units, and the
+  // gate code written down where the next officer will find it.
+  const storage = place({
+    commonName: 'Marion Street Self Storage',
+    aliases: ['Marion Storage', 'the storage place on Marion'],
+    address: '612 N Marion St',
+    city: 'Cedar Falls',
+    state: 'AL',
+    zip: '35004',
+    locationType: '25',
+    beat: '1A',
+    hasUnits: true,
+    unitLabel: 'Unit',
+    notes: [
+      createNote({
+        kind: 'access',
+        text: 'Police gate code 4417# on the keypad at the Marion St entrance. Rear gate on Depot is chained after 1800 — do not try it.',
+        author: 'Sgt. A. Boone',
+        sensitive: true,
+      }),
+      createNote({
+        kind: 'contact',
+        text: 'Manager Renee Ortiz, (205) 555-0121. Will come out after hours for a burglary. Office hours 0900-1700 Mon-Sat.',
+        author: 'M. Reyes',
+      }),
+      createNote({
+        kind: 'hazard',
+        text: 'Cameras cover the drive lanes only, not inside the buildings. Aisle lighting between buildings C and D has been out since spring.',
+        author: 'M. Reyes',
+      }),
+    ],
+  });
+
+  const highway = place({
+    address: 'US-411 at Watson Rd',
+    city: 'Cedar Falls',
+    state: 'AL',
+    zip: '35004',
+    locationType: '13',
+    beat: '2C',
+  });
+
   /* ---- 1. A complete, submitted residential burglary ------------------ */
   const burglary = createOffense({
     code: '220',
@@ -91,12 +158,7 @@ export function seedState(): { incidents: Incident[]; people: PersonIndex } {
     occurredFrom: isoDaysAgo(3, 22, 0),
     occurredTo: isoDaysAgo(2, 7, 45),
     occurredIsRange: true,
-    address: '1142 Ashwood Ln',
-    city: 'Cedar Falls',
-    state: 'AL',
-    zip: '35004',
-    beat: '3B',
-    locationType: '20',
+    locationId: ashwood.id,
     reportingOfficer: 'M. Reyes',
     reportingBadge: '4417',
     unit: 'Patrol 12',
@@ -148,12 +210,8 @@ export function seedState(): { incidents: Incident[]; people: PersonIndex } {
     reportedAt: isoDaysAgo(0, 9, 5),
     occurredFrom: '',
     occurredIsRange: false,
-    address: '600 block N Marion St',
-    city: 'Cedar Falls',
-    state: 'AL',
-    zip: '35004',
-    beat: '1A',
-    locationType: '18',
+    locationId: storage.id,
+    locationUnit: '',
     reportingOfficer: 'M. Reyes',
     reportingBadge: '4417',
     unit: 'Patrol 12',
@@ -229,12 +287,7 @@ export function seedState(): { incidents: Incident[]; people: PersonIndex } {
     status: 'approved',
     reportedAt: isoDaysAgo(6, 23, 40),
     occurredFrom: isoDaysAgo(6, 23, 35),
-    address: 'US-411 at Watson Rd',
-    city: 'Cedar Falls',
-    state: 'AL',
-    zip: '35004',
-    beat: '2C',
-    locationType: '13',
+    locationId: highway.id,
     reportingOfficer: 'M. Reyes',
     reportingBadge: '4417',
     unit: 'Patrol 12',
@@ -269,5 +322,5 @@ export function seedState(): { incidents: Incident[]; people: PersonIndex } {
   const priorSuspect = samePerson(arrestee, 'suspect', { offenseIds: [] });
   incomplete.persons.push(priorSuspect);
 
-  return { incidents: [incomplete, complete, approved], people: PEOPLE };
+  return { incidents: [incomplete, complete, approved], people: PEOPLE, locations: LOCATIONS };
 }

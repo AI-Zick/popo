@@ -42,14 +42,63 @@ export const incidentRules: Rule[] = [
     'If the victim can only narrow it to a window ("sometime overnight"), turn on “Occurred over a date range” and enter the earliest and latest possible times instead of guessing a single one.',
   ),
   required(
-    'incident.address',
-    'address',
-    'Incident address is required',
-    'The location of the incident is blank.',
-    'Use the street address where the offense happened, not the address where you took the report. For a highway stop, use the nearest block or mile marker.',
+    'incident.locationId',
+    'locationId',
+    'Incident location is required',
+    'No location is set on this report.',
+    'Start typing the address or what the place is called — "612 marion" or "marion storage". If the agency has been there before it will come up, along with any notes left on it. Otherwise you can add it as a new location.',
   ),
-  required('incident.city', 'city', 'City is required', 'The incident city is blank.', 'Enter the municipality the address falls in, even if the property sits outside city limits.'),
-  required('incident.locationType', 'locationType', 'Location type is required', 'The state submission needs a coded location type.', 'Pick the option that best describes the premises — "Residence / Home" for a house or apartment, "Highway / Road / Alley / Street" for anything on a roadway.'),
+
+  // ---- The linked location record itself ------------------------------
+  (ctx) => {
+    const issues: Issue[] = [];
+    const { location } = ctx;
+    if (!location) return issues;
+
+    if (blank(location.city)) {
+      issues.push({
+        key: 'location.city',
+        ruleId: 'location.city',
+        severity: 'error',
+        section: 'incident',
+        path: path.incident('locationId'),
+        scope: location.address || location.commonName,
+        title: 'This location has no city',
+        message: 'The location record is missing its city, which the state submission requires.',
+        tip: 'Open the location and add it. Because the record is shared, fixing it here fixes it for every other report at this address.',
+      });
+    }
+
+    if (blank(location.locationType)) {
+      issues.push({
+        key: 'location.type',
+        ruleId: 'location.type',
+        severity: 'error',
+        section: 'incident',
+        path: path.incident('locationId'),
+        scope: location.address || location.commonName,
+        title: 'This location has no premises type',
+        message: 'Every location needs a coded premises type for the state submission.',
+        tip: 'Pick the option that best describes the place — "Residence / Home" for a house or apartment, "Highway / Road / Alley / Street" for anything on a roadway.',
+      });
+    }
+
+    if (location.hasUnits && blank(ctx.incident.locationUnit)) {
+      issues.push({
+        key: 'location.unit',
+        ruleId: 'location.unit',
+        severity: 'error',
+        section: 'incident',
+        path: path.incident('locationUnit'),
+        scope: location.commonName || location.address,
+        title: `Which ${location.unitLabel.toLowerCase()} was it?`,
+        message: `${location.commonName || location.address} has multiple ${location.unitLabel.toLowerCase()}s and this report does not say which one.`,
+        tip: `The address alone will not identify the scene here. Put the ${location.unitLabel.toLowerCase()} number in — it is what a follow-up officer or an insurance adjuster works from.`,
+      });
+    }
+
+    return issues;
+  },
   required('incident.reportingOfficer', 'reportingOfficer', 'Reporting officer is required', 'No reporting officer is on this report.', 'Enter the officer who is authoring the report. If another unit took the initial call, list them as a supplement instead.'),
 
   // ---- Date sanity ------------------------------------------------------

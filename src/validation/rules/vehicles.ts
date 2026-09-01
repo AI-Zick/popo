@@ -32,6 +32,8 @@ export const vehicleRules: Rule[] = [
   (ctx) => {
     const issues: Issue[] = [];
 
+    const stateCode = ctx.location?.state ?? '';
+
     ctx.vehicles.forEach((vehicle, index) => {
       const scope = `Vehicle ${index + 1}${vehicle.plate ? ` — ${vehicle.plate}` : ''}`;
       const at = (field: Parameters<typeof path.vehicle>[1]) => path.vehicle(vehicle.id, field);
@@ -90,12 +92,12 @@ export const vehicleRules: Rule[] = [
           title: 'Plate state is missing',
           message: 'A plate number without a state of issue is ambiguous.',
           tip: 'Plate numbers repeat across states. Without this, a records check can return the wrong vehicle.',
-          quickFix: ctx.incident.state
+          quickFix: ctx.location?.state
             ? {
-                label: `Set to ${ctx.incident.state}`,
+                label: `Set to ${ctx.location.state}`,
                 apply: (draft) => {
                   const target = draft.vehicles.find((v) => v.id === vehicle.id);
-                  if (target) target.plateState = draft.state;
+                  if (target) target.plateState = stateCode;
                 },
               }
             : undefined,

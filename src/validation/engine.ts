@@ -1,5 +1,6 @@
 import type { Incident, Offense, PropertyItem, SectionId, Vehicle } from '@/domain/types';
 import { displayName, resolvePeople, type Person, type PersonIndex } from '@/domain/person';
+import type { LocationIndex, MasterLocation } from '@/domain/location';
 import { OFFENSE_BY_CODE, type OffenseCode } from '@/domain/codes';
 
 export type Severity = 'error' | 'warning';
@@ -13,6 +14,8 @@ export interface QuickFix {
    * top of a section.
    */
   apply: (draft: Incident, people: PersonIndex) => string | void;
+  /** Some fixes only make sense once a location is chosen. */
+  requiresLocation?: boolean;
 }
 
 export interface Issue {
@@ -41,6 +44,8 @@ export interface RuleContext {
   incident: Incident;
   /** Every participant, joined to their master identity. */
   persons: Person[];
+  /** The place this incident happened, from the location index. */
+  location: MasterLocation | null;
   /** Offense definitions resolved from the codes table, in report order. */
   offenses: { offense: Offense; def: OffenseCode | undefined; index: number }[];
   victims: Person[];
@@ -87,8 +92,14 @@ export const blank = (v: string | undefined | null): boolean =>
 
 export const personDisplayName = displayName;
 
-export function buildContext(incident: Incident, people: PersonIndex): RuleContext {
-  const persons = resolvePeople(incident.persons, people);
+export interface RuleData {
+  people?: PersonIndex;
+  locations?: LocationIndex;
+}
+
+export function buildContext(incident: Incident, data: RuleData = {}): RuleContext {
+  const persons = resolvePeople(incident.persons, data.people ?? {});
+  const location = (incident.locationId && data.locations?.[incident.locationId]) || null;
   const offenses = incident.offenses.map((offense, index) => ({
     offense,
     def: OFFENSE_BY_CODE.get(offense.code),
@@ -107,6 +118,7 @@ export function buildContext(incident: Incident, people: PersonIndex): RuleConte
   return {
     incident,
     persons,
+    location,
     offenses,
     victims: byRole('victim'),
     suspects,
@@ -158,12 +170,8 @@ const ZERO_SECTIONS = (): Record<SectionId, number> => ({
 
 const SEVERITY_WEIGHT: Record<Severity, number> = { error: 0, warning: 1 };
 
-export function runRules(
-  incident: Incident,
-  rules: Rule[],
-  people: PersonIndex = {},
-): ValidationResult {
-  const ctx = buildContext(incident, people);
+export function runRules(incident: Incident, rules: Rule[], data: RuleData = {}): ValidationResult {
+  const ctx = buildContext(incident, data);
   const issues: Issue[] = [];
 
   for (const rule of rules) {

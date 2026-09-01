@@ -8,6 +8,7 @@ import { formatDateTime, relativeTime } from '@/lib/format';
 import { Badge, Button, EmptyState } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import type { Incident, ReportStatus } from '@/domain/types';
+import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
 
 const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' }> = {
@@ -18,7 +19,7 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
 };
 
 export function Dashboard() {
-  const { incidents, people, openIncident, createNew } = useStore();
+  const { incidents, people, locations, openIncident, createNew } = useStore();
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -32,7 +33,7 @@ export function Dashboard() {
         if (!q) return true;
         return (
           incident.caseNumber.toLowerCase().includes(q) ||
-          incident.address.toLowerCase().includes(q) ||
+          locationLabel(locations[incident.locationId]).toLowerCase().includes(q) ||
           incident.reportingOfficer.toLowerCase().includes(q) ||
           incident.offenses.some((o) => (OFFENSE_BY_CODE.get(o.code)?.label ?? '').toLowerCase().includes(q)) ||
           incident.persons.some((link) => {
@@ -44,7 +45,7 @@ export function Dashboard() {
           })
         );
       });
-  }, [incidents, people, query]);
+  }, [incidents, people, locations, query]);
 
   const openCount = incidents.filter((i) => i.status === 'draft' || i.status === 'returned').length;
   const blockedCount = rows.filter((r) => r.errors > 0 && r.incident.status === 'draft').length;
@@ -109,7 +110,12 @@ export function Dashboard() {
             <ul className="space-y-2">
               {rows.map(({ incident, errors }) => (
                 <li key={incident.id}>
-                  <ReportRow incident={incident} errors={errors} onOpen={() => openIncident(incident.id)} />
+                  <ReportRow
+                    incident={incident}
+                    location={locations[incident.locationId]}
+                    errors={errors}
+                    onOpen={() => openIncident(incident.id)}
+                  />
                 </li>
               ))}
             </ul>
@@ -138,10 +144,12 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'da
 
 function ReportRow({
   incident,
+  location,
   errors,
   onOpen,
 }: {
   incident: Incident;
+  location: MasterLocation | undefined;
   errors: number;
   onOpen: () => void;
 }) {
@@ -165,7 +173,7 @@ function ReportRow({
         </div>
         <p className="mt-1 truncate text-[13.5px] text-ink">{offenses || 'No offense listed'}</p>
         <p className="mt-0.5 truncate text-[12px] text-faint">
-          {[incident.address, incident.city].filter(Boolean).join(', ') || 'No location'} ·{' '}
+          {fullAddress(location, incident.locationUnit) || 'No location'} ·{' '}
           {formatDateTime(incident.reportedAt)} · {incident.reportingOfficer || 'Unassigned'}
         </p>
       </div>

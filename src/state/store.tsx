@@ -25,9 +25,24 @@ import {
   attachNewPerson,
   createIncident,
   createIncidentPerson,
+  createLocation,
+  createNote,
   newCaseNumber,
 } from '@/domain/factory';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
+import {
+  activeNotes,
+  type LocationIndex,
+  type MasterLocation,
+  type NoteKind,
+  type PremiseNote,
+} from '@/domain/location';
+import {
+  autoLinkLocation,
+  findLocations,
+  searchLocations as searchLocationIndex,
+  type LocationMatch,
+} from '@/domain/locationMatching';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { loadState, saveState } from './persistence';
@@ -45,9 +60,13 @@ interface StoreValue {
   incidents: Incident[];
   /** The Master Name Index — every person the agency knows about. */
   people: PersonIndex;
+  /** Every place the agency has been, with the notes left on it. */
+  locations: LocationIndex;
   incident: Incident | null;
   /** Participants on the active incident, joined to their identities. */
   persons: Person[];
+  /** The place the active incident happened. */
+  location: MasterLocation | null;
   validation: ValidationResult;
   activeSection: SectionId;
   visitedSections: Set<SectionId>;
@@ -81,6 +100,19 @@ interface StoreValue {
   searchPeople: (query: string, limit?: number) => MasterPerson[];
   /** Case numbers a person appears on, most recent first. */
   historyFor: (masterId: string) => { incident: Incident; role: PersonRole }[];
+
+  // Location index
+  setLocation: (locationId: string) => void;
+  createAndSetLocation: (draft: Partial<MasterLocation>) => void;
+  updateLocation: (locationId: string, patch: Partial<MasterLocation>) => void;
+  addNote: (locationId: string, note: { kind: NoteKind; text: string; sensitive: boolean }) => void;
+  updateNote: (locationId: string, noteId: string, patch: Partial<PremiseNote>) => void;
+  removeNote: (locationId: string, noteId: string) => void;
+  locationSearch: (query: string, limit?: number) => MasterLocation[];
+  locationMatches: (query: { address?: string; commonName?: string; city?: string }) => LocationMatch[];
+  notesFor: (locationId: string) => PremiseNote[];
+  /** Reports previously taken at a location, most recent first. */
+  locationHistory: (locationId: string) => Incident[];
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -92,6 +124,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const initial = useMemo(() => loadState(), []);
   const [incidents, setIncidents] = useState<Incident[]>(initial.incidents);
   const [people, setPeople] = useState<PersonIndex>(initial.people);
+  const [locations, setLocations] = useState<LocationIndex>(initial.locations);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeSection, setActiveSectionState] = useState<SectionId>('incident');
   const [visitedSections, setVisitedSections] = useState<Set<SectionId>>(() => new Set(['incident']));
@@ -101,6 +134,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [autoLink, setAutoLink] = useState<AutoLinkNotice | null>(null);
 
   const fields = useRef(new Map<string, HTMLElement>());
+  /** Kept in a ref so note authorship does not re-create the callback. */
+  const incidentRef = useRef<Incident | null>(null);
   const pendingFocus = useRef<string | null>(null);
 
   const incident = useMemo(
@@ -113,14 +148,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incident, people],
   );
 
-  const validation = useMemo(
-    () => (incident ? runRules(incident, ALL_RULES, people) : EMPTY_VALIDATION),
-    [incident, people],
+  const location = useMemo(
+    () => (incident?.locationId ? locations[incident.locationId] ?? null : null),
+    [incident, locations],
   );
 
+  const validation = useMemo(
+    () => (incident ? runRules(incident, ALL_RULES, { people, locations }) : EMPTY_VALIDATION),
+    [incident, people, locations],
+  );
+
+  incidentRef.current = incident;
+
   useEffect(() => {
-    saveState({ incidents, people });
-  }, [incidents, people]);
+    saveState({ incidents, people, locations });
+  }, [incidents, people, locations]);
 
   /* -------------------------------------------------- field registry --- */
   const registerField = useCallback((path: string, el: HTMLElement | null) => {
@@ -460,6 +502,126 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incidents],
   );
 
+  /* -------------------------------------------------- locations -------- */
+
+  const setLocation = useCallback(
+    (locationId: string) => {
+      update((draft) => {
+        draft.locationId = locationId;
+      });
+    },
+    [update],
+  );
+
+  /**
+   * Creates a place the index has not seen. An exact address already on file
+   * is reused instead — that is what keeps one storage facility to one record.
+   */
+  const createAndSetLocation = useCallback(
+    (draft: Partial<MasterLocation>) => {
+      const existing = autoLinkLocation(
+        findLocations({ address: draft.address, commonName: draft.commonName, city: draft.city }, locations),
+      );
+      if (existing) {
+        setLocation(existing.location.id);
+        return;
+      }
+      const created = createLocation(draft);
+      setLocations((prev) => ({ ...prev, [created.id]: created }));
+      setLocation(created.id);
+    },
+    [locations, setLocation],
+  );
+
+  const updateLocation = useCallback((locationId: string, patch: Partial<MasterLocation>) => {
+    setLocations((prev) => {
+      const current = prev[locationId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [locationId]: { ...current, ...patch, updatedAt: new Date().toISOString() },
+      };
+    });
+    setSavedAt(new Date().toISOString());
+  }, []);
+
+  const addNote = useCallback(
+    (locationId: string, note: { kind: NoteKind; text: string; sensitive: boolean }) => {
+      setLocations((prev) => {
+        const current = prev[locationId];
+        if (!current) return prev;
+        const entry = createNote({
+          ...note,
+          author: incidentRef.current?.reportingOfficer || 'Unknown officer',
+        });
+        return {
+          ...prev,
+          [locationId]: {
+            ...current,
+            notes: [...current.notes, entry],
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      });
+      setSavedAt(new Date().toISOString());
+    },
+    [],
+  );
+
+  const updateNote = useCallback(
+    (locationId: string, noteId: string, patch: Partial<PremiseNote>) => {
+      setLocations((prev) => {
+        const current = prev[locationId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [locationId]: {
+            ...current,
+            notes: current.notes.map((n) => (n.id === noteId ? { ...n, ...patch } : n)),
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      });
+      setSavedAt(new Date().toISOString());
+    },
+    [],
+  );
+
+  const removeNote = useCallback((locationId: string, noteId: string) => {
+    setLocations((prev) => {
+      const current = prev[locationId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [locationId]: { ...current, notes: current.notes.filter((n) => n.id !== noteId) },
+      };
+    });
+  }, []);
+
+  const locationSearch = useCallback(
+    (query: string, limit = 20) => searchLocationIndex(query, locations, limit),
+    [locations],
+  );
+
+  const locationMatches = useCallback(
+    (query: { address?: string; commonName?: string; city?: string }) =>
+      findLocations(query, locations, { limit: 5 }),
+    [locations],
+  );
+
+  const notesFor = useCallback(
+    (locationId: string) => activeNotes(locations[locationId]),
+    [locations],
+  );
+
+  const locationHistory = useCallback(
+    (locationId: string) =>
+      incidents
+        .filter((i) => i.locationId === locationId)
+        .sort((a, b) => b.reportedAt.localeCompare(a.reportedAt)),
+    [incidents],
+  );
+
   /* -------------------------------------------------- lifecycle -------- */
   const resetEditorState = useCallback(() => {
     setActiveSectionState('incident');
@@ -483,7 +645,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const createNew = useCallback(() => {
     const fresh = createIncident({
       caseNumber: newCaseNumber(incidents.length + 1),
-      state: 'AL',
       reportingOfficer: 'M. Reyes',
       reportingBadge: '4417',
       unit: 'Patrol 12',
@@ -518,8 +679,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value: StoreValue = {
     incidents,
     people,
+    locations,
     incident,
     persons,
+    location,
     validation,
     activeSection,
     visitedSections,
@@ -549,6 +712,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     matchesFor,
     searchPeople,
     historyFor,
+    setLocation,
+    createAndSetLocation,
+    updateLocation,
+    addNote,
+    updateNote,
+    removeNote,
+    locationSearch,
+    locationMatches,
+    notesFor,
+    locationHistory,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

@@ -1,5 +1,6 @@
 import { newId } from '@/lib/id';
 import type { Incident, Offense, PropertyItem, UUID, Vehicle } from './types';
+import { emptyLocation, type MasterLocation as MasterLocationType, type NoteKind, type PremiseNote } from './location';
 import {
   emptyMaster,
   type Charge,
@@ -115,6 +116,25 @@ export function createVehicle(partial: Partial<Vehicle> = {}): Vehicle {
   };
 }
 
+export function createLocation(partial: Partial<MasterLocationType> = {}): MasterLocationType {
+  const now = new Date().toISOString();
+  return { ...emptyLocation(newId('loc')), createdAt: now, updatedAt: now, ...partial };
+}
+
+export function createNote(partial: Partial<PremiseNote> = {}): PremiseNote {
+  const now = new Date().toISOString();
+  return {
+    id: newId('note'),
+    kind: 'general' as NoteKind,
+    text: '',
+    author: '',
+    createdAt: now,
+    reviewedAt: now,
+    sensitive: false,
+    ...partial,
+  };
+}
+
 export function createIncident(partial: Partial<Incident> = {}): Incident {
   const now = new Date().toISOString();
   return {
@@ -125,13 +145,8 @@ export function createIncident(partial: Partial<Incident> = {}): Incident {
     occurredFrom: '',
     occurredTo: '',
     occurredIsRange: false,
-    address: '',
-    apartment: '',
-    city: '',
-    state: '',
-    zip: '',
-    beat: '',
-    locationType: '',
+    locationId: '',
+    locationUnit: '',
     reportingOfficer: '',
     reportingBadge: '',
     unit: '',

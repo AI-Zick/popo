@@ -5,10 +5,12 @@ import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { currency, formatDateTime } from '@/lib/format';
 import { OFFENSE_BY_CODE } from '@/domain/codes';
 import { personDisplayName } from '@/validation/engine';
+import { fullAddress } from '@/domain/location';
 import { cn } from '@/lib/cn';
 
 export function SectionReview() {
-  const { incident, persons, validation, goToIssue, setSection, attemptSubmit } = useStore();
+  const { incident, persons, location, validation, goToIssue, setSection, attemptSubmit } =
+    useStore();
   if (!incident) return null;
 
   const { errors, warnings } = validation;
@@ -146,7 +148,7 @@ export function SectionReview() {
           />
           <Row
             label="Location"
-            value={[incident.address, incident.city, incident.state].filter(Boolean).join(', ') || '—'}
+            value={fullAddress(location ?? undefined, incident.locationUnit) || '—'}
           />
           <Row label="Reporting officer" value={incident.reportingOfficer || '—'} />
           <Row

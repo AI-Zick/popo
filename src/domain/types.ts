@@ -6,6 +6,13 @@
 
 import type { IncidentPerson } from './person';
 
+export type {
+  LocationIndex,
+  MasterLocation,
+  NoteKind,
+  PremiseNote,
+} from './location';
+
 export type UUID = string;
 
 export type SectionId =
@@ -164,14 +171,10 @@ export interface Incident {
   occurredTo: string;
   occurredIsRange: boolean;
 
-  // Where
-  address: string;
-  apartment: string;
-  city: string;
-  state: string;
-  zip: string;
-  beat: string;
-  locationType: string;
+  // Where — the place itself lives in the location index, shared with every
+  // other report at that address. Only the unit is specific to this incident.
+  locationId: UUID | '';
+  locationUnit: string;
 
   // Who took it
   reportingOfficer: string;

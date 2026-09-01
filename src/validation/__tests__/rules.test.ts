@@ -18,6 +18,25 @@ import {
   type PersonIndex,
   type PersonRole,
 } from '@/domain/person';
+import { createLocation } from '@/domain/factory';
+import type { LocationIndex } from '@/domain/location';
+
+/** Shared location index for the suite. */
+const LOCATIONS: LocationIndex = {};
+
+function mkLocation(partial = {}) {
+  const location = createLocation({
+    address: '100 Main St',
+    city: 'Cedar Falls',
+    state: 'AL',
+    locationType: '20',
+    ...partial,
+  });
+  LOCATIONS[location.id] = location;
+  return location;
+}
+
+const DEFAULT_LOCATION = mkLocation();
 
 /**
  * Shared Master Name Index for the suite. Record ids are unique per call, so
@@ -52,10 +71,7 @@ function baseIncident(partial: Partial<Incident> = {}): Incident {
     caseNumber: '2026-000001',
     reportedAt: '2026-01-10T09:00',
     occurredFrom: '2026-01-10T08:00',
-    address: '100 Main St',
-    city: 'Cedar Falls',
-    state: 'AL',
-    locationType: '20',
+    locationId: DEFAULT_LOCATION.id,
     reportingOfficer: 'M. Reyes',
     narrative:
       'On the above date I was dispatched to the location listed and made contact with the reporting party, who stated the following account of what occurred at the residence.',
@@ -64,7 +80,8 @@ function baseIncident(partial: Partial<Incident> = {}): Incident {
 }
 
 const ruleIds = (issues: Issue[]) => issues.map((i) => i.ruleId);
-const check = (incident: Incident) => runRules(incident, ALL_RULES, PEOPLE);
+const check = (incident: Incident) =>
+  runRules(incident, ALL_RULES, { people: PEOPLE, locations: LOCATIONS });
 
 describe('incident-level rules', () => {
   it('requires the core fields', () => {
@@ -72,9 +89,7 @@ describe('incident-level rules', () => {
     expect(ruleIds(result.errors)).toEqual(
       expect.arrayContaining([
         'incident.occurredFrom',
-        'incident.address',
-        'incident.city',
-        'incident.locationType',
+        'incident.locationId',
         'incident.reportingOfficer',
         'offenses.none',
         'narrative.empty',
@@ -222,7 +237,7 @@ describe('victim rules', () => {
     const draft = structuredClone(incident);
     const draftPeople = structuredClone(PEOPLE);
     issue!.quickFix!.apply(draft, draftPeople);
-    expect(ruleIds(runRules(draft, ALL_RULES, draftPeople).errors)).not.toContain(
+    expect(ruleIds(runRules(draft, ALL_RULES, { people: draftPeople, locations: LOCATIONS }).errors)).not.toContain(
       'person.relationship',
     );
   });
@@ -398,11 +413,45 @@ describe('quick fixes', () => {
       const draft = structuredClone(incident);
       const draftPeople = structuredClone(PEOPLE);
       issue.quickFix!.apply(draft, draftPeople);
-      const after = runRules(draft, ALL_RULES, draftPeople).issues.map((i) => i.key);
+      const after = runRules(draft, ALL_RULES, { people: draftPeople, locations: LOCATIONS }).issues.map((i) => i.key);
       expect(after, `quick fix "${issue.quickFix!.label}" did not clear ${issue.key}`).not.toContain(
         issue.key,
       );
     }
+  });
+});
+
+describe('location rules', () => {
+  it('requires a location', () => {
+    const result = check(createIncident());
+    expect(ruleIds(result.errors)).toContain('incident.locationId');
+  });
+
+  it('flags a location record missing its city or premises type', () => {
+    const sparse = mkLocation({ city: '', locationType: '' });
+    const result = check(baseIncident({ locationId: sparse.id }));
+    expect(ruleIds(result.errors)).toEqual(
+      expect.arrayContaining(['location.city', 'location.type']),
+    );
+  });
+
+  it('asks which unit when the location has many, and clears once given', () => {
+    const storage = mkLocation({
+      commonName: 'Marion Street Self Storage',
+      address: '612 N Marion St',
+      locationType: '25',
+      hasUnits: true,
+      unitLabel: 'Unit',
+    });
+    const missing = check(baseIncident({ locationId: storage.id }));
+    expect(ruleIds(missing.errors)).toContain('location.unit');
+
+    const given = check(baseIncident({ locationId: storage.id, locationUnit: 'C-14' }));
+    expect(ruleIds(given.errors)).not.toContain('location.unit');
+  });
+
+  it('does not ask for a unit at an ordinary address', () => {
+    expect(ruleIds(check(baseIncident()).errors)).not.toContain('location.unit');
   });
 });
 
@@ -418,6 +467,6 @@ describe('result shape', () => {
   it('groups issues by section and by field path', () => {
     const result = check(createIncident());
     expect(result.bySection.incident.length).toBeGreaterThan(0);
-    expect(result.byPath.get('incident.address')).toHaveLength(1);
+    expect(result.byPath.get('incident.locationId')).toHaveLength(1);
   });
 });

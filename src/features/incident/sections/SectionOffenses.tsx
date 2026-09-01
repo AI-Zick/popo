@@ -35,7 +35,7 @@ const OFFENSE_OPTIONS = OFFENSE_CODES.map((o) => ({
 }));
 
 export function SectionOffenses() {
-  const { incident, update } = useStore();
+  const { incident, location, update } = useStore();
   if (!incident) return null;
 
   const setOffense = (id: string, patch: Partial<Offense>) =>
@@ -46,7 +46,7 @@ export function SectionOffenses() {
 
   const addOffense = () =>
     update((d) => {
-      d.offenses.push(createOffense({ locationType: d.locationType }));
+      d.offenses.push(createOffense({ locationType: location?.locationType ?? '' }));
     });
 
   const removeOffense = (id: string) =>

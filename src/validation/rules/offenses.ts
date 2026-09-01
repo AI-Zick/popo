@@ -18,7 +18,7 @@ export const offenseRules: Rule[] = [
         quickFix: {
           label: 'Add an offense',
           apply: (draft) => {
-            const offense = createOffense({ locationType: draft.locationType });
+            const offense = createOffense({ locationType: ctx.location?.locationType ?? '' });
             draft.offenses.push(offense);
             return path.offense(offense.id, 'code');
           },
@@ -30,6 +30,8 @@ export const offenseRules: Rule[] = [
   // ---- Per-offense field requirements -----------------------------------
   (ctx) => {
     const issues: Issue[] = [];
+
+    const inherited = ctx.location?.locationType ?? '';
 
     for (const { offense, def, index } of ctx.offenses) {
       const scope = ctx.offenseLabel(offense, index);
@@ -76,12 +78,12 @@ export const offenseRules: Rule[] = [
           title: 'Offense location type is required',
           message: 'Each offense carries its own location code.',
           tip: 'Usually the same as the incident location. If this offense happened somewhere else — a theft at a store followed by an assault in the parking lot — code each one where it actually occurred.',
-          quickFix: ctx.incident.locationType
+          quickFix: ctx.location?.locationType
             ? {
                 label: 'Use the incident location type',
                 apply: (draft) => {
                   const target = draft.offenses.find((o) => o.id === offense.id);
-                  if (target) target.locationType = draft.locationType;
+                  if (target) target.locationType = inherited;
                 },
               }
             : undefined,

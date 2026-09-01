@@ -1,30 +1,41 @@
 import type { Incident } from '@/domain/types';
 import type { PersonIndex } from '@/domain/person';
+import type { LocationIndex } from '@/domain/location';
 import { seedState } from './seed';
 
 const INCIDENTS_KEY = 'aegis.incidents.v2';
 const PEOPLE_KEY = 'aegis.people.v2';
+const LOCATIONS_KEY = 'aegis.locations.v1';
 
 export interface PersistedState {
   incidents: Incident[];
   people: PersonIndex;
+  locations: LocationIndex;
 }
 
 export function loadState(): PersistedState {
   try {
     const rawIncidents = localStorage.getItem(INCIDENTS_KEY);
     const rawPeople = localStorage.getItem(PEOPLE_KEY);
-    if (!rawIncidents || !rawPeople) {
+    const rawLocations = localStorage.getItem(LOCATIONS_KEY);
+    if (!rawIncidents || !rawPeople || !rawLocations) {
       const seeded = seedState();
       saveState(seeded);
       return seeded;
     }
     const incidents = JSON.parse(rawIncidents);
     const people = JSON.parse(rawPeople);
-    if (!Array.isArray(incidents) || typeof people !== 'object' || people === null) {
+    const locations = JSON.parse(rawLocations);
+    if (
+      !Array.isArray(incidents) ||
+      typeof people !== 'object' ||
+      people === null ||
+      typeof locations !== 'object' ||
+      locations === null
+    ) {
       return seedState();
     }
-    return { incidents, people };
+    return { incidents, people, locations };
   } catch {
     // A corrupt or unavailable store must never take the app down.
     return seedState();
@@ -35,6 +46,7 @@ export function saveState(state: PersistedState): void {
   try {
     localStorage.setItem(INCIDENTS_KEY, JSON.stringify(state.incidents));
     localStorage.setItem(PEOPLE_KEY, JSON.stringify(state.people));
+    localStorage.setItem(LOCATIONS_KEY, JSON.stringify(state.locations));
   } catch {
     /* quota or private mode — the session still works, it just will not persist */
   }

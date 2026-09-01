@@ -100,6 +100,31 @@ impossible to unpick once reports and charges have accumulated against it:
 
 Name alone never links anything.
 
+### One place, one record
+
+Locations work the same way, for the same reason. Type an address the agency has
+been to and you get **one** option — with whatever officers and dispatch have
+left on it: the gate code, who to call after hours, which entrance actually
+opens, the dog in the back.
+
+Addresses differ from people in one useful way: they have a canonical form.
+`612 North Marion Street` and `612 N Marion St` are not merely *similar*, they
+are the same string once standardised — so matching normalises first and only
+falls back to fuzzy scoring for what normalisation cannot reach, like a misspelt
+street. An exact normalised address in the same city reuses the existing record
+without asking. Two houses on the same street never merge.
+
+Places are searchable by what officers actually call them (`marion storage`),
+not just by address.
+
+**A storage facility is one location, not four hundred.** Sites with numbered
+units — storage, apartment blocks, motels — are a single record, and the unit
+number lives on each incident. Otherwise the index fills with near-identical
+addresses and the gate code ends up on whichever one you did not open.
+
+Access notes are masked until deliberately revealed, and notes older than a year
+are flagged for re-check — a gate code from 2019 is worse than no gate code.
+
 ### Provenance
 
 Identity fields record where their value came from and whether an officer
@@ -112,8 +137,9 @@ as unconfirmed until someone verifies it against the person in front of them.
 ```
 src/
   domain/         Types and reference data. Offense codes carry the flags
-                  that drive conditional validation; `matching.ts` holds the
-                  identity-resolution scoring.
+                  that drive conditional validation; `matching.ts` and
+                  `locationMatching.ts` hold the resolution scoring for
+                  people and places.
   validation/
     engine.ts     Issue/Rule types, the runner, field-path helpers.
     rules/        Rules by area — incident, offenses, persons, property,
@@ -164,7 +190,8 @@ attached to.
 This is one module, not a system. Absent: a real backend and database, auth and
 role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
-CAD integration, and the actual NIBRS export. Merging two identities that are
+CAD integration, and the actual NIBRS export. Geocoding is absent, so locations
+match on text alone rather than on proximity. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

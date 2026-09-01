@@ -3,15 +3,12 @@ import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
 import { FieldGrid, Panel } from '@/components/ui/primitives';
 import { SelectField, TextField, ToggleField } from '@/components/ui/fields';
-import {
-  CLEARANCE_OPTIONS,
-  EXCEPTIONAL_CLEARANCE_REASONS,
-  LOCATION_TYPES,
-  STATES,
-} from '@/domain/codes';
+import { CLEARANCE_OPTIONS, EXCEPTIONAL_CLEARANCE_REASONS } from '@/domain/codes';
+import { LocationField } from '@/components/location/LocationField';
+import { PremiseNotes } from '@/components/location/PremiseNotes';
 
 export function SectionIncident() {
-  const { incident, update } = useStore();
+  const { incident, location, update } = useStore();
   if (!incident) return null;
 
   const set = <K extends keyof typeof incident>(key: K, value: (typeof incident)[K]) =>
@@ -73,64 +70,30 @@ export function SectionIncident() {
 
       <Panel
         title="Where it happened"
-        description="The location of the offense, not the location where the report was taken."
+        description="One record per place, shared by every report at that address — including whatever officers have left on it."
         aside={<MapPin size={17} className="text-faint" aria-hidden />}
       >
-        <div className="grid grid-cols-4 gap-4">
-          <TextField
-            className="col-span-3"
-            path={path.incident('address')}
-            label="Street address"
-            required
-            placeholder="1142 Ashwood Ln"
-            value={incident.address}
-            onChange={(v) => set('address', v)}
-          />
-          <TextField
-            path={path.incident('apartment')}
-            label="Apt / Unit"
-            value={incident.apartment}
-            onChange={(v) => set('apartment', v)}
-          />
-          <TextField
-            className="col-span-2"
-            path={path.incident('city')}
-            label="City"
-            required
-            value={incident.city}
-            onChange={(v) => set('city', v)}
-          />
-          <SelectField
-            path={path.incident('state')}
-            label="State"
-            options={STATES}
-            value={incident.state}
-            onChange={(v) => set('state', v)}
-          />
-          <TextField
-            path={path.incident('zip')}
-            label="ZIP"
-            maxLength={10}
-            value={incident.zip}
-            onChange={(v) => set('zip', v)}
-          />
-          <SelectField
-            className="col-span-3"
-            path={path.incident('locationType')}
-            label="Location type"
-            required
-            showCodes
-            options={LOCATION_TYPES}
-            value={incident.locationType}
-            onChange={(v) => set('locationType', v)}
-          />
-          <TextField
-            path={path.incident('beat')}
-            label="Beat / Zone"
-            value={incident.beat}
-            onChange={(v) => set('beat', v)}
-          />
-        </div>
+        <LocationField path={path.incident('locationId')} />
+
+        {location?.hasUnits && (
+          <div className="mt-4 max-w-xs">
+            <TextField
+              path={path.incident('locationUnit')}
+              label={`${location.unitLabel} number`}
+              required
+              placeholder="C-14"
+              hint={`${location.commonName || location.address} has multiple ${location.unitLabel.toLowerCase()}s.`}
+              value={incident.locationUnit}
+              onChange={(v) => set('locationUnit', v)}
+            />
+          </div>
+        )}
+
+        {location && (
+          <div className="mt-4">
+            <PremiseNotes location={location} />
+          </div>
+        )}
       </Panel>
 
       <Panel
