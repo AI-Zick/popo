@@ -1,19 +1,22 @@
 import { useState } from 'react';
 import {
   AlertTriangle,
+  Archive,
   Eye,
   EyeOff,
   KeyRound,
+  Lock,
   Phone,
   Plus,
+  RotateCcw,
   StickyNote,
-  Trash2,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
 import {
   isStale,
   NOTE_KIND_HINT,
   NOTE_KIND_LABEL,
+  retractedNotes,
   type MasterLocation,
   type NoteKind,
   type PremiseNote,
@@ -42,9 +45,14 @@ const KIND_TONE: Record<NoteKind, 'accent' | 'danger' | 'ok' | 'neutral'> = {
  * 0300 lives here rather than in a notebook that leaves with them.
  */
 export function PremiseNotes({ location }: { location: MasterLocation }) {
-  const { notesFor, removeNote, updateNote } = useStore();
+  const { notesFor, updateNote, retractNote, restoreNote, can } = useStore();
+  const mayViewRestricted = can('notes.viewRestricted');
   const [adding, setAdding] = useState(false);
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
   const notes = notesFor(location.id);
+
+  const mayRetract = can('notes.retract');
+  const withdrawn = can('notes.viewRetracted') ? retractedNotes(location) : [];
 
   return (
     <div className="rounded-xl border border-line bg-surface">
@@ -78,7 +86,9 @@ export function PremiseNotes({ location }: { location: MasterLocation }) {
               <li key={note.id}>
                 <NoteCard
                   note={note}
-                  onDelete={() => removeNote(location.id, note.id)}
+                  mayRetract={mayRetract}
+                  mayViewRestricted={mayViewRestricted}
+                  onRetract={(reason) => retractNote(location.id, note.id, reason)}
                   onConfirm={() =>
                     updateNote(location.id, note.id, { reviewedAt: new Date().toISOString() })
                   }
@@ -87,20 +97,92 @@ export function PremiseNotes({ location }: { location: MasterLocation }) {
             ))}
           </ul>
         )}
+
+        {!mayRetract && notes.length > 0 && (
+          <p className="mt-3 flex items-start gap-1.5 px-1 text-[11.5px] leading-relaxed text-faint">
+            <Lock size={12} className="mt-0.5 shrink-0" aria-hidden />
+            You can add notes here. Withdrawing one needs a supervisor, records, or an officer
+            designated for it — so what a previous shift worked out cannot quietly disappear.
+          </p>
+        )}
+
+        {withdrawn.length > 0 && (
+          <div className="mt-3 border-t border-line pt-3">
+            <button
+              type="button"
+              onClick={() => setShowWithdrawn((v) => !v)}
+              className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted transition hover:text-ink"
+            >
+              <Archive size={13} aria-hidden />
+              {showWithdrawn ? 'Hide' : 'Show'} {withdrawn.length} withdrawn{' '}
+              {withdrawn.length === 1 ? 'note' : 'notes'}
+            </button>
+            {showWithdrawn && (
+              <ul className="mt-2 space-y-2">
+                {withdrawn.map((note) => (
+                  <li key={note.id}>
+                    <WithdrawnNote
+                      note={note}
+                      mayRestore={mayRetract}
+                      onRestore={() => restoreNote(location.id, note.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function WithdrawnNote({
+  note,
+  mayRestore,
+  onRestore,
+}: {
+  note: PremiseNote;
+  mayRestore: boolean;
+  onRestore: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-line px-3 py-2.5">
+      <p className="text-[12.5px] leading-relaxed text-muted line-through">{note.text}</p>
+      <p className="mt-1.5 text-[11.5px] text-faint">
+        Written by {note.author || 'unknown'} · withdrawn by {note.retractedBy || 'unknown'}{' '}
+        {relativeTime(note.retractedAt)}
+        {note.retractionReason && ` — “${note.retractionReason}”`}
+      </p>
+      {mayRestore && (
+        <button
+          type="button"
+          onClick={onRestore}
+          className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline"
+        >
+          <RotateCcw size={12} aria-hidden />
+          Put it back
+        </button>
+      )}
     </div>
   );
 }
 
 function NoteCard({
   note,
-  onDelete,
+  mayRetract,
+  mayViewRestricted,
+  onRetract,
   onConfirm,
 }: {
   note: PremiseNote;
-  onDelete: () => void;
+  mayRetract: boolean;
+  mayViewRestricted: boolean;
+  onRetract: (reason: string) => void;
   onConfirm: () => void;
 }) {
+  const [retracting, setRetracting] = useState(false);
+  const [reason, setReason] = useState('');
   // Access codes are masked by default. In a real deployment this is where a
   // permission check and an audit-log write belong.
   const [revealed, setRevealed] = useState(!note.sensitive);
@@ -134,7 +216,7 @@ function NoteCard({
             <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
               {note.text}
             </p>
-          ) : (
+          ) : mayViewRestricted ? (
             <button
               type="button"
               onClick={() => setRevealed(true)}
@@ -143,6 +225,11 @@ function NoteCard({
               <Eye size={13} aria-hidden />
               Show access details
             </button>
+          ) : (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12.5px] text-faint">
+              <Lock size={12} aria-hidden />
+              Restricted — you do not have access to this note
+            </p>
           )}
 
           <p className="mt-1.5 text-[11.5px] text-faint">
@@ -172,16 +259,51 @@ function NoteCard({
               <EyeOff size={14} />
             </button>
           )}
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-md p-1.5 text-faint transition hover:bg-danger-soft hover:text-danger"
-            aria-label="Delete note"
-          >
-            <Trash2 size={14} />
-          </button>
+          {mayRetract && (
+            <button
+              type="button"
+              onClick={() => setRetracting((v) => !v)}
+              className="rounded-md p-1.5 text-faint transition hover:bg-danger-soft hover:text-danger"
+              aria-label="Withdraw note"
+              title="Withdraw this note"
+            >
+              <Archive size={14} />
+            </button>
+          )}
         </div>
       </div>
+
+      {retracting && (
+        <div className="mt-3 rounded-lg border border-line bg-surface p-2.5">
+          <p className="text-[12.5px] font-medium text-ink">Withdraw this note?</p>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+            It stops showing on the location. The note, its author and this withdrawal are kept.
+          </p>
+          <input
+            autoFocus
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why — e.g. gate code changed in March"
+            className="mt-2 w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <Button size="sm" onClick={() => setRetracting(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!reason.trim()}
+              onClick={() => {
+                onRetract(reason.trim());
+                setRetracting(false);
+              }}
+            >
+              Withdraw
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

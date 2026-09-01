@@ -7,6 +7,7 @@ import { OFFENSE_BY_CODE } from '@/domain/codes';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { Badge, Button, EmptyState } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { UserMenu } from '@/components/layout/UserMenu';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
@@ -19,7 +20,7 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
 };
 
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
-  const { incidents, people, locations, agency, openIncident, createNew } = useStore();
+  const { incidents, people, locations, agency, can, openIncident, createNew } = useStore();
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -77,14 +78,18 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           />
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenSetup}
-          aria-label="Agency setup"
-          className="flex size-9 items-center justify-center rounded-lg border border-line text-muted transition hover:bg-raised hover:text-ink"
-        >
-          <Settings size={16} aria-hidden />
-        </button>
+        <UserMenu />
+
+        {can('agency.configure') && (
+          <button
+            type="button"
+            onClick={onOpenSetup}
+            aria-label="Agency setup"
+            className="flex size-9 items-center justify-center rounded-lg border border-line text-muted transition hover:bg-raised hover:text-ink"
+          >
+            <Settings size={16} aria-hidden />
+          </button>
+        )}
 
         <ThemeToggle />
 

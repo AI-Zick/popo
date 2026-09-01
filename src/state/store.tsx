@@ -31,7 +31,8 @@ import {
 } from '@/domain/factory';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
-import { featureAt, featureName } from '@/domain/geo';
+import { can as canDo, createUser, type Permission, type User } from '@/domain/auth';
+import { centerOf, featureAt, featureName } from '@/domain/geo';
 import {
   activeNotes,
   type LocationIndex,
@@ -42,6 +43,7 @@ import {
 import {
   autoLinkLocation,
   findLocations,
+  findNearby,
   searchLocations as searchLocationIndex,
   type LocationMatch,
 } from '@/domain/locationMatching';
@@ -66,6 +68,14 @@ interface StoreValue {
   locations: LocationIndex;
   /** Jurisdiction and boundary configuration, set once at install. */
   agency: AgencyProfile;
+  /** Everyone with a login at this agency. */
+  users: User[];
+  /** Who is signed in. */
+  currentUser: User;
+  /** Permission check for the signed-in user. */
+  can: (permission: Permission) => boolean;
+  signInAs: (userId: string) => void;
+  updateUser: (userId: string, patch: Partial<User>) => void;
   incident: Incident | null;
   /** Participants on the active incident, joined to their identities. */
   persons: Person[];
@@ -111,8 +121,20 @@ interface StoreValue {
   updateLocation: (locationId: string, patch: Partial<MasterLocation>) => void;
   addNote: (locationId: string, note: { kind: NoteKind; text: string; sensitive: boolean }) => void;
   updateNote: (locationId: string, noteId: string, patch: Partial<PremiseNote>) => void;
-  removeNote: (locationId: string, noteId: string) => void;
-  locationSearch: (query: string, limit?: number) => MasterLocation[];
+  /** Withdraws a note. Requires notes.retract; the note itself is kept. */
+  retractNote: (locationId: string, noteId: string, reason: string) => void;
+  /** Puts a withdrawn note back. */
+  restoreNote: (locationId: string, noteId: string) => void;
+  locationSearch: (
+    query: string,
+    limit?: number,
+  ) => { location: MasterLocation; distance: number | null }[];
+  /** Places within a radius of a point, nearest first. */
+  nearbyLocations: (
+    latitude: number,
+    longitude: number,
+    radiusMeters?: number,
+  ) => { location: MasterLocation; distance: number }[];
   locationMatches: (query: { address?: string; commonName?: string; city?: string }) => LocationMatch[];
   notesFor: (locationId: string) => PremiseNote[];
   /** Reports previously taken at a location, most recent first. */
@@ -137,6 +159,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [people, setPeople] = useState<PersonIndex>(initial.people);
   const [locations, setLocations] = useState<LocationIndex>(initial.locations);
   const [agency, setAgency] = useState<AgencyProfile>(initial.agency ?? emptyAgency());
+  const [users, setUsers] = useState<User[]>(initial.users);
+  const [currentUserId, setCurrentUserId] = useState<string>(initial.users[0]?.id ?? '');
+
+  const currentUser = useMemo(
+    () => users.find((u) => u.id === currentUserId) ?? createUser({ id: 'unknown', name: 'Unknown' }),
+    [users, currentUserId],
+  );
+
+  const can = useCallback(
+    (permission: Permission) => canDo(currentUser, permission),
+    [currentUser],
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeSection, setActiveSectionState] = useState<SectionId>('incident');
   const [visitedSections, setVisitedSections] = useState<Set<SectionId>>(() => new Set(['incident']));
@@ -174,8 +208,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   incidentRef.current = incident;
 
   useEffect(() => {
-    saveState({ incidents, people, locations, agency });
-  }, [incidents, people, locations, agency]);
+    saveState({ incidents, people, locations, agency, users });
+  }, [incidents, people, locations, agency, users]);
 
   /* -------------------------------------------------- field registry --- */
   const registerField = useCallback((path: string, el: HTMLElement | null) => {
@@ -568,10 +602,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLocations((prev) => {
         const current = prev[locationId];
         if (!current) return prev;
-        const entry = createNote({
-          ...note,
-          author: incidentRef.current?.reportingOfficer || 'Unknown officer',
-        });
+        const entry = createNote({ ...note, author: currentUser.name || 'Unknown officer' });
         return {
           ...prev,
           [locationId]: {
@@ -583,7 +614,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       setSavedAt(new Date().toISOString());
     },
-    [],
+    [currentUser.name],
   );
 
   const updateNote = useCallback(
@@ -605,19 +636,79 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const removeNote = useCallback((locationId: string, noteId: string) => {
-    setLocations((prev) => {
-      const current = prev[locationId];
-      if (!current) return prev;
-      return {
-        ...prev,
-        [locationId]: { ...current, notes: current.notes.filter((n) => n.id !== noteId) },
-      };
-    });
+  /**
+   * Withdrawal, not deletion. The note stops showing on the location but the
+   * record survives with its author, its text, and who withdrew it — because
+   * "who removed the gate code, and when" is asked after something goes wrong.
+   */
+  const retractNote = useCallback(
+    (locationId: string, noteId: string, reason: string) => {
+      if (!canDo(currentUser, 'notes.retract')) return;
+      const now = new Date().toISOString();
+      setLocations((prev) => {
+        const current = prev[locationId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [locationId]: {
+            ...current,
+            notes: current.notes.map((n) =>
+              n.id === noteId
+                ? { ...n, retractedAt: now, retractedBy: currentUser.name, retractionReason: reason }
+                : n,
+            ),
+            updatedAt: now,
+          },
+        };
+      });
+      setSavedAt(now);
+    },
+    [currentUser],
+  );
+
+  const restoreNote = useCallback(
+    (locationId: string, noteId: string) => {
+      if (!canDo(currentUser, 'notes.retract')) return;
+      setLocations((prev) => {
+        const current = prev[locationId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [locationId]: {
+            ...current,
+            notes: current.notes.map((n) =>
+              n.id === noteId
+                ? { ...n, retractedAt: '', retractedBy: '', retractionReason: '' }
+                : n,
+            ),
+          },
+        };
+      });
+    },
+    [currentUser],
+  );
+
+  const signInAs = useCallback((userId: string) => setCurrentUserId(userId), []);
+
+  const updateUser = useCallback((userId: string, patch: Partial<User>) => {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...patch } : u)));
   }, []);
 
+  /** Jurisdiction centre, used to rank search results by distance. */
+  const searchOrigin = useMemo(() => {
+    const center = centerOf(agency.boundary) ?? centerOf(agency.zones);
+    return center ? { latitude: center[1], longitude: center[0] } : null;
+  }, [agency.boundary, agency.zones]);
+
   const locationSearch = useCallback(
-    (query: string, limit = 20) => searchLocationIndex(query, locations, limit),
+    (query: string, limit = 20) =>
+      searchLocationIndex(query, locations, { limit, origin: searchOrigin }),
+    [locations, searchOrigin],
+  );
+
+  const nearbyLocations = useCallback(
+    (latitude: number, longitude: number, radiusMeters = 500) =>
+      findNearby(latitude, longitude, locations, radiusMeters),
     [locations],
   );
 
@@ -747,6 +838,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     people,
     locations,
     agency,
+    users,
+    currentUser,
+    can,
+    signInAs,
+    updateUser,
     incident,
     persons,
     location,
@@ -784,8 +880,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateLocation,
     addNote,
     updateNote,
-    removeNote,
+    retractNote,
+    restoreNote,
     locationSearch,
+    nearbyLocations,
     locationMatches,
     notesFor,
     locationHistory,

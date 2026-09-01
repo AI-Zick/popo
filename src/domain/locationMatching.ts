@@ -12,6 +12,7 @@
  */
 
 import { jaroWinkler, normalizeAddress, soundex } from './matching';
+import { distanceMeters } from './geo';
 import type { LocationIndex, MasterLocation } from './location';
 
 /* ------------------------------------------------------------------ */
@@ -64,6 +65,8 @@ export interface LocationMatch {
   score: number;
   tier: LocationTier;
   reasons: string[];
+  /** Metres from the query point, when both sides carry coordinates. */
+  distance: number | null;
 }
 
 export interface LocationQuery {
@@ -72,7 +75,22 @@ export interface LocationQuery {
   city?: string;
   state?: string;
   zip?: string;
+  /** A dropped pin, if there is one. Corroborates; never decides on its own. */
+  latitude?: number | null;
+  longitude?: number | null;
 }
+
+/**
+ * Pins are placed by hand from a map, so they are good to perhaps twenty
+ * metres — and neighbouring houses are about that far apart. Proximity can
+ * therefore support a match the text already suggests, or argue against one,
+ * but it must never establish a match by itself. These thresholds are chosen
+ * with that asymmetry in mind: generous about *doubting*, strict about
+ * confirming.
+ */
+const NEAR_M = 60;
+const SAME_BLOCK_M = 200;
+const FAR_M = 1_500;
 
 const has = (v: string | undefined): v is string => Boolean(v && v.trim());
 
@@ -85,6 +103,13 @@ export function scoreLocation(query: LocationQuery, location: MasterLocation): L
   const reasons: string[] = [];
   let score = 0;
   let exactAddress = false;
+  /**
+   * Two different house numbers are two different addresses, whatever else
+   * agrees. Without this, a pin dropped between neighbouring houses — well
+   * inside the accuracy of a hand-placed marker — is enough to fold 1142 and
+   * 1150 Ashwood Lane into one record.
+   */
+  let differentNumber = false;
 
   const sameCity = cityAgrees(query, location);
 
@@ -104,6 +129,7 @@ export function scoreLocation(query: LocationQuery, location: MasterLocation): L
     } else {
       const streetSimilarity = jaroWinkler(q.street, l.street);
       const streetSounds = soundex(q.street) === soundex(l.street);
+      if (q.number && l.number && q.number !== l.number) differentNumber = true;
 
       if (q.number && q.number === l.number && (streetSimilarity >= 0.88 || streetSounds)) {
         score += 55;
@@ -157,6 +183,28 @@ export function scoreLocation(query: LocationQuery, location: MasterLocation): L
     score += 5;
   }
 
+  /* ---- Proximity ------------------------------------------------------ */
+  let distance: number | null = null;
+  if (
+    typeof query.latitude === 'number' &&
+    typeof query.longitude === 'number' &&
+    typeof location.latitude === 'number' &&
+    typeof location.longitude === 'number'
+  ) {
+    distance = distanceMeters(query.latitude, query.longitude, location.latitude, location.longitude);
+
+    if (distance <= NEAR_M) {
+      score += 20;
+      reasons.push(`Pins are ${Math.round(distance)} m apart`);
+    } else if (distance <= SAME_BLOCK_M) {
+      score += 8;
+    } else if (distance > FAR_M) {
+      // Two places with the same street name a mile apart are two places.
+      score -= 45;
+      exactAddress = false;
+    }
+  }
+
   const bounded = Math.max(0, Math.min(100, score));
 
   /**
@@ -164,12 +212,16 @@ export function scoreLocation(query: LocationQuery, location: MasterLocation): L
    * fact about addresses, not a guess, so it links without asking — which is
    * what stops a second record for a place the agency already knows.
    */
-  if (exactAddress && sameCity) {
-    return { location, score: bounded, tier: 'certain', reasons };
-  }
-  if (bounded >= 62) return { location, score: bounded, tier: 'strong', reasons };
-  if (bounded >= 34) return { location, score: bounded, tier: 'possible', reasons };
-  return null;
+  let tier: LocationTier;
+  if (exactAddress && sameCity) tier = 'certain';
+  else if (bounded >= 62) tier = 'strong';
+  else if (bounded >= 34) tier = 'possible';
+  else return null;
+
+  // Differing house numbers bar anything above a suggestion.
+  if (differentNumber && tier !== 'possible') tier = 'possible';
+
+  return { location, score: bounded, tier, reasons, distance };
 }
 
 export function findLocations(
@@ -187,8 +239,34 @@ export function findLocations(
     if (match) results.push(match);
   }
 
-  results.sort((a, b) => b.score - a.score);
+  results.sort(
+    (a, b) =>
+      b.score - a.score ||
+      // Equally-scored candidates: the closer one first, when we know.
+      (a.distance ?? Infinity) - (b.distance ?? Infinity),
+  );
   return options.limit ? results.slice(0, options.limit) : results;
+}
+
+/**
+ * Places within a radius of a point, nearest first. Used to answer "what else
+ * is around here" without any text to go on.
+ */
+export function findNearby(
+  latitude: number,
+  longitude: number,
+  index: LocationIndex,
+  radiusMeters = 500,
+  limit = 10,
+): { location: MasterLocation; distance: number }[] {
+  const found: { location: MasterLocation; distance: number }[] = [];
+  for (const location of Object.values(index)) {
+    if (typeof location.latitude !== 'number' || typeof location.longitude !== 'number') continue;
+    const distance = distanceMeters(latitude, longitude, location.latitude, location.longitude);
+    if (distance <= radiusMeters) found.push({ location, distance });
+  }
+  found.sort((a, b) => a.distance - b.distance);
+  return found.slice(0, limit);
 }
 
 /** The one location safe to reuse without asking, if there is one. */
@@ -202,17 +280,34 @@ export function autoLinkLocation(matches: LocationMatch[]): LocationMatch | null
  * common name and aliases so "marion storage", "612 marion" and "storage" all
  * find the same place.
  */
+export interface SearchOptions {
+  limit?: number;
+  /** Rank nearer places first — usually the jurisdiction centre. */
+  origin?: { latitude: number; longitude: number } | null;
+}
+
 export function searchLocations(
   query: string,
   index: LocationIndex,
-  limit = 20,
-): MasterLocation[] {
+  options: SearchOptions = {},
+): { location: MasterLocation; distance: number | null }[] {
+  const { limit = 20, origin = null } = options;
   const q = normalizeAddress(query);
   const all = Object.values(index);
+
+  const withDistance = (location: MasterLocation) => ({
+    location,
+    distance:
+      origin && typeof location.latitude === 'number' && typeof location.longitude === 'number'
+        ? distanceMeters(origin.latitude, origin.longitude, location.latitude, location.longitude)
+        : null,
+  });
+
   if (!q) {
     return all
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, limit);
+      .slice(0, limit)
+      .map(withDistance);
   }
 
   const terms = q.split(' ').filter(Boolean);
@@ -230,8 +325,25 @@ export function searchLocations(
     })
     .filter((x): x is { location: MasterLocation; rank: number } => x !== null);
 
-  scored.sort((a, b) => b.rank - a.rank || locationSort(a.location, b.location));
-  return scored.slice(0, limit).map((s) => s.location);
+  scored.sort(
+    (a, b) =>
+      b.rank - a.rank ||
+      // Among equally good text matches, the nearest place is the likely one.
+      (distanceFrom(origin, a.location) ?? Infinity) -
+        (distanceFrom(origin, b.location) ?? Infinity) ||
+      locationSort(a.location, b.location),
+  );
+  return scored.slice(0, limit).map((s) => withDistance(s.location));
+}
+
+function distanceFrom(
+  origin: { latitude: number; longitude: number } | null,
+  location: MasterLocation,
+): number | null {
+  if (!origin || typeof location.latitude !== 'number' || typeof location.longitude !== 'number') {
+    return null;
+  }
+  return distanceMeters(origin.latitude, origin.longitude, location.latitude, location.longitude);
 }
 
 function locationSort(a: MasterLocation, b: MasterLocation): number {

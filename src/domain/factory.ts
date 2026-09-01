@@ -131,6 +131,9 @@ export function createNote(partial: Partial<PremiseNote> = {}): PremiseNote {
     createdAt: now,
     reviewedAt: now,
     sensitive: false,
+    retractedAt: '',
+    retractedBy: '',
+    retractionReason: '',
     ...partial,
   };
 }

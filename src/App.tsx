@@ -5,12 +5,12 @@ import { IncidentEditor } from '@/features/incident/IncidentEditor';
 import { AgencySetup } from '@/features/setup/AgencySetup';
 
 export default function App() {
-  const { incident } = useStore();
+  const { incident, can } = useStore();
   const [setupOpen, setSetupOpen] = useState(false);
 
   return (
     <div className="h-full">
-      {setupOpen && !incident ? (
+      {setupOpen && !incident && can('agency.configure') ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
       ) : incident ? (
         <IncidentEditor />

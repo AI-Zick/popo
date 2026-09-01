@@ -298,3 +298,40 @@ export function parseGeoJSON(text: string): ParseResult {
     names: valid.map((f, i) => featureName(f) || `Area ${i + 1}`),
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Distance                                                            */
+/* ------------------------------------------------------------------ */
+
+const EARTH_RADIUS_M = 6_371_000;
+
+/** Great-circle distance in metres. */
+export function distanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** "40 m" / "1.2 km" — short enough to sit in a list row. */
+export function formatDistance(meters: number): string {
+  if (!Number.isFinite(meters)) return '';
+  if (meters < 1000) return `${Math.round(meters / 5) * 5} m`;
+  return `${(meters / 1000).toFixed(meters < 10_000 ? 1 : 0)} km`;
+}
+
+/** Centre of a collection's bounding box, as [lon, lat]. */
+export function centerOf(collection: GeoFeatureCollection | null | undefined): Position | null {
+  if (!collection) return null;
+  const bbox = bboxOf(collection);
+  if (!bbox) return null;
+  return [(bbox.minLon + bbox.maxLon) / 2, (bbox.minLat + bbox.maxLat) / 2];
+}

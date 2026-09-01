@@ -2,18 +2,21 @@ import type { Incident } from '@/domain/types';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
+import type { User } from '@/domain/auth';
 import { seedState } from './seed';
 
 const INCIDENTS_KEY = 'aegis.incidents.v2';
 const PEOPLE_KEY = 'aegis.people.v2';
 const LOCATIONS_KEY = 'aegis.locations.v1';
 const AGENCY_KEY = 'aegis.agency.v1';
+const USERS_KEY = 'aegis.users.v1';
 
 export interface PersistedState {
   incidents: Incident[];
   people: PersonIndex;
   locations: LocationIndex;
   agency: AgencyProfile;
+  users: User[];
 }
 
 export function loadState(): PersistedState {
@@ -32,6 +35,9 @@ export function loadState(): PersistedState {
     const rawAgency = localStorage.getItem(AGENCY_KEY);
     // Agency config is allowed to be absent — that is just an unconfigured install.
     const agency: AgencyProfile = rawAgency ? { ...emptyAgency(), ...JSON.parse(rawAgency) } : emptyAgency();
+    const rawUsers = localStorage.getItem(USERS_KEY);
+    const parsedUsers = rawUsers ? JSON.parse(rawUsers) : null;
+    const users: User[] = Array.isArray(parsedUsers) && parsedUsers.length ? parsedUsers : seedState().users;
     if (
       !Array.isArray(incidents) ||
       typeof people !== 'object' ||
@@ -41,7 +47,7 @@ export function loadState(): PersistedState {
     ) {
       return seedState();
     }
-    return { incidents, people, locations, agency };
+    return { incidents, people, locations, agency, users };
   } catch {
     // A corrupt or unavailable store must never take the app down.
     return seedState();
@@ -54,6 +60,7 @@ export function saveState(state: PersistedState): void {
     localStorage.setItem(PEOPLE_KEY, JSON.stringify(state.people));
     localStorage.setItem(LOCATIONS_KEY, JSON.stringify(state.locations));
     localStorage.setItem(AGENCY_KEY, JSON.stringify(state.agency));
+    localStorage.setItem(USERS_KEY, JSON.stringify(state.users));
   } catch {
     /* quota or private mode — the session still works, it just will not persist */
   }

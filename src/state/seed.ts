@@ -2,6 +2,25 @@ import type { Incident } from '@/domain/types';
 import type { IncidentPerson, MasterPerson, PersonIndex, PersonRole } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
+import { createUser, type User } from '@/domain/auth';
+
+/**
+ * Demo logins. The third is the "and those designated" case: a patrol officer
+ * who maintains the location index, given the one permission that needs,
+ * without being made a supervisor.
+ */
+const USERS: User[] = [
+  createUser({ id: 'u-reyes', name: 'M. Reyes', badge: '4417', role: 'officer' }),
+  createUser({ id: 'u-boone', name: 'Sgt. A. Boone', badge: '2210', role: 'supervisor' }),
+  createUser({
+    id: 'u-tam',
+    name: 'D. Tam',
+    badge: '3388',
+    role: 'officer',
+    grants: ['notes.retract', 'notes.viewRetracted'],
+  }),
+  createUser({ id: 'u-vance', name: 'R. Vance', badge: '1001', role: 'admin' }),
+];
 import type { GeoFeatureCollection } from '@/domain/geo';
 
 /**
@@ -118,6 +137,7 @@ export function seedState(): {
   people: PersonIndex;
   locations: LocationIndex;
   agency: AgencyProfile;
+  users: User[];
 } {
   /* ---- Places the agency knows -------------------------------------- */
 
@@ -396,5 +416,6 @@ export function seedState(): {
     people: PEOPLE,
     locations: LOCATIONS,
     agency: AGENCY,
+    users: USERS,
   };
 }

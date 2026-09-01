@@ -3,6 +3,7 @@ import { useStore } from '@/state/store';
 import { Badge, Button } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { UserMenu } from '@/components/layout/UserMenu';
 import type { ReportStatus } from '@/domain/types';
 
 const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' }> = {
@@ -41,6 +42,8 @@ export function EditorHeader() {
           Saved {relativeTime(savedAt)}
         </span>
       )}
+
+      <UserMenu />
 
       <ThemeToggle />
 

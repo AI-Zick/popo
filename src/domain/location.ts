@@ -43,6 +43,15 @@ export interface PremiseNote {
   sensitive: boolean;
   /** Notes go stale — a gate code from 2019 is worse than no gate code. */
   reviewedAt: string;
+
+  /**
+   * Withdrawal rather than deletion. A note that turned out to be wrong still
+   * happened, and "who removed the gate code, and when" is a question that
+   * gets asked after something goes wrong at an address.
+   */
+  retractedAt: string;
+  retractedBy: string;
+  retractionReason: string;
 }
 
 export interface MasterLocation {
@@ -138,12 +147,25 @@ export function hasCoordinates(
   );
 }
 
+export function isRetracted(note: PremiseNote): boolean {
+  return Boolean(note.retractedAt);
+}
+
+/** Notes still in force, most serious first. */
 export function activeNotes(location: MasterLocation | undefined): PremiseNote[] {
   if (!location) return [];
   const rank: Record<NoteKind, number> = { hazard: 0, access: 1, contact: 2, general: 3 };
-  return [...location.notes].sort(
-    (a, b) => rank[a.kind] - rank[b.kind] || b.createdAt.localeCompare(a.createdAt),
-  );
+  return location.notes
+    .filter((n) => !isRetracted(n))
+    .sort((a, b) => rank[a.kind] - rank[b.kind] || b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Withdrawn notes, most recently withdrawn first. */
+export function retractedNotes(location: MasterLocation | undefined): PremiseNote[] {
+  if (!location) return [];
+  return location.notes
+    .filter(isRetracted)
+    .sort((a, b) => b.retractedAt.localeCompare(a.retractedAt));
 }
 
 /** Notes older than this are shown as needing a re-check. */

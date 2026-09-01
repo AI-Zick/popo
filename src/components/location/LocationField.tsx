@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, KeyRound, MapPin, Plus, Search, X } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { locationLabel, type MasterLocation } from '@/domain/location';
+import { formatDistance } from '@/domain/geo';
 import { LOCATION_TYPES, STATES } from '@/domain/codes';
 import { Badge, Button } from '@/components/ui/primitives';
 import { useFieldIssues } from '@/components/ui/fields';
@@ -150,7 +151,7 @@ function LocationSearchDialog({
 }: {
   query: string;
   setQuery: (v: string) => void;
-  results: MasterLocation[];
+  results: { location: MasterLocation; distance: number | null }[];
   creating: boolean;
   setCreating: (v: boolean) => void;
   onPick: (id: string) => void;
@@ -212,10 +213,11 @@ function LocationSearchDialog({
                 </p>
               ) : (
                 <ul className="space-y-1">
-                  {results.map((location) => (
+                  {results.map(({ location, distance }) => (
                     <li key={location.id}>
                       <LocationRow
                         location={location}
+                        distance={distance}
                         priorReports={locationHistory(location.id).length}
                         onPick={() => onPick(location.id)}
                       />
@@ -240,10 +242,12 @@ function LocationSearchDialog({
 
 function LocationRow({
   location,
+  distance,
   priorReports,
   onPick,
 }: {
   location: MasterLocation;
+  distance: number | null;
   priorReports: number;
   onPick: () => void;
 }) {
@@ -278,8 +282,11 @@ function LocationRow({
           </span>
         )}
       </span>
-      <span className="shrink-0 text-[11.5px] text-faint tabular">
-        {priorReports} {priorReports === 1 ? 'report' : 'reports'}
+      <span className="shrink-0 text-right text-[11.5px] text-faint tabular">
+        <span className="block">
+          {priorReports} {priorReports === 1 ? 'report' : 'reports'}
+        </span>
+        {distance !== null && <span className="block">{formatDistance(distance)}</span>}
       </span>
     </button>
   );

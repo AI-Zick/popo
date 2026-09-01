@@ -125,6 +125,32 @@ addresses and the gate code ends up on whichever one you did not open.
 Access notes are masked until deliberately revealed, and notes older than a year
 are flagged for re-check — a gate code from 2019 is worse than no gate code.
 
+**Officers add notes; they cannot take them away.** What a previous shift worked
+out at 0300 should not vanish because someone found it inconvenient or thought
+it was wrong. Withdrawing a note needs `notes.retract`, which supervisors and
+records staff hold by role, and which can be granted to a named officer without
+promoting them — the "and those designated" case.
+
+Withdrawal is not deletion. The note, its author, who withdrew it and why are all
+kept; it simply stops showing on the location. "Who removed the gate code, and
+when" is a question that gets asked after something goes wrong at an address.
+
+### Proximity
+
+Locations carry coordinates, and matching uses them — carefully. Pins are placed
+by hand and are good to perhaps twenty metres, while neighbouring houses are
+about that far apart. So distance **corroborates a match the text already
+suggests, or argues against one, but never establishes one**: two records whose
+pins nearly coincide score higher, two a mile apart stop matching however alike
+their names, and proximity alone returns nothing.
+
+Above all, **differing house numbers cap the result at a suggestion** no matter
+how close the pins are. 1142 and 1150 Ashwood Lane are twenty-five metres apart
+and are not the same address. The test suite pins that case specifically.
+
+Search results are ranked by distance from the jurisdiction centre, and the
+picker shows how far away each place is.
+
 ### Jurisdiction and coordinates
 
 Setup takes the agency's name, ORI and jurisdiction, plus two boundary layers as
@@ -219,8 +245,9 @@ attached to.
 This is one module, not a system. Absent: a real backend and database, auth and
 role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
-CAD integration, and the actual NIBRS export. Address matching is textual —
-coordinates are recorded but not yet used to rank candidates by proximity. Merging two identities that are
+CAD integration, and the actual NIBRS export. Authentication is a role switcher
+rather than a login — the permission model is real, but nothing verifies who you
+say you are. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.
