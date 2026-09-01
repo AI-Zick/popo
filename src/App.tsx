@@ -10,7 +10,7 @@ export default function App() {
 
   return (
     <div className="h-full">
-      {setupOpen && !incident && can('agency.configure') ? (
+      {setupOpen && !incident && (can('agency.configure') || can('users.manage')) ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
       ) : incident ? (
         <IncidentEditor />

@@ -80,11 +80,11 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
 
         <UserMenu />
 
-        {can('agency.configure') && (
+        {(can('agency.configure') || can('users.manage')) && (
           <button
             type="button"
             onClick={onOpenSetup}
-            aria-label="Agency setup"
+            aria-label="Setup"
             className="flex size-9 items-center justify-center rounded-lg border border-line text-muted transition hover:bg-raised hover:text-ink"
           >
             <Settings size={16} aria-hidden />

@@ -31,7 +31,16 @@ import {
 } from '@/domain/factory';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
-import { can as canDo, createUser, type Permission, type User } from '@/domain/auth';
+import {
+  can as canDo,
+  canDeactivate,
+  canManageUser,
+  createUser,
+  sanitizeUserInput,
+  type GuardResult,
+  type Permission,
+  type User,
+} from '@/domain/auth';
 import { centerOf, featureAt, featureName } from '@/domain/geo';
 import {
   activeNotes,
@@ -47,6 +56,7 @@ import {
   searchLocations as searchLocationIndex,
   type LocationMatch,
 } from '@/domain/locationMatching';
+import { newId } from '@/lib/id';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { loadState, saveState } from './persistence';
@@ -75,7 +85,11 @@ interface StoreValue {
   /** Permission check for the signed-in user. */
   can: (permission: Permission) => boolean;
   signInAs: (userId: string) => void;
-  updateUser: (userId: string, patch: Partial<User>) => void;
+  /** Creates an account. Refuses anything above the actor's own authority. */
+  createAccount: (input: Partial<User>) => GuardResult;
+  updateUser: (userId: string, patch: Partial<User>) => GuardResult;
+  deactivateUser: (userId: string) => GuardResult;
+  reactivateUser: (userId: string) => GuardResult;
   incident: Incident | null;
   /** Participants on the active incident, joined to their identities. */
   persons: Person[];
@@ -688,11 +702,91 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [currentUser],
   );
 
-  const signInAs = useCallback((userId: string) => setCurrentUserId(userId), []);
+  const signInAs = useCallback(
+    (userId: string) => {
+      const target = users.find((u) => u.id === userId);
+      if (target?.active) setCurrentUserId(userId);
+    },
+    [users],
+  );
 
-  const updateUser = useCallback((userId: string, patch: Partial<User>) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...patch } : u)));
-  }, []);
+  /**
+   * Every write to an account is filtered through the actor's own authority,
+   * so a request for a role or a permission they do not hold is dropped rather
+   * than trusted. The UI hides those options too, but the UI is not the guard.
+   */
+  const createAccount = useCallback(
+    (input: Partial<User>): GuardResult => {
+      if (!canDo(currentUser, 'users.manage')) {
+        return { ok: false, reason: 'You do not have permission to manage accounts.' };
+      }
+      const safe = sanitizeUserInput(currentUser, input);
+      if (!safe.name?.trim()) return { ok: false, reason: 'A name is required.' };
+
+      const account = createUser({
+        id: newId('usr'),
+        ...safe,
+        name: safe.name.trim(),
+        createdBy: currentUser.name,
+      });
+      setUsers((prev) => [...prev, account]);
+      setSavedAt(new Date().toISOString());
+      return { ok: true };
+    },
+    [currentUser],
+  );
+
+  const updateUser = useCallback(
+    (userId: string, patch: Partial<User>): GuardResult => {
+      const target = users.find((u) => u.id === userId);
+      if (!target) return { ok: false, reason: 'No such account.' };
+      if (!canManageUser(currentUser, target)) {
+        return { ok: false, reason: 'This account has more authority than yours.' };
+      }
+      // Nobody may strip their own ability to manage accounts.
+      if (userId === currentUser.id && patch.role && patch.role !== currentUser.role) {
+        return { ok: false, reason: 'You cannot change your own role.' };
+      }
+      const safe = sanitizeUserInput(currentUser, patch);
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...safe } : u)));
+      setSavedAt(new Date().toISOString());
+      return { ok: true };
+    },
+    [currentUser, users],
+  );
+
+  const deactivateUser = useCallback(
+    (userId: string): GuardResult => {
+      const target = users.find((u) => u.id === userId);
+      if (!target) return { ok: false, reason: 'No such account.' };
+      const guard = canDeactivate(currentUser, target, users);
+      if (!guard.ok) return guard;
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId ? { ...u, active: false, deactivatedAt: new Date().toISOString() } : u,
+        ),
+      );
+      setSavedAt(new Date().toISOString());
+      return { ok: true };
+    },
+    [currentUser, users],
+  );
+
+  const reactivateUser = useCallback(
+    (userId: string): GuardResult => {
+      const target = users.find((u) => u.id === userId);
+      if (!target) return { ok: false, reason: 'No such account.' };
+      if (!canManageUser(currentUser, target)) {
+        return { ok: false, reason: 'This account has more authority than yours.' };
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, active: true, deactivatedAt: '' } : u)),
+      );
+      return { ok: true };
+    },
+    [currentUser, users],
+  );
 
   /** Jurisdiction centre, used to rank search results by distance. */
   const searchOrigin = useMemo(() => {
@@ -842,7 +936,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     currentUser,
     can,
     signInAs,
+    createAccount,
     updateUser,
+    deactivateUser,
+    reactivateUser,
     incident,
     persons,
     location,

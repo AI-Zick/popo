@@ -135,6 +135,29 @@ Withdrawal is not deletion. The note, its author, who withdrew it and why are al
 kept; it simply stops showing on the location. "Who removed the gate code, and
 when" is a question that gets asked after something goes wrong at an address.
 
+### Accounts
+
+Provisioning is two-tier. An **agency administrator** sets up accounts for their
+own officers; the **vendor** sets up the administrator when a new agency comes
+on. Account management can also be designated to a named officer without
+promoting them, the same mechanism as note withdrawal.
+
+The rule underneath is that nobody hands out more authority than they hold:
+
+- **Roles** can only be assigned at or below the actor's own level. An agency
+  administrator cannot create a vendor account.
+- **Designated permissions** can only be passed on if the actor holds them. An
+  administrator cannot designate someone to provision new agencies.
+- **Reaching upward is refused.** An administrator cannot edit or deactivate a
+  vendor account.
+- **The agency cannot lock itself out.** Nobody may deactivate their own
+  account, and the last account that can manage accounts cannot be switched off.
+
+The form hides options the actor cannot use, and the store re-checks every write
+against the same guards — a hidden option is not a guard. Accounts are
+deactivated rather than deleted, because an officer who has left still authored
+reports that must keep resolving to a person.
+
 ### Proximity
 
 Locations carry coordinates, and matching uses them — carefully. Pins are placed
@@ -245,9 +268,13 @@ attached to.
 This is one module, not a system. Absent: a real backend and database, auth and
 role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
-CAD integration, and the actual NIBRS export. Authentication is a role switcher
-rather than a login — the permission model is real, but nothing verifies who you
-say you are. Merging two identities that are
+CAD integration, and the actual NIBRS export.
+
+Most importantly: **authentication does not exist.** The user menu is a
+switcher, not a login. Roles, permissions and the provisioning guards are real
+and tested, but nothing verifies identity, there are no credentials, and no
+access is logged. That work and the audit trail in `ARCHITECTURE.md` are the
+same job, and they belong together before this touches live data. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

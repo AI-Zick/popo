@@ -10,16 +10,47 @@ import { createUser, type User } from '@/domain/auth';
  * without being made a supervisor.
  */
 const USERS: User[] = [
-  createUser({ id: 'u-reyes', name: 'M. Reyes', badge: '4417', role: 'officer' }),
-  createUser({ id: 'u-boone', name: 'Sgt. A. Boone', badge: '2210', role: 'supervisor' }),
+  createUser({
+    id: 'u-reyes',
+    name: 'M. Reyes',
+    badge: '4417',
+    username: 'mreyes',
+    role: 'officer',
+    createdBy: 'R. Vance',
+  }),
+  createUser({
+    id: 'u-boone',
+    name: 'Sgt. A. Boone',
+    badge: '2210',
+    username: 'aboone',
+    role: 'supervisor',
+    createdBy: 'R. Vance',
+  }),
   createUser({
     id: 'u-tam',
     name: 'D. Tam',
     badge: '3388',
+    username: 'dtam',
     role: 'officer',
     grants: ['notes.retract', 'notes.viewRetracted'],
+    createdBy: 'R. Vance',
   }),
-  createUser({ id: 'u-vance', name: 'R. Vance', badge: '1001', role: 'admin' }),
+  createUser({
+    id: 'u-vance',
+    name: 'R. Vance',
+    badge: '1001',
+    username: 'rvance',
+    role: 'admin',
+    // Agency administrators are provisioned by the vendor, not by the agency.
+    createdBy: 'Aegis Provisioning',
+  }),
+  createUser({
+    id: 'u-platform',
+    name: 'Aegis Provisioning',
+    badge: '—',
+    username: 'platform',
+    role: 'vendor',
+  }),
 ];
 import type { GeoFeatureCollection } from '@/domain/geo';
 

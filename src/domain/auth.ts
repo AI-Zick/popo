@@ -10,14 +10,30 @@
 
 import type { UUID } from './person';
 
-export type Role = 'officer' | 'supervisor' | 'records' | 'admin';
+export type Role = 'officer' | 'records' | 'supervisor' | 'admin' | 'vendor';
 
 export const ROLE_LABEL: Record<Role, string> = {
   officer: 'Patrol officer',
-  supervisor: 'Supervisor',
   records: 'Records',
-  admin: 'Administrator',
+  supervisor: 'Supervisor',
+  admin: 'Agency administrator',
+  vendor: 'Vendor administrator',
 };
+
+/**
+ * Administrative authority, used to stop anyone handing out more than they
+ * hold. This is about who may provision whom, not about rank on the street —
+ * a records clerk outranks nobody, but does administer the file room.
+ */
+const ROLE_RANK: Record<Role, number> = {
+  officer: 1,
+  records: 2,
+  supervisor: 2,
+  admin: 3,
+  vendor: 4,
+};
+
+export const ROLE_ORDER: Role[] = ['officer', 'records', 'supervisor', 'admin', 'vendor'];
 
 export type Permission =
   /** Add a note to a location. Everyone who writes reports can. */
@@ -31,7 +47,11 @@ export type Permission =
   /** Change jurisdiction and boundary configuration. */
   | 'agency.configure'
   /** Approve reports submitted for review. */
-  | 'reports.approve';
+  | 'reports.approve'
+  /** Create and manage accounts for this agency. */
+  | 'users.manage'
+  /** Stand up a new customer agency and its first administrator. */
+  | 'agency.provision';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -40,6 +60,8 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.viewRestricted': 'View restricted notes',
   'agency.configure': 'Change agency setup',
   'reports.approve': 'Approve reports',
+  'users.manage': 'Create and manage accounts',
+  'agency.provision': 'Provision new agencies',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -53,6 +75,17 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRetracted',
     'agency.configure',
     'reports.approve',
+    'users.manage',
+  ],
+  vendor: [
+    'notes.add',
+    'notes.viewRestricted',
+    'notes.retract',
+    'notes.viewRetracted',
+    'agency.configure',
+    'reports.approve',
+    'users.manage',
+    'agency.provision',
   ],
 };
 
@@ -69,6 +102,20 @@ export interface User {
   grants: Permission[];
   /** Permissions withheld from this person despite their role. */
   revocations: Permission[];
+
+  /** Sign-in identifier. Not authentication — see the README. */
+  username: string;
+
+  /**
+   * Accounts are deactivated, never deleted. An officer who has left still
+   * authored reports and notes, and those have to keep resolving to a person.
+   */
+  active: boolean;
+  deactivatedAt: string;
+
+  createdAt: string;
+  /** Who provisioned this account. */
+  createdBy: string;
 }
 
 export function can(user: User | null, permission: Permission): boolean {
@@ -95,6 +142,94 @@ export function createUser(partial: Partial<User> & { id: UUID }): User {
     role: 'officer',
     grants: [],
     revocations: [],
+    username: '',
+    active: true,
+    deactivatedAt: '',
+    createdAt: new Date().toISOString(),
+    createdBy: '',
     ...partial,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Provisioning                                                        */
+/* ------------------------------------------------------------------ */
+
+export function rankOf(role: Role): number {
+  return ROLE_RANK[role];
+}
+
+/**
+ * Roles this person may hand out. Nobody may create an account with more
+ * administrative authority than their own — the guard that stops an agency
+ * administrator quietly making themselves a vendor.
+ */
+export function assignableRoles(actor: User | null): Role[] {
+  if (!actor || !can(actor, 'users.manage')) return [];
+  return ROLE_ORDER.filter((role) => ROLE_RANK[role] <= ROLE_RANK[actor.role]);
+}
+
+export function canAssignRole(actor: User | null, role: Role): boolean {
+  return assignableRoles(actor).includes(role);
+}
+
+/**
+ * Permissions this person may designate to someone else: only ones they hold
+ * themselves. Otherwise "designate a colleague" becomes a way to mint any
+ * permission in the system.
+ */
+export function grantablePermissions(actor: User | null): Permission[] {
+  if (!actor || !can(actor, 'users.manage')) return [];
+  return (Object.keys(PERMISSION_LABEL) as Permission[]).filter((p) => can(actor, p));
+}
+
+export function canGrantPermission(actor: User | null, permission: Permission): boolean {
+  return grantablePermissions(actor).includes(permission);
+}
+
+/** Whether the actor may edit this account at all. */
+export function canManageUser(actor: User | null, target: User): boolean {
+  if (!actor || !can(actor, 'users.manage')) return false;
+  // Never reach above your own authority.
+  return ROLE_RANK[target.role] <= ROLE_RANK[actor.role];
+}
+
+export interface GuardResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Deactivation guards. Two ways an agency locks itself out of its own system:
+ * an administrator deactivates their own account, or the last person who can
+ * manage accounts is switched off.
+ */
+export function canDeactivate(actor: User | null, target: User, allUsers: User[]): GuardResult {
+  if (!actor || !can(actor, 'users.manage')) {
+    return { ok: false, reason: 'You do not have permission to manage accounts.' };
+  }
+  if (!canManageUser(actor, target)) {
+    return { ok: false, reason: 'This account has more authority than yours.' };
+  }
+  if (target.id === actor.id) {
+    return { ok: false, reason: 'You cannot deactivate your own account.' };
+  }
+  const remainingManagers = allUsers.filter(
+    (u) => u.active && u.id !== target.id && can(u, 'users.manage'),
+  );
+  if (remainingManagers.length === 0) {
+    return {
+      ok: false,
+      reason: 'This is the last account that can manage accounts. Set up another one first.',
+    };
+  }
+  return { ok: true };
+}
+
+/** Sanitises a proposed account so it can never exceed the actor's authority. */
+export function sanitizeUserInput(actor: User | null, input: Partial<User>): Partial<User> {
+  const role = input.role && canAssignRole(actor, input.role) ? input.role : 'officer';
+  const grants = (input.grants ?? []).filter((p) => canGrantPermission(actor, p));
+  const revocations = input.revocations ?? [];
+  return { ...input, role, grants, revocations };
 }

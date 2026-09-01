@@ -6,6 +6,7 @@ import { ZONE_LABELS } from '@/domain/agency';
 import { STATES } from '@/domain/codes';
 import { Button, FieldGrid, Panel } from '@/components/ui/primitives';
 import { ZoneMap } from '@/components/location/ZoneMap';
+import { UserAdmin } from './UserAdmin';
 import { cn } from '@/lib/cn';
 
 /**
@@ -13,8 +14,14 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
+type Tab = 'jurisdiction' | 'accounts';
+
 export function AgencySetup({ onClose }: { onClose: () => void }) {
-  const { agency, updateAgency } = useStore();
+  const { agency, updateAgency, can } = useStore();
+
+  const mayConfigure = can('agency.configure');
+  const mayManageUsers = can('users.manage');
+  const [tab, setTab] = useState<Tab>(mayConfigure ? 'jurisdiction' : 'accounts');
 
   const control =
     'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint';
@@ -26,11 +33,28 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           <ChevronLeft size={16} aria-hidden />
           Reports
         </Button>
-        <h1 className="text-[14px] font-semibold text-ink">Agency setup</h1>
+        <h1 className="text-[14px] font-semibold text-ink">Setup</h1>
+
+        <nav className="ml-4 flex gap-1">
+          {mayConfigure && (
+            <TabButton active={tab === 'jurisdiction'} onClick={() => setTab('jurisdiction')}>
+              Jurisdiction
+            </TabButton>
+          )}
+          {mayManageUsers && (
+            <TabButton active={tab === 'accounts'} onClick={() => setTab('accounts')}>
+              Accounts
+            </TabButton>
+          )}
+        </nav>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
+          {tab === 'accounts' && mayManageUsers && <UserAdmin />}
+
+          {tab === 'jurisdiction' && mayConfigure && (
+            <>
           <Panel
             title="Jurisdiction"
             description="Set once. New locations default to this, so nobody types the same town four hundred times a year."
@@ -158,9 +182,34 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </Panel>
+            </>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
+        active ? 'bg-raised text-ink' : 'text-muted hover:bg-raised/60',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
