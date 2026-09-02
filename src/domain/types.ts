@@ -23,6 +23,7 @@ export type SectionId =
   | 'property'
   | 'vehicles'
   | 'narrative'
+  | 'attachments'
   | 'review';
 
 export const SECTION_ORDER: SectionId[] = [
@@ -32,6 +33,7 @@ export const SECTION_ORDER: SectionId[] = [
   'property',
   'vehicles',
   'narrative',
+  'attachments',
   'review',
 ];
 
@@ -42,6 +44,7 @@ export const SECTION_LABEL: Record<SectionId, string> = {
   property: 'Property',
   vehicles: 'Vehicles',
   narrative: 'Narrative',
+  attachments: 'Attachments',
   review: 'Review & Submit',
 };
 

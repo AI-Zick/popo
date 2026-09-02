@@ -8,6 +8,7 @@ import {
   FileText,
   Gavel,
   Package,
+  Paperclip,
   Users,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
@@ -21,6 +22,7 @@ import { SectionPersons } from './sections/SectionPersons';
 import { SectionProperty } from './sections/SectionProperty';
 import { SectionVehicles } from './sections/SectionVehicles';
 import { SectionNarrative } from './sections/SectionNarrative';
+import { SectionAttachments } from './sections/SectionAttachments';
 import { SectionReview } from './sections/SectionReview';
 import { EditorHeader } from './EditorHeader';
 
@@ -31,6 +33,7 @@ const SECTION_ICON: Record<SectionId, typeof FileText> = {
   property: Package,
   vehicles: Car,
   narrative: BookOpen,
+  attachments: Paperclip,
   review: ClipboardCheck,
 };
 
@@ -41,6 +44,7 @@ const SECTION_HINT: Record<SectionId, string> = {
   property: 'Stolen, damaged, seized',
   vehicles: 'Stolen, towed, suspect',
   narrative: 'What happened, in your words',
+  attachments: 'Photographs and documents',
   review: 'Check and send',
 };
 
@@ -181,6 +185,8 @@ function SectionBody({ section }: { section: SectionId }) {
       return <SectionVehicles />;
     case 'narrative':
       return <SectionNarrative />;
+    case 'attachments':
+      return <SectionAttachments />;
     case 'review':
       return <SectionReview />;
   }

@@ -166,6 +166,38 @@ The client still writes whole collections back on a debounce. Coarse, and the
 seam to narrow when it stops owning domain logic — the schema does not change
 when it does.
 
+### Two people, one report
+
+Every record carries a version. A save sends the version it was based on, and
+if someone else has saved in between the server **refuses** and returns their
+copy — nothing is silently overwritten. The refusal surfaces as a banner naming
+who saved first; retrying automatically would be exactly the overwrite this
+exists to prevent.
+
+Alongside that, opening a report takes an **advisory lock** — the dashboard
+shows *"M. Reyes is editing"* and the editor warns before you start typing.
+It is deliberately breakable: a lock nobody can clear strands a case when its
+holder goes home with the laptop.
+
+Verified in two browsers: A and B both edited the same narrative, B's save was
+refused with A's text intact.
+
+### Attachments
+
+Photographs, PDFs, audio and plain text up to 25 MB, on the report. They are
+evidence, so they behave like it:
+
+- **Hashed on ingest.** The SHA-256 taken at upload is shown on the card and
+  rechecked on every view. Corrupt the stored file and the badge turns to
+  *Altered since upload* with a warning not to rely on it.
+- **Withdrawn, never deleted** — the same rule as location notes, needing the
+  same permission.
+- **Every open is logged.** Viewing a scene photograph is an access event.
+
+Body-worn video is refused with an explanation: it belongs in a dedicated
+evidence system, and accepting it here would imply retention and disclosure
+workflows this does not have.
+
 ### Sign-in
 
 **This is now a real boundary.** Passwords are verified by the server, the
@@ -361,14 +393,14 @@ role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
 CAD integration, and the actual NIBRS export.
 
-Before live data this still needs TLS, CJIS-eligible hosting, credentials that
-were never printed on a screen, and rate limiting at the edge. The application
-boundary is real; the deployment around it is not built.
+Deployment is covered in `DEPLOYMENT.md`, including what it deliberately does
+not do. The short version: **no MFA**, which CJIS requires for access to
+criminal justice information, and **no encryption at rest**. Both are called
+out rather than approximated — bolting on TOTP without enrolment and recovery
+would look like compliance without being it.
 
-The client also still writes whole collections rather than individual records,
-which is fine for one agency's caseload and wrong for a county's. Two people
-editing the same report will overwrite each other — there is no conflict
-detection yet. Merging two identities that are
+Still single-instance: rate limiting lives in process memory and SQLite takes
+one writer. Fine for one agency, wrong for a county. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

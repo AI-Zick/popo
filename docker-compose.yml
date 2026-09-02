@@ -1,0 +1,26 @@
+services:
+  aegis:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    volumes:
+      # Everything that must survive a redeploy: the database and the
+      # attachment files. Back this up.
+      - aegis-data:/data
+      # TLS material, mounted read-only. Remove both lines and set
+      # AEGIS_TRUST_PROXY=1 instead if TLS terminates at a proxy in front.
+      - ./certs:/certs:ro
+    environment:
+      NODE_ENV: production
+      AEGIS_TLS_KEY: /certs/server.key
+      AEGIS_TLS_CERT: /certs/server.crt
+      # AEGIS_TRUST_PROXY: '1'
+    # The database is a single file; a container that cannot write is useless,
+    # but nothing else needs to be writable.
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  aegis-data:

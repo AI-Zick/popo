@@ -76,6 +76,7 @@ CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);
 
 CREATE TABLE IF NOT EXISTS incidents (
   id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
   case_number TEXT NOT NULL DEFAULT '',
   status      TEXT NOT NULL DEFAULT 'draft',
   reported_at TEXT NOT NULL DEFAULT '',
@@ -86,6 +87,7 @@ CREATE INDEX IF NOT EXISTS incidents_case ON incidents(case_number);
 
 CREATE TABLE IF NOT EXISTS people (
   id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
   last_name   TEXT NOT NULL DEFAULT '',
   first_name  TEXT NOT NULL DEFAULT '',
   dob         TEXT NOT NULL DEFAULT '',
@@ -96,12 +98,46 @@ CREATE INDEX IF NOT EXISTS people_name ON people(last_name, first_name);
 
 CREATE TABLE IF NOT EXISTS locations (
   id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
   address     TEXT NOT NULL DEFAULT '',
   common_name TEXT NOT NULL DEFAULT '',
   updated_at  TEXT NOT NULL,
   doc         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS locations_address ON locations(address);
+
+-- Attachments. The bytes live on disk; this is the record of custody.
+CREATE TABLE IF NOT EXISTS attachments (
+  id           TEXT PRIMARY KEY,
+  incident_id  TEXT NOT NULL,
+  filename     TEXT NOT NULL,
+  mime         TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  -- Hashed on ingest. If the stored bytes ever stop matching this, the file
+  -- has been altered since it was taken into evidence.
+  sha256       TEXT NOT NULL,
+  caption      TEXT NOT NULL DEFAULT '',
+  uploaded_by  TEXT NOT NULL,
+  uploaded_by_name TEXT NOT NULL,
+  uploaded_at  TEXT NOT NULL,
+  -- Withdrawn, never deleted — same reasoning as location notes.
+  retracted_at TEXT NOT NULL DEFAULT '',
+  retracted_by TEXT NOT NULL DEFAULT '',
+  retraction_reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS attachments_incident ON attachments(incident_id);
+
+-- Advisory only. A lock says "somebody is in here" so two officers do not
+-- unknowingly work the same report; it does not prevent a write, because a
+-- lock that cannot be broken becomes a lock nobody can clear at 3am when its
+-- holder has gone home with the laptop.
+CREATE TABLE IF NOT EXISTS edit_locks (
+  resource_id TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  user_name   TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  refreshed_at TEXT NOT NULL
+);
 `;
 
 export type Row = Record<string, unknown>;
@@ -154,6 +190,88 @@ export function readDocs(db: DatabaseSync, table: DocTable): Record<string, unkn
   return rows.map((row) => JSON.parse(row.doc));
 }
 
+export interface StoredDoc {
+  doc: Record<string, unknown>;
+  version: number;
+}
+
+export function readDocsWithVersions(db: DatabaseSync, table: DocTable): StoredDoc[] {
+  const rows = db.prepare(`SELECT doc, version FROM ${table.name}`).all() as unknown as {
+    doc: string;
+    version: number;
+  }[];
+  return rows.map((row) => ({ doc: JSON.parse(row.doc), version: row.version }));
+}
+
+export function readDoc(db: DatabaseSync, table: DocTable, id: string): StoredDoc | null {
+  const row = db.prepare(`SELECT doc, version FROM ${table.name} WHERE id = ?`).get(id) as unknown as
+    | { doc: string; version: number }
+    | undefined;
+  return row ? { doc: JSON.parse(row.doc), version: row.version } : null;
+}
+
+export type WriteOutcome =
+  | { ok: true; version: number }
+  | { ok: false; conflict: StoredDoc };
+
+/**
+ * Writes one record, but only if the caller was working from the version that
+ * is currently stored. Two officers editing the same report used to mean the
+ * slower save silently erased the faster one; now the second writer is told,
+ * and gets the current record back to reconcile against.
+ */
+export function writeDoc(
+  db: DatabaseSync,
+  table: DocTable,
+  doc: Record<string, unknown>,
+  expectedVersion: number | null,
+): WriteOutcome {
+  const id = String(doc.id ?? '');
+  const existing = readDoc(db, table, id);
+
+  if (existing && expectedVersion !== null && existing.version !== expectedVersion) {
+    return { ok: false, conflict: existing };
+  }
+
+  const version = (existing?.version ?? 0) + 1;
+  const columns = table.columns(doc);
+  const names = Object.keys(columns);
+  const assignments = names.map((c) => `${c} = ?`).join(', ');
+
+  if (existing) {
+    db.prepare(
+      `UPDATE ${table.name} SET version = ?, ${assignments}, updated_at = ?, doc = ? WHERE id = ?`,
+    ).run(
+      version,
+      ...names.map((c) => columns[c] ?? ''),
+      String(doc.updatedAt ?? new Date().toISOString()),
+      JSON.stringify(doc),
+      id,
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO ${table.name} (id, version, ${names.join(', ')}, updated_at, doc)
+       VALUES (${['?', '?', ...names.map(() => '?'), '?', '?'].join(', ')})`,
+    ).run(
+      id,
+      version,
+      ...names.map((c) => columns[c] ?? ''),
+      String(doc.updatedAt ?? new Date().toISOString()),
+      JSON.stringify(doc),
+    );
+  }
+
+  return { ok: true, version };
+}
+
+export function deleteDoc(db: DatabaseSync, table: DocTable, id: string): void {
+  db.prepare(`DELETE FROM ${table.name} WHERE id = ?`).run(id);
+}
+
+/**
+ * Seed-time bulk insert. Not reachable from the API — every runtime write goes
+ * through `writeDoc` so it is version-checked.
+ */
 /**
  * Replaces the whole collection in one transaction. The client currently
  * writes through whole collections; when it moves to per-record calls this is

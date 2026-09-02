@@ -20,7 +20,7 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
 };
 
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
-  const { incidents, people, locations, agency, can, openIncident, createNew } = useStore();
+  const { incidents, people, locations, agency, can, lockOn, openIncident, createNew } = useStore();
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -129,6 +129,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                   <ReportRow
                     incident={incident}
                     location={locations[incident.locationId]}
+                    lockedBy={lockOn(incident.id)?.userName ?? null}
                     errors={errors}
                     onOpen={() => openIncident(incident.id)}
                   />
@@ -161,11 +162,13 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'da
 function ReportRow({
   incident,
   location,
+  lockedBy,
   errors,
   onOpen,
 }: {
   incident: Incident;
   location: MasterLocation | undefined;
+  lockedBy: string | null;
   errors: number;
   onOpen: () => void;
 }) {
@@ -186,6 +189,7 @@ function ReportRow({
           <span className="font-mono text-[13.5px] font-semibold text-ink">{incident.caseNumber}</span>
           <Badge tone={status.tone}>{status.label}</Badge>
           {incident.isDomestic && <Badge tone="danger">Domestic</Badge>}
+          {lockedBy && <Badge tone="warn">{lockedBy} is editing</Badge>}
         </div>
         <p className="mt-1 truncate text-[13.5px] text-ink">{offenses || 'No offense listed'}</p>
         <p className="mt-0.5 truncate text-[12px] text-faint">

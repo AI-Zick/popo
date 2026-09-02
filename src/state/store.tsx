@@ -57,7 +57,7 @@ import {
 } from '@/domain/locationMatching';
 import { createSession, touchSession, type Session, type SignInOutcome } from '@/domain/session';
 import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
-import { api, ApiError } from './api';
+import { api, ApiError, type Attachment, type Collection, type LockHolder } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 
@@ -90,6 +90,18 @@ interface StoreValue {
   isAuthenticated: boolean;
   /** True while the initial fetch is in flight. */
   loading: boolean;
+  /** Set when another officer saved a record you were editing. */
+  conflict: { id: string; message: string } | null;
+  dismissConflict: () => void;
+  /** Who is currently in which report. */
+  locks: Record<string, LockHolder>;
+  /** The holder of a lock on a record, when it is not you. */
+  lockOn: (id: string) => LockHolder | null;
+  takeOverLock: (id: string) => void;
+  attachments: Attachment[];
+  uploadAttachment: (file: File, caption: string) => Promise<GuardResult>;
+  retractAttachment: (id: string, reason: string) => Promise<GuardResult>;
+  verifyAttachment: (id: string) => Promise<{ intact: boolean }>;
   /** Set when the API cannot be reached at all. */
   connectionError: string | null;
   mustChangePassword: boolean;
@@ -198,6 +210,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{ id: string; message: string } | null>(null);
+  const [locks, setLocks] = useState<Record<string, LockHolder>>({});
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+
+  /** Server version of every record, so writes can say what they were based on. */
+  const versions = useRef<Record<string, number>>({});
 
   const currentUser = identity?.user ?? createUser({ id: 'anonymous', name: 'Not signed in' });
   const isAuthenticated = Boolean(identity);
@@ -271,6 +289,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLocations(state.locations);
     setUsers(state.users);
     setAuditLog(state.auditLog);
+    setLocks(state.locks ?? {});
+    setAttachments(state.attachments ?? []);
+    versions.current = state.versions ?? {};
     if (state.agency) setAgency(state.agency);
   }, []);
 
@@ -304,52 +325,148 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   /**
-   * Write-through. Local state stays the working copy so the UI keeps its
-   * synchronous feel, and changed collections are pushed a moment later.
-   * Coarse — whole collections at a time — and the seam to narrow when the
-   * client stops owning domain logic.
+   * Write-through, one record at a time.
+   *
+   * Each save carries the version the client last saw. If someone else has
+   * saved in the meantime the server refuses, and the refusal surfaces rather
+   * than being retried — retrying would be the silent overwrite this exists to
+   * prevent.
    */
-  const dirty = useRef(new Set<'incidents' | 'people' | 'locations'>());
+  const dirty = useRef(new Map<string, Collection>());
   const flushTimer = useRef<number | null>(null);
 
-  const scheduleFlush = useCallback(
-    (collection: 'incidents' | 'people' | 'locations') => {
-      dirty.current.add(collection);
-      if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
-      flushTimer.current = window.setTimeout(() => {
-        const pending = [...dirty.current];
-        dirty.current.clear();
-        for (const name of pending) {
-          const docs =
-            name === 'incidents'
-              ? incidentsRef.current
-              : name === 'people'
-                ? Object.values(peopleRef.current)
-                : Object.values(locationsRef.current);
-          void api.putCollection(name, docs).catch(() => {
-            // Keep it dirty so the next change retries the write.
-            dirty.current.add(name);
-          });
+  const flush = useCallback(async () => {
+    const pending = [...dirty.current.entries()];
+    dirty.current.clear();
+
+    for (const [id, collection] of pending) {
+      const doc =
+        collection === 'incidents'
+          ? incidentsRef.current.find((i) => i.id === id)
+          : collection === 'people'
+            ? peopleRef.current[id]
+            : locationsRef.current[id];
+
+      // Deleted locally before the flush ran.
+      if (!doc) {
+        void api.deleteRecord(collection, id).catch(() => undefined);
+        delete versions.current[id];
+        continue;
+      }
+
+      try {
+        const { version } = await api.putRecord(collection, id, doc, versions.current[id] ?? null);
+        versions.current[id] = version;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) {
+          setConflict({ id, message: error.message });
+          // Take the server's copy as the new base; the officer decides what
+          // to do from a screen that shows both, rather than losing either.
+          await refresh().catch(() => undefined);
+        } else {
+          // A transient failure keeps the record dirty so the next edit retries.
+          dirty.current.set(id, collection);
         }
-      }, 600);
+      }
+    }
+  }, [refresh]);
+
+  const markDirty = useCallback(
+    (collection: Collection, id: string) => {
+      dirty.current.set(id, collection);
+      if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
+      flushTimer.current = window.setTimeout(() => void flush(), 600);
+    },
+    [flush],
+  );
+
+  const dismissConflict = useCallback(() => setConflict(null), []);
+
+  /* -------------------------------------------------- locks ------------ */
+
+  const lockOn = useCallback(
+    (id: string) => {
+      const holder = locks[id];
+      return holder && holder.userId !== currentUser.id ? holder : null;
+    },
+    [locks, currentUser.id],
+  );
+
+  const takeOverLock = useCallback((id: string) => {
+    void api.acquireLock(id, true).then(() => api.locks()).then(({ locks: next }) => setLocks(next));
+  }, []);
+
+  /**
+   * Holds a lock on the open report and refreshes it, so other officers see
+   * that somebody is in there. Released on close; expires on its own if the
+   * laptop simply goes away.
+   */
+  useEffect(() => {
+    if (!activeId || !isAuthenticated) return;
+    let cancelled = false;
+
+    void api.acquireLock(activeId).catch(() => undefined);
+    const beat = window.setInterval(() => {
+      void api.acquireLock(activeId).catch(() => undefined);
+      void api.locks().then(({ locks: next }) => !cancelled && setLocks(next)).catch(() => undefined);
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(beat);
+      void api.releaseLock(activeId).catch(() => undefined);
+    };
+  }, [activeId, isAuthenticated]);
+
+  /** Keeps the dashboard's "who is editing what" roughly current. */
+  useEffect(() => {
+    if (!isAuthenticated || activeId) return;
+    const poll = window.setInterval(() => {
+      void api.locks().then(({ locks: next }) => setLocks(next)).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearInterval(poll);
+  }, [isAuthenticated, activeId]);
+
+  /* -------------------------------------------------- attachments ------ */
+
+  const uploadAttachment = useCallback(
+    async (file: File, caption: string): Promise<GuardResult> => {
+      if (!activeId) return { ok: false, reason: 'No report is open.' };
+      try {
+        await api.uploadAttachment(activeId, file, caption);
+        const { attachments: next } = await api.attachments();
+        setAttachments(next);
+        void api.auditLog().then(({ entries }) => setAuditLog(entries)).catch(() => undefined);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Upload failed.' };
+      }
+    },
+    [activeId],
+  );
+
+  const retractAttachment = useCallback(
+    async (id: string, reason: string): Promise<GuardResult> => {
+      try {
+        await api.retractAttachment(id, reason);
+        const { attachments: next } = await api.attachments();
+        setAttachments(next);
+        void api.auditLog().then(({ entries }) => setAuditLog(entries)).catch(() => undefined);
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof ApiError ? error.message : 'Could not withdraw it.',
+        };
+      }
     },
     [],
   );
 
-  useEffect(() => {
-    if (loading || !isAuthenticated) return;
-    scheduleFlush('incidents');
-  }, [incidents, loading, isAuthenticated, scheduleFlush]);
-
-  useEffect(() => {
-    if (loading || !isAuthenticated) return;
-    scheduleFlush('people');
-  }, [people, loading, isAuthenticated, scheduleFlush]);
-
-  useEffect(() => {
-    if (loading || !isAuthenticated) return;
-    scheduleFlush('locations');
-  }, [locations, loading, isAuthenticated, scheduleFlush]);
+  const verifyAttachmentFile = useCallback(
+    (id: string) => api.verifyAttachment(id).catch(() => ({ intact: false })),
+    [],
+  );
 
   /* -------------------------------------------------- field registry --- */
   const registerField = useCallback((path: string, el: HTMLElement | null) => {
@@ -423,6 +540,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const draft = structuredClone(item);
           mutator(draft);
           draft.updatedAt = new Date().toISOString();
+          markDirty('incidents', draft.id);
           return draft;
         }),
       );
@@ -447,6 +565,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
       );
       setPeople(draftPeople);
+      for (const id of Object.keys(draftPeople)) {
+        if (!peopleRef.current[id]) markDirty('people', id);
+      }
       setSavedAt(new Date().toISOString());
       if (focusTarget) {
         setSection(issue.section);
@@ -485,6 +606,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
       );
       setPeople(draftPeople);
+      for (const id of Object.keys(draftPeople)) {
+        if (!peopleRef.current[id]) markDirty('people', id);
+      }
       setSavedAt(new Date().toISOString());
       if (created) pendingFocus.current = `persons[${(created as IncidentPerson).id}].lastName`;
     },
@@ -572,6 +696,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const current = prev[masterId];
         if (!current) return prev;
         const next: MasterPerson = { ...current, ...patch, updatedAt: now };
+        markDirty('people', masterId);
         const provenance = { ...current.provenance };
         for (const key of Object.keys(patch)) {
           if ((PROVENANCED_FIELDS as readonly string[]).includes(key)) {
@@ -720,6 +845,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...draft,
       });
       setLocations((prev) => ({ ...prev, [created.id]: created }));
+      markDirty('locations', created.id);
       setLocation(created.id);
     },
     [locations, setLocation, agency.city, agency.state],
@@ -729,6 +855,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLocations((prev) => {
       const current = prev[locationId];
       if (!current) return prev;
+      markDirty('locations', locationId);
       return {
         ...prev,
         [locationId]: { ...current, ...patch, updatedAt: new Date().toISOString() },
@@ -745,6 +872,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!current) return prev;
         const entry = createNote({ ...note, author: currentUser.name || 'Unknown officer' });
         noteAdded = entry;
+        markDirty('locations', locationId);
         return {
           ...prev,
           [locationId]: {
@@ -798,6 +926,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLocations((prev) => {
         const current = prev[locationId];
         if (!current) return prev;
+        markDirty('locations', locationId);
         return {
           ...prev,
           [locationId]: {
@@ -978,6 +1107,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLocations((prev) => {
         const current = prev[locationId];
         if (!current) return prev;
+        markDirty('locations', locationId);
         return {
           ...prev,
           [locationId]: {
@@ -1171,6 +1301,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     isAuthenticated,
     loading,
     connectionError,
+    conflict,
+    dismissConflict,
+    locks,
+    lockOn,
+    takeOverLock,
+    attachments,
+    uploadAttachment,
+    retractAttachment,
+    verifyAttachment: verifyAttachmentFile,
     mustChangePassword,
     auditLog,
     signIn,

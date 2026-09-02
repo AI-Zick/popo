@@ -30,6 +30,9 @@ export type AuditAction =
   | 'note.retracted'
   | 'note.restored'
   | 'note.restrictedViewed'
+  | 'attachment.added'
+  | 'attachment.viewed'
+  | 'attachment.retracted'
   | 'report.submitted'
   | 'agency.configured';
 
@@ -47,6 +50,9 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'note.retracted': 'Note withdrawn',
   'note.restored': 'Note restored',
   'note.restrictedViewed': 'Restricted note viewed',
+  'attachment.added': 'Attachment added',
+  'attachment.viewed': 'Attachment opened',
+  'attachment.retracted': 'Attachment withdrawn',
   'report.submitted': 'Report submitted',
   'agency.configured': 'Agency setup changed',
 };
@@ -57,6 +63,8 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'auth.lockout',
   'note.retracted',
   'note.restrictedViewed',
+  'attachment.viewed',
+  'attachment.retracted',
   'user.created',
   'user.updated',
   'user.deactivated',

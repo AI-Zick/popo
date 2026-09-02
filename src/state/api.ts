@@ -13,6 +13,31 @@ import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
 
+export type Collection = 'incidents' | 'people' | 'locations';
+
+export interface LockHolder {
+  userId: string;
+  userName: string;
+  acquiredAt: string;
+  refreshedAt: string;
+}
+
+export interface Attachment {
+  id: string;
+  incidentId: string;
+  filename: string;
+  mime: string;
+  size: number;
+  sha256: string;
+  caption: string;
+  uploadedBy: string;
+  uploadedByName: string;
+  uploadedAt: string;
+  retractedAt: string;
+  retractedBy: string;
+  retractionReason: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -100,14 +125,87 @@ export const api = {
     agency: AgencyProfile | null;
     users: User[];
     auditLog: AuditEntry[];
+    versions: Record<string, number>;
+    locks: Record<string, LockHolder>;
+    attachments: Attachment[];
   }> {
     return request('/api/state');
   },
 
-  putCollection(collection: 'incidents' | 'people' | 'locations', docs: unknown[]) {
-    return request<{ ok: true }>(`/api/state/${collection}`, {
+  /**
+   * Writes one record, carrying the version the client last saw. A 409 means
+   * somebody else saved first — the error carries their version of the record.
+   */
+  putRecord(
+    collection: Collection,
+    id: string,
+    doc: unknown,
+    version: number | null,
+  ): Promise<{ ok: true; version: number }> {
+    return request(`/api/records/${collection}/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ docs }),
+      body: JSON.stringify({ doc, version }),
+    });
+  },
+
+  deleteRecord(collection: Collection, id: string) {
+    return request<{ ok: true }>(`/api/records/${collection}/${id}`, { method: 'DELETE' });
+  },
+
+  /* ---- Edit locks -------------------------------------------------- */
+
+  locks(): Promise<{ locks: Record<string, LockHolder> }> {
+    return request('/api/locks');
+  },
+
+  acquireLock(id: string, takeover = false): Promise<{ ok: true; tookOver: boolean }> {
+    return request(`/api/locks/${id}`, { method: 'POST', body: JSON.stringify({ takeover }) });
+  },
+
+  releaseLock(id: string) {
+    return request<{ ok: true }>(`/api/locks/${id}`, { method: 'DELETE' });
+  },
+
+  /* ---- Attachments -------------------------------------------------- */
+
+  attachments(incidentId?: string): Promise<{ attachments: Attachment[] }> {
+    const query = incidentId ? `?incident=${encodeURIComponent(incidentId)}` : '';
+    return request(`/api/attachments${query}`);
+  },
+
+  async uploadAttachment(
+    incidentId: string,
+    file: File,
+    caption: string,
+  ): Promise<{ attachment: Attachment }> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('incidentId', incidentId);
+    form.append('caption', caption);
+    // No Content-Type header — the browser sets the multipart boundary.
+    const response = await fetch('/api/attachments', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new ApiError(
+        (body as { error?: string } | null)?.error ?? 'Upload failed.',
+        response.status,
+      );
+    }
+    return body as { attachment: Attachment };
+  },
+
+  verifyAttachment(id: string): Promise<{ intact: boolean; sha256: string }> {
+    return request(`/api/attachments/${id}/verify`);
+  },
+
+  retractAttachment(id: string, reason: string) {
+    return request<{ ok: true }>(`/api/attachments/${id}/retract`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   },
 

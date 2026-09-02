@@ -9,8 +9,23 @@
 import express, { type Request, type Response } from 'express';
 import cookieParser from 'cookie-parser';
 import type { DatabaseSync } from 'node:sqlite';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
-import { DOC_TABLES, openDatabase, readDocs, writeDocs } from './db';
+import { DOC_TABLES, openDatabase, readDocs, readDocsWithVersions } from './db';
+import { registerRecordRoutes, listLocks } from './records';
+import { registerAttachmentRoutes, listAttachments } from './attachments';
+import {
+  createRateLimiter,
+  installGracefulShutdown,
+  installHealthCheck,
+  loadConfig,
+  requestLog,
+  securityHeaders,
+  type ServerConfig,
+} from './hardening';
 import {
   attemptSignIn,
   clearSessionCookie,
@@ -39,11 +54,14 @@ import {
 import { createCredential } from '../src/domain/session';
 import { generateTemporaryPassword } from '../src/domain/credentials';
 
-const PORT = Number(process.env.PORT ?? 4000);
-const DB_PATH = process.env.AEGIS_DB ?? 'data/aegis.db';
-
-export function createApp(db: DatabaseSync) {
+export function createApp(db: DatabaseSync, config: ServerConfig) {
   const app = express();
+
+  if (config.trustProxy) app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  app.use(securityHeaders(config));
+  app.use(requestLog(config));
+  installHealthCheck(app);
 
   // Reports carry narratives and many records; 4 MB is generous for JSON and
   // still small enough that a single request cannot exhaust memory.
@@ -57,7 +75,12 @@ export function createApp(db: DatabaseSync) {
 
   /* ---- Auth --------------------------------------------------------- */
 
-  app.post('/api/auth/sign-in', async (req: Request, res: Response) => {
+  // Per-account lockout slows guessing at one username; this slows an attacker
+  // spreading attempts across many usernames from one address.
+  const signInLimiter = createRateLimiter({ windowMs: 60_000, max: 10, name: 'sign-in' });
+  const passwordLimiter = createRateLimiter({ windowMs: 60_000, max: 5, name: 'password' });
+
+  app.post('/api/auth/sign-in', signInLimiter, async (req: Request, res: Response) => {
     const { username, password } = req.body ?? {};
     const result = await attemptSignIn(db, String(username ?? ''), String(password ?? ''));
     if (result.ok && result.session) setSessionCookie(res, result.session.id);
@@ -92,7 +115,7 @@ export function createApp(db: DatabaseSync) {
     });
   });
 
-  app.post('/api/auth/password', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/auth/password', passwordLimiter, requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
     const { current, next } = req.body ?? {};
     const credential = getCredential(db, user.id);
@@ -144,38 +167,28 @@ export function createApp(db: DatabaseSync) {
       | { doc: string }
       | undefined;
 
-    const people = readDocs(db, DOC_TABLES.people);
-    const locations = readDocs(db, DOC_TABLES.locations);
+    const people = readDocsWithVersions(db, DOC_TABLES.people);
+    const locations = readDocsWithVersions(db, DOC_TABLES.locations);
+    const incidents = readDocsWithVersions(db, DOC_TABLES.incidents);
+
+    // Versions travel with the data so the client can send back what it saw.
+    const versions: Record<string, number> = {};
+    for (const { doc, version } of [...incidents, ...people, ...locations]) {
+      versions[String(doc.id)] = version;
+    }
 
     res.json({
-      incidents: readDocs(db, DOC_TABLES.incidents),
-      people: Object.fromEntries(people.map((p) => [String(p.id), p])),
-      locations: Object.fromEntries(locations.map((l) => [String(l.id), l])),
+      incidents: incidents.map((i) => i.doc),
+      people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
+      locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
+      versions,
+      locks: listLocks(db),
+      attachments: listAttachments(db),
       agency: agencyRow ? JSON.parse(agencyRow.doc) : null,
       users: listUsers(db),
       // The log is only sent to people entitled to read it.
       auditLog: can(req.user!, 'audit.view') ? readAuditLog(db) : [],
     });
-  });
-
-  /**
-   * Write-through of a whole collection. Coarse, and deliberately so at this
-   * stage — the client still owns the domain logic. The seam to replace when
-   * that changes is here, not in the schema.
-   */
-  app.put('/api/state/:collection', requireAuth, (req: Request, res: Response) => {
-    const table = DOC_TABLES[req.params.collection];
-    if (!table) {
-      res.status(404).json({ error: 'Unknown collection.' });
-      return;
-    }
-    const docs = req.body?.docs;
-    if (!Array.isArray(docs)) {
-      res.status(400).json({ error: 'Expected { docs: [...] }.' });
-      return;
-    }
-    writeDocs(db, table, docs);
-    res.json({ ok: true, count: docs.length });
   });
 
   app.put('/api/agency', requirePermission('agency.configure'), (req: Request, res: Response) => {
@@ -376,9 +389,20 @@ export function createApp(db: DatabaseSync) {
     res.json({ ok: true, id: entry.id });
   });
 
+  registerRecordRoutes(app, db);
+  registerAttachmentRoutes(app, db, config.dataDir);
+
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'No such endpoint.' });
   });
+
+  // In production the API also serves the built client, so there is one origin
+  // and the session cookie needs no cross-site relaxation.
+  if (config.serveClient) {
+    const dist = resolve('dist');
+    app.use(express.static(dist, { index: false, maxAge: '1h' }));
+    app.get('*', (_req, res) => res.sendFile(join(dist, 'index.html')));
+  }
 
   return app;
 }
@@ -387,9 +411,29 @@ export function createApp(db: DatabaseSync) {
 
 const isMain = process.argv[1]?.includes('server/index');
 if (isMain) {
-  const db = openDatabase(DB_PATH);
+  const { config, problems } = loadConfig();
+
+  for (const problem of problems) console.error(problem.message);
+  if (problems.some((p) => p.fatal)) process.exit(1);
+
+  const db = openDatabase(config.dbPath);
   await seedDatabase(db);
-  createApp(db).listen(PORT, () => {
-    console.log(`Aegis API listening on http://localhost:${PORT} (db: ${DB_PATH})`);
+  const app = createApp(db, config);
+
+  const server = config.tls
+    ? createHttpsServer(
+        { key: readFileSync(config.tls.keyPath), cert: readFileSync(config.tls.certPath) },
+        app,
+      )
+    : createHttpServer(app);
+
+  server.listen(config.port, () => {
+    const scheme = config.tls ? 'https' : 'http';
+    console.log(`Aegis API on ${scheme}://localhost:${config.port} (db: ${config.dbPath})`);
+    if (!config.tls && !config.production) {
+      console.log('Development mode: plaintext HTTP, insecure cookies. Not for real data.');
+    }
   });
+
+  installGracefulShutdown(server, () => db.close());
 }

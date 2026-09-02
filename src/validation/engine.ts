@@ -161,6 +161,7 @@ const EMPTY_SECTIONS = (): Record<SectionId, Issue[]> => ({
   property: [],
   vehicles: [],
   narrative: [],
+  attachments: [],
   review: [],
 });
 
@@ -171,6 +172,7 @@ const ZERO_SECTIONS = (): Record<SectionId, number> => ({
   property: 0,
   vehicles: 0,
   narrative: 0,
+  attachments: 0,
   review: 0,
 });
 
@@ -197,7 +199,8 @@ export function runRules(incident: Incident, rules: Rule[], data: RuleData = {})
     property: 3,
     vehicles: 4,
     narrative: 5,
-    review: 6,
+    attachments: 6,
+    review: 7,
   };
   issues.sort(
     (a, b) =>
