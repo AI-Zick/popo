@@ -62,9 +62,31 @@ import { api, ApiError, type Attachment, type Collection, type LockHolder } from
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { profileFor, stateRules } from '@/domain/nibrs';
+import {
+  applySuggestion,
+  mergeFindings,
+  readNarrative,
+  type Finding,
+  type Suggestion,
+} from '@/domain/extraction';
 
 
 type Mutator = (draft: Incident) => void;
+
+/**
+ * A suggestion the officer accepted, with what the report looked like before.
+ *
+ * Kept for the life of the editing session so that accepting stays a reversible
+ * act. An officer who accepts the wrong thing should not have to work out by
+ * hand which field changed and what it used to say.
+ */
+export interface AcceptedSuggestion {
+  suggestion: Suggestion;
+  /** The field it wrote, for "show me". */
+  focusTarget: string | null;
+  previousIncident: Incident;
+  previousPeople: PersonIndex;
+}
 
 export interface AutoLinkNotice {
   incidentPersonId: string;
@@ -154,6 +176,29 @@ interface StoreValue {
   setSection: (section: SectionId) => void;
   goToIssue: (issue: Issue) => void;
   applyQuickFix: (issue: Issue) => void;
+  /**
+   * What the narrative appears to say that the report does not.
+   *
+   * Suggestions only. Nothing here reaches a field without a click — a police
+   * report is evidence, and a field the officer did not enter has no business
+   * appearing over their badge number.
+   */
+  suggestions: Suggestion[];
+  dismissedSuggestions: string[];
+  /** Accepted this session, newest first, each still undoable. */
+  acceptedSuggestions: AcceptedSuggestion[];
+  acceptSuggestion: (suggestion: Suggestion) => void;
+  dismissSuggestion: (id: string) => void;
+  /** Takes the officer to the field an accepted suggestion changed. */
+  showSuggestion: (id: string) => void;
+  /** Puts the report back the way it was before a suggestion was accepted. */
+  undoSuggestion: (id: string) => void;
+  /** Puts dismissed suggestions back, for when the officer changes their mind. */
+  resetSuggestions: () => void;
+  /** Whether the model-backed pass is available, and why not when it is not. */
+  extraction: { enabled: boolean; reason: string; busy: boolean; error: string | null };
+  /** Asks the model to read the narrative, on top of the offline pass. */
+  readWithModel: () => Promise<void>;
   revealField: (path: string) => void;
   attemptSubmit: () => boolean;
   registerField: (path: string, el: HTMLElement | null) => void;
@@ -592,30 +637,204 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const applyQuickFix = useCallback(
     (issue: Issue) => {
       if (!issue.quickFix) return;
-      let focusTarget: string | undefined = undefined;
+      const current = incidentsRef.current.find((item) => item.id === activeId);
+      if (!current) return;
+
+      // Computed outside the updater — see `acceptSuggestion` for why.
+      const draft = structuredClone(current);
       const draftPeople = structuredClone(people);
-      setIncidents((prev) =>
-        prev.map((item) => {
-          if (item.id !== activeId) return item;
-          const draft = structuredClone(item);
-          const result = issue.quickFix!.apply(draft, draftPeople);
-          focusTarget = typeof result === 'string' ? result : undefined;
-          draft.updatedAt = new Date().toISOString();
-          return draft;
-        }),
-      );
+      const result = issue.quickFix.apply(draft, draftPeople);
+      draft.updatedAt = new Date().toISOString();
+
+      setIncidents((prev) => prev.map((item) => (item.id === activeId ? draft : item)));
+      markDirty('incidents', draft.id);
       setPeople(draftPeople);
       for (const id of Object.keys(draftPeople)) {
         if (!peopleRef.current[id]) markDirty('people', id);
       }
       setSavedAt(new Date().toISOString());
-      if (focusTarget) {
+      if (typeof result === 'string') {
         setSection(issue.section);
-        revealField(focusTarget);
-        pendingFocus.current = focusTarget;
+        revealField(result);
+        pendingFocus.current = result;
       }
     },
     [activeId, people, setSection, revealField],
+  );
+
+  /* -------------------------------------------------- narrative -------- */
+
+  /*
+    Reading the narrative.
+
+    The offline pass runs on every keystroke-debounced render and costs
+    nothing. The model pass is a button, because it sends the narrative
+    somewhere and that should be an act, not a background process.
+  */
+  const [modelFindings, setModelFindings] = useState<Finding[]>([]);
+  const [dismissedSuggestions, setDismissed] = useState<string[]>([]);
+  const [acceptedSuggestions, setAccepted] = useState<AcceptedSuggestion[]>([]);
+  const [extraction, setExtraction] = useState({
+    enabled: false,
+    reason: '',
+    busy: false,
+    error: null as string | null,
+  });
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void api
+      .extractionStatus()
+      .then((status) => setExtraction((prev) => ({ ...prev, ...status })))
+      .catch(() => {
+        /* Absent status just means the offline pass is all there is. */
+      });
+  }, [isAuthenticated]);
+
+  // Findings belong to the narrative they came from; changing report or
+  // rewriting the narrative makes them stale.
+  useEffect(() => {
+    setModelFindings([]);
+    setDismissed([]);
+    setAccepted([]);
+  }, [activeId]);
+
+  const suggestions = useMemo(() => {
+    if (!incident) return [];
+    const all = modelFindings.length
+      ? mergeFindings(incident, people, modelFindings)
+      : readNarrative(incident, people);
+    return all.filter((s) => !dismissedSuggestions.includes(s.id));
+  }, [incident, people, modelFindings, dismissedSuggestions]);
+
+  const readWithModel = useCallback(async () => {
+    if (!incident || !extraction.enabled) return;
+    setExtraction((prev) => ({ ...prev, busy: true, error: null }));
+    try {
+      // Codes the report already uses, so what comes back is storable rather
+      // than plausible-looking.
+      const context = [
+        `Offenses already on this report: ${incident.offenses.map((o) => o.code).join(', ') || 'none'}.`,
+        `Date of the incident: ${incident.occurredFrom || incident.reportedAt}.`,
+      ].join('\n');
+
+      const result = await api.readNarrative({
+        narrative: incident.narrative ?? '',
+        context,
+        caseNumber: incident.caseNumber,
+      });
+      setModelFindings((result.findings ?? []) as Finding[]);
+      if (result.refused) {
+        setExtraction((prev) => ({
+          ...prev,
+          error: 'The model declined to read this narrative. The offline pass still ran.',
+        }));
+      }
+    } catch (error) {
+      setExtraction((prev) => ({
+        ...prev,
+        error: error instanceof ApiError ? error.message : 'Could not read the narrative.',
+      }));
+    } finally {
+      setExtraction((prev) => ({ ...prev, busy: false }));
+    }
+  }, [incident, extraction.enabled]);
+
+  /**
+   * Writes one suggestion into the report, and takes the officer to it.
+   *
+   * The same path a validation quick fix takes, deliberately: both are "the
+   * system proposes, a human decides", and the officer landing on the changed
+   * field is what separates this from silent autofill.
+   */
+  const acceptSuggestion = useCallback(
+    (suggestion: Suggestion) => {
+      const current = incidentsRef.current.find((item) => item.id === activeId);
+      if (!current) return;
+
+      /*
+        The change is computed here rather than inside the `setIncidents`
+        updater, because React runs that updater when it re-renders — not when
+        it is called. Reading the focus target straight after `setIncidents`
+        read it before it had been written, so accepting a suggestion applied
+        the field and then left the officer looking at the narrative. A field
+        that changes somewhere the officer cannot see is exactly the silent
+        autofill this module exists to avoid.
+      */
+      const draft = structuredClone(current);
+      const draftPeople = structuredClone(people);
+      const result = applySuggestion(draft, draftPeople, suggestion);
+      draft.updatedAt = new Date().toISOString();
+
+      setIncidents((prev) => prev.map((item) => (item.id === activeId ? draft : item)));
+      markDirty('incidents', draft.id);
+      setPeople(draftPeople);
+      for (const id of Object.keys(draftPeople)) {
+        if (!peopleRef.current[id]) markDirty('people', id);
+      }
+      setSavedAt(new Date().toISOString());
+      setDismissed((prev) => [...prev, suggestion.id]);
+
+      /*
+        Deliberately does NOT navigate.
+
+        An earlier version took the officer straight to the changed field,
+        which is right for one suggestion and wrong for seven — it threw them
+        out of the list on every accept. The card confirms in place instead,
+        naming the field and the section, with "show me" and "undo" next to
+        it. That keeps the promise the navigation was there to keep — nothing
+        changes out of sight — without making the list unusable.
+      */
+      setAccepted((prev) => [
+        {
+          suggestion,
+          focusTarget: typeof result === 'string' ? result : null,
+          previousIncident: current,
+          previousPeople: people,
+        },
+        ...prev,
+      ]);
+    },
+    [activeId, people],
+  );
+
+  const showSuggestion = useCallback(
+    (id: string) => {
+      const entry = acceptedSuggestions.find((a) => a.suggestion.id === id);
+      if (!entry) return;
+      setSection(entry.suggestion.section);
+      if (entry.focusTarget) {
+        revealField(entry.focusTarget);
+        pendingFocus.current = entry.focusTarget;
+      }
+    },
+    [acceptedSuggestions, setSection, revealField],
+  );
+
+  /** Puts the report back exactly as it stood before the suggestion was taken. */
+  const undoSuggestion = useCallback(
+    (id: string) => {
+      const entry = acceptedSuggestions.find((a) => a.suggestion.id === id);
+      if (!entry) return;
+      const restored = { ...entry.previousIncident, updatedAt: new Date().toISOString() };
+      setIncidents((prev) => prev.map((item) => (item.id === restored.id ? restored : item)));
+      markDirty('incidents', restored.id);
+      setPeople(entry.previousPeople);
+      setSavedAt(new Date().toISOString());
+      setAccepted((prev) => prev.filter((a) => a.suggestion.id !== id));
+      // Back on the list, so it can be taken again.
+      setDismissed((prev) => prev.filter((d) => d !== id));
+    },
+    [acceptedSuggestions],
+  );
+
+  const dismissSuggestion = useCallback((id: string) => {
+    setDismissed((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+
+  const resetSuggestions = useCallback(
+    () => setDismissed(acceptedSuggestions.map((a) => a.suggestion.id)),
+    [acceptedSuggestions],
   );
 
   /* -------------------------------------------------- people ----------- */
@@ -1454,6 +1673,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSection,
     goToIssue,
     applyQuickFix,
+    suggestions,
+    dismissedSuggestions,
+    acceptedSuggestions,
+    acceptSuggestion,
+    dismissSuggestion,
+    showSuggestion,
+    undoSuggestion,
+    resetSuggestions,
+    extraction,
+    readWithModel,
     revealField,
     attemptSubmit,
     registerField,

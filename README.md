@@ -208,6 +208,63 @@ read-only while it is with a supervisor or after approval — a supervisor can
 reopen an approved one, and the approval stays in the history rather than being
 erased.
 
+### Reading the narrative
+
+The officer types the story anyway, and nearly every coded field is already in
+it — the time, the plate, the value of the laptop, whether the door was forced.
+Re-typing that into boxes is a large part of what makes these systems feel like
+punishment. So the narrative is read as it is written, and what it appears to
+say shows up beside it.
+
+**Nothing is ever entered for you, and that is the whole design.** A police
+report is evidence. A field the officer did not enter, appearing over their
+name and badge number, is a statement they did not make in a document a
+prosecutor relies on and a defence attorney will cross-examine them about.
+*"The software filled that in"* is not an answer anyone wants to give on a
+stand. So every finding is a suggestion, carrying the exact words it came from,
+accepted one at a time. There is no "accept all".
+
+Accepting confirms **in place** rather than jumping to the field — an earlier
+version navigated on every accept, which is right for one suggestion and
+unusable for seven. The card names the field and the section it went to, with
+*show me* and *undo* next to it, so nothing changes out of sight and nobody
+loses their place.
+
+Two readers, and the order matters:
+
+- **Patterns, on this machine.** Times written as `2200 hours`, labelled
+  plates, VINs by their shape (17 characters, never I, O or Q), phone numbers,
+  dollar figures, tow destinations, forced-entry language on a burglary, named
+  weapons, and — the highest-value one — people the narrative names who are
+  **already in the Master Name Index but not on this report**. It only ever
+  proposes people the agency already knows, so it cannot invent a human being.
+  No network call, no configuration, nothing leaves the building, and the same
+  narrative always gives the same suggestions.
+
+- **A model, off by default.** Better at what patterns cannot reach: intent,
+  resolving *"the male"* to a person, noticing that paragraph four describes a
+  second offense. It is off because a narrative is criminal justice information
+  — names, dates of birth, what a victim said happened to them, often a
+  juvenile — and sending it to a third party is a CJIS decision for the
+  agency's CJIS Systems Officer and their counsel, not a default in a config
+  file. It needs `AEGIS_AI_EXTRACTION=1` **and** a key. Until then the pattern
+  reader is what an agency gets, and it is not a stub.
+
+Three guards, because an extractor that is confidently wrong is worse than none:
+
+1. **Grounding.** Every finding carries a quote, and a finding whose quote does
+   not appear in the narrative is discarded before it is shown. For the pattern
+   reader that is a tautology; for the model it is the hallucination guard — an
+   invented fact cannot be quoted from text that does not contain it.
+2. **A closed field list.** The model returns *data*, not code, against
+   `EXTRACTABLE_FIELDS`. Anything naming a field outside it is dropped, so
+   nothing arriving over the wire can reach a field nobody chose to expose.
+3. **A human.** Applying is a click, and it is reversible.
+
+What the report already says is marked rather than hidden — showing that the
+system read the narrative and agreed is worth more than a list that silently
+shrinks. Sending a narrative to the model is logged as an access event.
+
 ### The paper copy
 
 Prosecutors, defence counsel and courts work from paper. **Print** renders the
@@ -471,6 +528,9 @@ src/
                   that drive conditional validation; `matching.ts` and
                   `locationMatching.ts` hold the resolution scoring for
                   people and places.
+    extraction/   Reading the narrative. `patterns.ts` is the offline
+                  reader, `suggest.ts` does grounding and applying. Nothing
+                  here writes a field — it only proposes.
     nibrs/        The state submission. `extract.ts` is national and shared,
                   `states/` is one data file per state, `format.ts` and
                   `xml.ts` are the two transports. All pure functions, so the
@@ -533,6 +593,12 @@ not do. The short version: **no MFA**, which CJIS requires for access to
 criminal justice information, and **no encryption at rest**. Both are called
 out rather than approximated — bolting on TOTP without enrolment and recovery
 would look like compliance without being it.
+
+Narrative reading by a model is written and wired but **has not been run
+against a live key** — the offline pattern reader is what has been exercised
+end to end. The model path needs a real evaluation set before anyone should
+trust its precision, and precision is the only thing that matters: an extractor
+that is wrong one time in ten teaches officers to ignore all of it.
 
 Still single-instance: rate limiting lives in process memory and SQLite takes
 one writer. Fine for one agency, wrong for a county. Merging two identities that

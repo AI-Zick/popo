@@ -39,6 +39,7 @@ export type AuditAction =
   | 'report.reopened'
   | 'report.printed'
   | 'nibrs.exported'
+  | 'narrative.read'
   | 'agency.configured';
 
 export const ACTION_LABEL: Record<AuditAction, string> = {
@@ -64,6 +65,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'report.reopened': 'Report reopened',
   'report.printed': 'Report printed',
   'nibrs.exported': 'NIBRS file exported',
+  'narrative.read': 'Narrative sent for reading',
   'agency.configured': 'Agency setup changed',
 };
 
@@ -79,6 +81,8 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'report.reopened',
   'report.printed',
   'nibrs.exported',
+  // A narrative leaving the building is an access event, not a convenience.
+  'narrative.read',
   'user.created',
   'user.updated',
   'user.deactivated',

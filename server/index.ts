@@ -18,6 +18,7 @@ import { DOC_TABLES, openDatabase, readDocs, readDocsWithVersions } from './db';
 import { registerRecordRoutes, listLocks } from './records';
 import { registerAttachmentRoutes, listAttachments } from './attachments';
 import { registerReviewRoutes } from './review';
+import { registerExtractionRoutes } from './extract';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -394,6 +395,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
 
   registerRecordRoutes(app, db);
   registerReviewRoutes(app, db);
+  registerExtractionRoutes(app, db);
   registerAttachmentRoutes(app, db, config.dataDir);
 
   app.use('/api', (_req, res) => {

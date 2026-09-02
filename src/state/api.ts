@@ -105,6 +105,25 @@ export const api = {
     });
   },
 
+  /** Whether the model-backed narrative read is switched on for this install. */
+  extractionStatus(): Promise<{ enabled: boolean; reason: string }> {
+    return request('/api/extract/status');
+  },
+
+  /**
+   * Sends a narrative to be read by the model.
+   *
+   * Only reached when the officer asks for it and the agency has turned it on
+   * — the offline extractor covers everything else.
+   */
+  readNarrative(input: {
+    narrative: string;
+    context: string;
+    caseNumber: string;
+  }): Promise<{ findings: unknown[]; refused?: boolean }> {
+    return request('/api/extract', { method: 'POST', body: JSON.stringify(input) });
+  },
+
   signOut(): Promise<{ ok: true }> {
     return request('/api/auth/sign-out', { method: 'POST' });
   },

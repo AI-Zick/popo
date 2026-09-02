@@ -5,6 +5,7 @@ import { path } from '@/validation/engine';
 import { Panel } from '@/components/ui/primitives';
 import { TextareaField } from '@/components/ui/fields';
 import { cn } from '@/lib/cn';
+import { SuggestionPanel } from '@/features/narrative/SuggestionPanel';
 
 /** Prompts that mirror how a report actually gets written, in order. */
 const PROMPTS = [
@@ -23,7 +24,7 @@ export function SectionNarrative() {
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
 
   return (
-    <div className="grid grid-cols-[1fr_260px] gap-4">
+    <div className="grid grid-cols-[1fr_280px] gap-4">
       <Panel
         title="Narrative"
         description="The coded fields above produce statistics. This is the part a prosecutor actually reads."
@@ -44,7 +45,10 @@ export function SectionNarrative() {
         </div>
       </Panel>
 
-      <CoverageChecklist text={text} />
+      <div className="space-y-4">
+        <SuggestionPanel />
+        <CoverageChecklist text={text} />
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@
     "typecheck:server": "tsc -p tsconfig.server.json"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.22.2",
     "lucide-react": "^0.469.0",
