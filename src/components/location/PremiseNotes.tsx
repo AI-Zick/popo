@@ -246,9 +246,18 @@ function NoteCard({
             </p>
           )}
 
+          {/*
+            The age shown is the age of the *confirmation*, not of the note.
+            A gate code written in 2021 and checked last week is current; saying
+            "3 years ago" next to it invites the reader to distrust something
+            that was just verified.
+          */}
           <p className="mt-1.5 text-[11.5px] text-faint">
-            {note.author || 'Unknown'} · {relativeTime(note.createdAt)}
-            {stale && ' · last confirmed over a year ago'}
+            {note.author || 'Unknown'} · added {relativeTime(note.createdAt)}
+            {note.reviewedAt &&
+              note.reviewedAt !== note.createdAt &&
+              ` · confirmed ${relativeTime(note.reviewedAt)}`}
+            {stale && ' · needs a re-check'}
           </p>
 
           {stale && (

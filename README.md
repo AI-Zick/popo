@@ -513,12 +513,53 @@ points from their 911/NG911 addressing authority that are better than anything a
 public geocoder returns. Coordinates come from dropping a pin, and the seam for
 a local geocoder is a single call site.
 
-### Provenance
+### Provenance, and how old it is
 
-Identity fields record where their value came from and whether an officer
-confirmed it. A registered owner is not necessarily the driver and an address on
-file is not necessarily current, so a value returned by a licence query is shown
-as unconfirmed until someone verifies it against the person in front of them.
+Every identity field records where its value came from — officer, DMV return,
+interstate query, migrated record — and whether an officer confirmed it against
+the person in front of them. A registered owner is not necessarily the driver
+and an address on file is not necessarily current, so a report has to be able
+to tell what was observed from what the state had on file.
+
+**And it records when.** An address is not a fact, it is a fact *as at a date*.
+Every edit to a person's contact details is stamped, and the age is shown
+wherever the value is:
+
+```
+Address   88 Marion St            🕑 4 years old   Still current
+Phone     (205) 555-0193          🕑 4 years old   Still current
+```
+
+Under three months it is quiet. Under a year it says so and moves on. Past a
+year it turns amber and offers **Still current** — which re-stamps the date
+without retyping, because the common case is an officer looking at an old
+value, confirming it with the person in front of them, and having nothing to
+change.
+
+This is not cosmetic. A warrant served at a four-year-old address is served on
+whoever lives there now. A next-of-kin call to a disconnected number is a
+death notification that does not happen. A victim who cannot be reached for a
+follow-up becomes a case closed for lack of cooperation they were never asked
+for.
+
+**An unknown date is shown as unknown, never as fresh.** A record migrated from
+a previous system with no provenance could be twenty years old, and saying
+nothing invites the reader to assume it is current — which is precisely the
+failure this exists to prevent.
+
+The age travels to paper too, because whoever serves the warrant is reading the
+sheet and not the screen:
+
+```
+1. Okafor, Samuel — Victim (Individual)
+   88 Marion St, Cedar Falls (current) · (205) 555-0193 (4 years old)
+```
+
+Location notes work the same way and always have: a gate code past a year is
+badged *needs a re-check* with a one-click confirm, and the age shown is the
+age of the last confirmation rather than of the note — a code written in 2021
+and checked last week is current, and saying "3 years ago" next to it teaches
+people to distrust something that was just verified.
 
 ## Architecture
 

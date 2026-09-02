@@ -1,4 +1,4 @@
-import { History, ShieldAlert, Users } from 'lucide-react';
+import { CalendarCheck, CalendarClock, History, ShieldAlert, Users } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
 import { createCharge } from '@/domain/factory';
@@ -12,6 +12,7 @@ import {
   type ProvenancedField,
 } from '@/domain/person';
 import { ageAt, formatDate } from '@/lib/format';
+import { freshness } from '@/domain/freshness';
 import {
   AddButton,
   Badge,
@@ -438,9 +439,17 @@ function PersonCard({ person, index }: { person: Person; index: number }) {
 /* ------------------------------------------------------------------ */
 
 /**
- * A text field that shows where its value came from when that was not an
- * officer. A registered owner is not necessarily the driver, and the report
- * should not imply otherwise.
+ * A text field that says where its value came from and how old it is.
+ *
+ * The age is the part officers actually need. An address is not a fact, it is a
+ * fact as at a date: a warrant served at a four-year-old address is served on
+ * whoever lives there now, and a next-of-kin call to a dead number is a
+ * notification that does not happen. The date was already being stamped on
+ * every edit — it just was not being shown, which made it worth nothing.
+ *
+ * "Still current" re-stamps without retyping, because the common case is an
+ * officer looking at an old value, confirming it with the person in front of
+ * them, and having nothing to change.
  */
 function ProvenancedText({
   person,
@@ -462,6 +471,14 @@ function ProvenancedText({
   const { updateIdentity } = useStore();
   const record = person.provenance?.[field];
   const external = record && record.source !== 'officer';
+  const value = String(person[field] ?? '');
+
+  // A date of birth does not go stale, and neither does an empty field.
+  const tracksAge = field !== 'dob' && value.trim() !== '';
+  const age = tracksAge ? freshness(record?.at) : null;
+
+  const confirm = () =>
+    updateIdentity(person.masterId, { [field]: person[field] } as Partial<MasterPerson>);
 
   return (
     <div className={className}>
@@ -470,24 +487,51 @@ function ProvenancedText({
         label={label}
         type={type}
         required={required}
-        value={String(person[field] ?? '')}
+        value={value}
         onChange={onChange}
       />
-      {external && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md bg-raised px-2 py-1.5">
-          <span className="text-[11.5px] text-muted">
-            {SOURCE_LABEL[record.source]}
-            {record.verified ? ' · confirmed' : ' · not confirmed with this person'}
-          </span>
-          {!record.verified && (
+
+      {(external || age) && (
+        <div
+          className={cn(
+            'mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2 py-1.5',
+            age?.worthChecking ? 'bg-warn-soft' : 'bg-raised',
+          )}
+        >
+          {age && (
+            <span
+              className={cn(
+                'flex items-center gap-1 text-[11.5px]',
+                age.worthChecking ? 'font-medium text-ink' : 'text-muted',
+              )}
+            >
+              {age.worthChecking ? (
+                <CalendarClock size={11} className="text-warn" aria-hidden />
+              ) : (
+                <CalendarCheck size={11} className="text-faint" aria-hidden />
+              )}
+              {age.label}
+            </span>
+          )}
+
+          {external && (
+            <span className="text-[11.5px] text-muted">
+              · {SOURCE_LABEL[record.source]}
+              {record.verified ? ' · confirmed' : ' · not confirmed with this person'}
+            </span>
+          )}
+
+          {/*
+            Offered whenever the value is worth a second look, or came from
+            somewhere other than an officer and has not been confirmed.
+          */}
+          {(age?.worthChecking || (external && !record.verified)) && (
             <button
               type="button"
-              onClick={() =>
-                updateIdentity(person.masterId, { [field]: person[field] } as Partial<MasterPerson>)
-              }
-              className="text-[11.5px] font-medium text-accent hover:underline"
+              onClick={confirm}
+              className="ml-auto text-[11.5px] font-medium text-accent hover:underline"
             >
-              I confirmed this
+              {external && !record.verified ? 'I confirmed this' : 'Still current'}
             </button>
           )}
         </div>

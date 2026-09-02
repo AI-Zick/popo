@@ -1,5 +1,12 @@
 import type { Incident } from '@/domain/types';
-import type { IncidentPerson, MasterPerson, PersonIndex, PersonRole } from '@/domain/person';
+import type {
+  FieldProvenance,
+  FieldSource,
+  IncidentPerson,
+  MasterPerson,
+  PersonIndex,
+  PersonRole,
+} from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
 import { createUser, type User } from '@/domain/auth';
@@ -159,6 +166,21 @@ function samePerson(
   return createIncidentPerson(role, link.masterId, involvement);
 }
 
+/**
+ * A provenance stamp, N days back.
+ *
+ * The seed carries a realistic spread on purpose: an address confirmed at the
+ * scene, a phone number nobody has touched in years, and one record migrated
+ * from the previous system with no provenance at all. All three states show up
+ * differently, which is the point — a system where everything reads "current"
+ * teaches officers not to look.
+ */
+function stampedDaysAgo(days: number, source: FieldSource = 'officer'): FieldProvenance {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return { source, verified: source === 'officer', at: d.toISOString() };
+}
+
 function isoDaysAgo(days: number, hour = 14, minute = 30): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -277,6 +299,13 @@ export function seedState(): {
       phone: '(205) 555-0148',
       driverLicense: 'AL7729140',
       driverLicenseState: 'AL',
+      provenance: {
+        // Confirmed with her at the scene two days ago.
+        address: stampedDaysAgo(2),
+        // The number has been in the index since a call in 2022 and nobody has
+        // checked it since. This is the case the feature exists for.
+        phone: stampedDaysAgo(1400),
+      },
     },
     { victimType: 'I', injuries: ['N'], offenseIds: [burglary.id, larceny.id] },
   );
@@ -357,7 +386,17 @@ export function seedState(): {
           firstName: 'Samuel',
           sex: 'M',
           race: 'B',
+          address: '88 Marion St',
+          city: 'Cedar Falls',
+          state: 'AL',
           phone: '(205) 555-0193',
+          provenance: {
+            // Carried over from a 2022 case. Nobody has confirmed either of
+            // these since, and the officer taking this report needs to know
+            // that before trying to reach him.
+            address: stampedDaysAgo(1580),
+            phone: stampedDaysAgo(1580),
+          },
         },
         { victimType: 'I' },
       ),

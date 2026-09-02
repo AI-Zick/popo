@@ -6,6 +6,7 @@ import { fullAddress } from '@/domain/location';
 import { formalName } from '@/domain/person';
 import { STATUS_LABEL, REVIEW_ACTION_LABEL } from '@/domain/review';
 import { currency, formatDate, formatDateTime } from '@/lib/format';
+import { ageForPrint } from '@/domain/freshness';
 
 /**
  * The paper version.
@@ -175,8 +176,15 @@ export function PrintableReport({ onClose }: { onClose: () => void }) {
                   person.dob && `DOB ${formatDate(person.dob)}`,
                   person.sex && labelOf(SEX_CODES, person.sex),
                   person.race && labelOf(RACE_CODES, person.race),
-                  person.address && `${person.address}, ${person.city}`,
-                  person.phone,
+                  /*
+                    Contact details carry their age on paper too. Whoever serves
+                    the warrant or makes the notification is reading this sheet,
+                    not the screen, and an address with no date reads as current
+                    however old it is.
+                  */
+                  person.address &&
+                    `${person.address}, ${person.city} (${ageForPrint(person.provenance?.address?.at)})`,
+                  person.phone && `${person.phone} (${ageForPrint(person.provenance?.phone?.at)})`,
                 ]
                   .filter(Boolean)
                   .join(' · ') || 'No identifying detail recorded'}
