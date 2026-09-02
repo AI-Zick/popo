@@ -14,6 +14,13 @@ export interface AgencyProfile {
   /** ORI — the FBI's identifier for the agency, required on every submission. */
   ori: string;
 
+  /**
+   * An identifier some state programs assign in addition to the ORI, and
+   * require on every record. Blank where the state does not use one — the
+   * state profile says whether it is needed.
+   */
+  stateAgencyCode: string;
+
   /** Jurisdiction. New locations default to these. */
   city: string;
   county: string;
@@ -42,6 +49,7 @@ export function emptyAgency(): AgencyProfile {
   return {
     name: '',
     ori: '',
+    stateAgencyCode: '',
     city: '',
     county: '',
     state: '',

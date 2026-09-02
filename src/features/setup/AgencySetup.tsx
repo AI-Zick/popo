@@ -103,6 +103,24 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               </label>
             </FieldGrid>
 
+            <FieldGrid cols={2}>
+              <label>
+                <span className="mb-1.5 block text-[13px] font-medium text-ink">
+                  State agency code
+                </span>
+                <input
+                  value={agency.stateAgencyCode}
+                  onChange={(e) => updateAgency({ stateAgencyCode: e.target.value.toUpperCase() })}
+                  placeholder="Leave blank if your state does not use one"
+                  className={cn(control, 'font-mono uppercase')}
+                />
+                <span className="mt-1 block text-[12px] text-faint">
+                  Some state programs assign an identifier of their own alongside the ORI and
+                  require it on every record. The NIBRS export says whether yours does.
+                </span>
+              </label>
+            </FieldGrid>
+
             <div className="mt-4 grid grid-cols-4 gap-4">
               <label className="col-span-2">
                 <span className="mb-1.5 block text-[13px] font-medium text-ink">City / town</span>

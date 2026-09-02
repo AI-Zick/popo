@@ -101,6 +101,7 @@ const ZONES: GeoFeatureCollection = {
 const AGENCY: AgencyProfile = {
   name: 'Cedar Falls Police Department',
   ori: 'AL0010200',
+  stateAgencyCode: '',
   city: 'Cedar Falls',
   county: 'St. Clair',
   state: 'AL',

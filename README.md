@@ -226,33 +226,75 @@ disclosure of everything in it.
 
 ### NIBRS submission
 
-Approved reports, written as the fixed-width file a state collection system
-reads: six segment levels — administrative, offense, property, victim,
-offender, arrestee — one line each.
+Approved reports, written as the file a state's collection system reads.
 
-Two things matter more than the file:
+**One engine, a pack of data per state.** The alternative — a branch or a
+codebase per state — means every bug fix is fifty cherry-picks and a security
+patch is a fifty-agency coordination problem. It is also a large part of why
+the incumbents are what they are. What actually differs between states is a
+table of numbers, so it is stored as a table of numbers:
 
-- **Only approved reports go in.** A draft is by definition unfinished and a
-  report still in review has been checked by nobody. Either one in the file
-  means the agency's published crime figures contain work no one signed off.
-- **Everything held back is named, with the reason.** The failure mode of every
-  records system is a report that quietly never gets counted and surfaces a
-  year later as a hole in the annual return. Held-back reports are listed on
-  the screen: *still a draft*, *sent back for correction*, *2 unresolved
-  validation problems*.
+```
+extract.ts   incident → named values.  National. Never varies.
+states/      which values, in what order, how wide.  Data, per state.
+format.ts    layout + values → a line.  Shared.
+xml.ts       layout + values → an element.  The other transport.
+```
+
+Working a victim's age out from a date of birth is the same arithmetic in
+Columbia and in Concord. Writing that age into columns 56-57 rather than 58-59
+is a table. So extraction is national and shared, and a state pack is a file of
+widths.
+
+Two are implemented, chosen because they differ in the ways that stress the
+design:
+
+- **South Carolina** (SCIBRS, run by SLED) — fixed width, a submission header
+  record carrying the batch counts, a state agency code on every record
+  alongside the ORI, a wider case-number field, and the state statute cite
+  required on offenses and arrest charges.
+- **New Hampshire** (NHIBRS, Department of Safety / State Police) — **XML**,
+  and resident status on the victim record, which the national layout does not
+  collect.
+
+They share every line of extraction, every national validation rule, and the
+whole rest of the system. **The transport is a renderer, not a fork.** An
+agency in a state with no pack falls back to the FBI's national layout, and
+the screen says so rather than letting the fallback pass for a state
+submission.
+
+**Required fields are declared in the layout, and the validation is generated
+from it.** Marking South Carolina's statute cite `required: true` is the entire
+act of adding the check — the officer is told while the report is still open,
+rather than the records clerk being told six weeks later by a rejection report.
+Writing the requirement down twice would guarantee the two drift, and the
+direction they drift in is the bad one: the file gets a column nobody was asked
+to fill.
+
+Those state warnings do not block the report. A report that is complete by
+federal standards can be filed; it is held out of the *submission* until the
+state's own fields are answered, which is the right place for the
+disagreement.
+
+**What is held back is named, with the reason.** The failure mode of every
+records system is a report that quietly never gets counted and surfaces a year
+later as a hole in the annual return. So: *still a draft*, *sent back for
+correction*, *2 unresolved validation problems*, *1 state requirement not met*.
 
 A blank field goes out as spaces, never zeroes. An age of `00` is a claim the
 person is a newborn, and a premises-entered count of `00` on an offense that
-has no such count is a claim the state's edit checks reject.
+has no such count is a claim the state's edit checks reject. In XML the same
+types resolve differently — a date is `2026-08-27` rather than `20260827` —
+which is a renderer's job, not a state's.
 
-**The layout needs reconciling before a first real submission.** Field
-positions follow the FBI's national layout; effectively every state modifies
-it, several require extra state-specific segments, and a growing number take
-NIBRS XML instead of fixed width. This is the right shape, said plainly on the
-screen rather than buried in a manual, because a file that is the right shape
-in the wrong dialect gets rejected in bulk weeks later.
+**Every profile is marked unverified, on the screen.** The layouts are this
+system's reading of the record, not a transcription of a published
+specification, and no profile claims otherwise until somebody has walked one
+column by column. The export screen prints the layout as a column table for
+exactly that purpose. A file that is the right shape in the wrong dialect gets
+rejected in bulk, weeks later.
 
-Downloading the file is logged, with the case count.
+Downloading is logged, with the profile and the case count.
 
 ### Two people, one report
 
@@ -428,9 +470,12 @@ src/
   domain/         Types and reference data. Offense codes carry the flags
                   that drive conditional validation; `matching.ts` and
                   `locationMatching.ts` hold the resolution scoring for
-                  people and places; `nibrs.ts` builds the state file as
-                  pure functions, so the same code runs in the browser for
-                  a preview and on the server for the real thing.
+                  people and places.
+    nibrs/        The state submission. `extract.ts` is national and shared,
+                  `states/` is one data file per state, `format.ts` and
+                  `xml.ts` are the two transports. All pure functions, so the
+                  same code runs in the browser for a preview and on the
+                  server for the real file.
   validation/
     engine.ts     Issue/Rule types, the runner, field-path helpers.
     rules/        Rules by area — incident, offenses, persons, property,
@@ -496,4 +541,8 @@ are *already* separate records is not built either — only linking at entry tim
 The NIBRS export is generated in the browser from the same pure functions the
 server can call, and is a submission *file*, not a submission: there is no
 transmission, no acknowledgement handling, and no reconciliation of what the
-state rejected.
+state rejected. Two state packs exist and **neither has been checked against
+its published specification** — that is stated on the screen, not just here.
+Forty-eight states have no pack; adding one is a file of widths and a line in
+the registry, but somebody still has to read the state's spec, and no
+architecture removes that.

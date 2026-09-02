@@ -61,6 +61,7 @@ import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
 import { api, ApiError, type Attachment, type Collection, type LockHolder } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
+import { profileFor, stateRules } from '@/domain/nibrs';
 
 
 type Mutator = (draft: Incident) => void;
@@ -281,9 +282,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incident, locations],
   );
 
+  /*
+    The national edits, plus whatever the agency's own state adds on top. A
+    state pack's required fields arrive as warnings: the report is complete by
+    federal standards and can be filed, but it will be held out of the state
+    submission until they are answered.
+  */
+  const rules = useMemo(() => [...ALL_RULES, ...stateRules(profileFor(agency.state))], [agency.state]);
+
   const validation = useMemo(() => {
     if (!incident) return EMPTY_VALIDATION;
-    const base = runRules(incident, ALL_RULES, { people, locations, agency });
+    const base = runRules(incident, rules, { people, locations, agency });
 
     // A supervisor's note is, for the officer, exactly the same kind of thing
     // as a validation problem: something specific, attached to a field, that
@@ -304,8 +313,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       tip: 'Make the change, then mark it done in the panel. The report cannot go back up with this outstanding.',
     }));
 
-    return runRules(incident, [...ALL_RULES, () => asIssues], { people, locations, agency });
-  }, [incident, people, locations, agency]);
+    return runRules(incident, [...rules, () => asIssues], { people, locations, agency });
+  }, [incident, people, locations, agency, rules]);
 
   incidentRef.current = incident;
   locationsRef.current = locations;
