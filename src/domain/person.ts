@@ -252,8 +252,19 @@ export function displayName(p: { businessName: string; firstName: string; lastNa
   return 'Unnamed person';
 }
 
-/** "Whitfield, Dana M" — the form records staff read. */
-export function formalName(p: MasterPerson): string {
+/**
+ * "Whitfield, Dana M" — the form records staff read.
+ *
+ * Typed on the name fields rather than on `MasterPerson` so the resolved
+ * `Person` view can be passed straight in.
+ */
+export function formalName(p: {
+  businessName: string;
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  suffix: string;
+}): string {
   if (p.businessName.trim()) return p.businessName.trim();
   const first = [p.firstName, p.middleName].filter((s) => s.trim()).join(' ');
   const last = [p.lastName, p.suffix].filter((s) => s.trim()).join(' ');

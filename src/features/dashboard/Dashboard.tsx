@@ -1,5 +1,17 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, ArrowRight, CheckCircle2, FilePlus2, Search, Settings, Shield } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  ClipboardList,
+  CornerUpLeft,
+  FileEdit,
+  FilePlus2,
+  Search,
+  Send,
+  Settings,
+  Shield,
+} from 'lucide-react';
 import { useStore } from '@/state/store';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -8,54 +20,117 @@ import { formatDateTime, relativeTime } from '@/lib/format';
 import { Badge, Button, EmptyState } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
+import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
-import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
 
-const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' }> = {
-  draft: { label: 'Draft', tone: 'neutral' },
-  pending_review: { label: 'Pending review', tone: 'accent' },
-  approved: { label: 'Approved', tone: 'ok' },
-  returned: { label: 'Returned', tone: 'warn' },
+const STATUS_TONE: Record<ReportStatus, 'neutral' | 'accent' | 'ok' | 'warn'> = {
+  draft: 'neutral',
+  pending_review: 'accent',
+  approved: 'ok',
+  returned: 'warn',
 };
+
+/**
+ * Filters an officer actually thinks in. "Mine, unfinished" is the first
+ * question at the start of a shift; "what is waiting on me" is the first
+ * question for a supervisor.
+ */
+type Filter = 'mine_open' | 'mine_returned' | 'mine_all' | 'pending' | 'approved' | 'all';
+
+const FILTER_LABEL: Record<Filter, string> = {
+  mine_open: 'My open cases',
+  mine_returned: 'Sent back',
+  mine_all: 'All mine',
+  pending: 'Awaiting review',
+  approved: 'Approved',
+  all: 'Everything',
+};
+
+type Sort = 'updated' | 'oldest' | 'case';
 
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
   const { incidents, people, locations, agency, can, currentUser, lockOn, openIncident, createNew } =
     useStore();
-  const [tab, setTab] = useState<'all' | 'queue'>('all');
-
-  const queue = useMemo(() => buildQueue(incidents, currentUser), [incidents, currentUser]);
-  const mayReview = can('reports.approve');
+  const [tab, setTab] = useState<'cases' | 'queue'>('cases');
+  const [filter, setFilter] = useState<Filter>('mine_open');
+  const [sort, setSort] = useState<Sort>('updated');
   const [query, setQuery] = useState('');
+
+  const mayReview = can('reports.approve');
+  const queue = useMemo(() => buildQueue(incidents, currentUser), [incidents, currentUser]);
+
+  const mine = (i: Incident) => i.createdBy === currentUser.id;
+
+  /** Counts for the tiles, computed once over the whole set. */
+  const counts = useMemo(
+    () => ({
+      mineOpen: incidents.filter((i) => mine(i) && (i.status === 'draft' || i.status === 'returned'))
+        .length,
+      returned: incidents.filter((i) => mine(i) && i.status === 'returned').length,
+      /*
+        A reviewer's "waiting on review" is the whole department's; an officer's
+        "my submitted" is their own. Counting everyone's under a label that says
+        "my" is how a tile stops being trusted.
+      */
+      pending: incidents.filter(
+        (i) => i.status === 'pending_review' && (mayReview || mine(i)),
+      ).length,
+      approved: incidents.filter((i) => i.status === 'approved').length,
+    }),
+    [incidents, currentUser.id, mayReview],
+  );
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
+
+    const matchesFilter = (i: Incident) => {
+      switch (filter) {
+        case 'mine_open':
+          return mine(i) && (i.status === 'draft' || i.status === 'returned');
+        case 'mine_returned':
+          return mine(i) && i.status === 'returned';
+        case 'mine_all':
+          return mine(i);
+        case 'pending':
+          return i.status === 'pending_review' && (mayReview || mine(i));
+        case 'approved':
+          return i.status === 'approved';
+        case 'all':
+          return true;
+      }
+    };
+
+    const matchesSearch = (i: Incident) => {
+      if (!q) return true;
+      return (
+        i.caseNumber.toLowerCase().includes(q) ||
+        locationLabel(locations[i.locationId]).toLowerCase().includes(q) ||
+        i.reportingOfficer.toLowerCase().includes(q) ||
+        i.offenses.some((o) => (OFFENSE_BY_CODE.get(o.code)?.label ?? '').toLowerCase().includes(q)) ||
+        i.persons.some((link) => {
+          const master = people[link.masterId];
+          if (!master) return false;
+          return `${master.firstName} ${master.lastName} ${master.businessName}`
+            .toLowerCase()
+            .includes(q);
+        })
+      );
+    };
+
     return incidents
+      .filter((i) => matchesFilter(i) && matchesSearch(i))
       .map((incident) => ({
         incident,
-        errors: runRules(incident, ALL_RULES, people).errors.length,
+        errors: runRules(incident, ALL_RULES, { people, locations, agency }).errors.length,
       }))
-      .filter(({ incident }) => {
-        if (!q) return true;
-        return (
-          incident.caseNumber.toLowerCase().includes(q) ||
-          locationLabel(locations[incident.locationId]).toLowerCase().includes(q) ||
-          incident.reportingOfficer.toLowerCase().includes(q) ||
-          incident.offenses.some((o) => (OFFENSE_BY_CODE.get(o.code)?.label ?? '').toLowerCase().includes(q)) ||
-          incident.persons.some((link) => {
-            const master = people[link.masterId];
-            if (!master) return false;
-            return `${master.firstName} ${master.lastName} ${master.businessName}`
-              .toLowerCase()
-              .includes(q);
-          })
-        );
+      .sort((a, b) => {
+        if (sort === 'case') return a.incident.caseNumber.localeCompare(b.incident.caseNumber);
+        if (sort === 'oldest') return a.incident.reportedAt.localeCompare(b.incident.reportedAt);
+        return b.incident.updatedAt.localeCompare(a.incident.updatedAt);
       });
-  }, [incidents, people, locations, query]);
-
-  const openCount = incidents.filter((i) => i.status === 'draft' || i.status === 'returned').length;
-  const blockedCount = rows.filter((r) => r.errors > 0 && r.incident.status === 'draft').length;
+  }, [incidents, people, locations, agency, query, filter, sort, currentUser.id, mayReview]);
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -66,9 +141,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           </span>
           <div>
             <h1 className="text-[15px] font-semibold tracking-tight text-ink">Aegis RMS</h1>
-            <p className="text-[11.5px] text-faint">
-              {agency.name || 'Agency not configured'}
-            </p>
+            <p className="text-[11.5px] text-faint">{agency.name || 'Agency not configured'}</p>
           </div>
         </div>
 
@@ -79,7 +152,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search case number, name, address, offense…"
+            placeholder="Case number, name, address, offense…"
             className="w-full rounded-lg border border-line bg-canvas py-2 pl-9 pr-3 text-[13.5px] text-ink placeholder:text-faint"
           />
         </div>
@@ -107,28 +180,77 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-6 py-6">
-          <div className="mb-5 grid grid-cols-3 gap-3">
-            <Stat label="Reports" value={String(incidents.length)} />
-            <Stat label="Open drafts" value={String(openCount)} />
-            <Stat
-              label="Drafts with blocking issues"
-              value={String(blockedCount)}
-              tone={blockedCount > 0 ? 'danger' : 'ok'}
+          {/* Tiles double as filters — the number and the way in are the same
+              thing, so there is nothing to hunt for after reading it. */}
+          <div className="mb-5 grid grid-cols-4 gap-3">
+            <Tile
+              icon={<FileEdit size={15} />}
+              label="My open cases"
+              value={counts.mineOpen}
+              active={tab === 'cases' && filter === 'mine_open'}
+              onClick={() => {
+                setTab('cases');
+                setFilter('mine_open');
+              }}
+            />
+            <Tile
+              icon={<CornerUpLeft size={15} />}
+              label="Sent back to me"
+              value={counts.returned}
+              tone={counts.returned > 0 ? 'warn' : undefined}
+              active={tab === 'cases' && filter === 'mine_returned'}
+              onClick={() => {
+                setTab('cases');
+                setFilter('mine_returned');
+              }}
+            />
+            <Tile
+              icon={<Send size={15} />}
+              label={mayReview ? 'Waiting on review' : 'My submitted'}
+              value={counts.pending}
+              tone={mayReview && counts.pending > 0 ? 'accent' : undefined}
+              active={tab === 'cases' && filter === 'pending'}
+              onClick={() => {
+                if (mayReview) setTab('queue');
+                else {
+                  setTab('cases');
+                  setFilter('pending');
+                }
+              }}
+            />
+            <Tile
+              icon={<CheckCircle2 size={15} />}
+              label="Approved"
+              value={counts.approved}
+              active={tab === 'cases' && filter === 'approved'}
+              onClick={() => {
+                setTab('cases');
+                setFilter('approved');
+              }}
             />
           </div>
 
-          {mayReview && (
-            <div className="mb-4 flex gap-1.5">
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            {(Object.keys(FILTER_LABEL) as Filter[]).map((key) => (
               <button
+                key={key}
                 type="button"
-                onClick={() => setTab('all')}
+                onClick={() => {
+                  setTab('cases');
+                  setFilter(key);
+                }}
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
-                  tab === 'all' ? 'bg-surface text-ink ring-1 ring-line' : 'text-muted hover:bg-surface/60',
+                  tab === 'cases' && filter === key
+                    ? 'bg-surface text-ink ring-1 ring-line'
+                    : 'text-muted hover:bg-surface/60',
                 )}
               >
-                All reports
+                {FILTER_LABEL[key]}
               </button>
+            ))}
+
+            {mayReview && (
               <button
                 type="button"
                 onClick={() => setTab('queue')}
@@ -137,6 +259,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                   tab === 'queue' ? 'bg-surface text-ink ring-1 ring-line' : 'text-muted hover:bg-surface/60',
                 )}
               >
+                <ClipboardList size={14} aria-hidden />
                 Review queue
                 {queue.length > 0 && (
                   <span className="rounded bg-accent px-1.5 text-[11px] font-semibold text-white tabular">
@@ -144,10 +267,27 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                   </span>
                 )}
               </button>
-            </div>
-          )}
+            )}
 
-          {mayReview && tab === 'queue' ? (
+            <div className="flex-1" />
+
+            {tab === 'cases' && (
+              <label className="flex items-center gap-2 text-[12.5px] text-muted">
+                Sort
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as Sort)}
+                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink"
+                >
+                  <option value="updated">Recently worked on</option>
+                  <option value="oldest">Oldest incident first</option>
+                  <option value="case">Case number</option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          {tab === 'queue' && mayReview ? (
             queue.length === 0 ? (
               <EmptyState
                 icon={<CheckCircle2 size={20} />}
@@ -185,13 +325,19 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           ) : rows.length === 0 ? (
             <EmptyState
               icon={<Search size={20} />}
-              title={query ? 'No reports match that search' : 'No reports yet'}
+              title={query ? 'Nothing matches that search' : `Nothing under “${FILTER_LABEL[filter]}”`}
               body={
                 query
                   ? 'Try a case number, a last name, a street, or an offense like “burglary”.'
-                  : 'Start a new report and the form will adapt to the offenses you choose.'
+                  : 'Start a new report, or widen the filter to see everyone’s.'
               }
-              action={!query ? <Button variant="primary" onClick={createNew}>New report</Button> : undefined}
+              action={
+                !query ? (
+                  <Button variant="primary" onClick={createNew}>
+                    New report
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <ul className="space-y-2">
@@ -214,19 +360,45 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'danger' | 'ok' }) {
+function Tile({
+  icon,
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone?: 'warn' | 'accent';
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="rounded-xl border border-line bg-surface px-4 py-3">
-      <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-xl border bg-surface px-4 py-3 text-left transition hover:border-line-strong',
+        active ? 'border-accent/50 ring-1 ring-accent/25' : 'border-line',
+      )}
+    >
+      <p className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+        <span className={cn(tone === 'warn' ? 'text-warn' : tone === 'accent' ? 'text-accent' : '')}>
+          {icon}
+        </span>
+        {label}
+      </p>
       <p
         className={cn(
           'mt-1 text-[24px] font-semibold tracking-tight tabular',
-          tone === 'danger' ? 'text-danger' : tone === 'ok' ? 'text-ok' : 'text-ink',
+          tone === 'warn' ? 'text-warn' : tone === 'accent' ? 'text-accent' : 'text-ink',
         )}
       >
         {value}
       </p>
-    </div>
+    </button>
   );
 }
 
@@ -243,11 +415,11 @@ function ReportRow({
   errors: number;
   onOpen: () => void;
 }) {
-  const status = STATUS[incident.status];
   const offenses = incident.offenses
     .map((o) => OFFENSE_BY_CODE.get(o.code)?.label)
     .filter(Boolean)
     .join(', ');
+  const editable = incident.status === 'draft' || incident.status === 'returned';
 
   return (
     <button
@@ -258,7 +430,7 @@ function ReportRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[13.5px] font-semibold text-ink">{incident.caseNumber}</span>
-          <Badge tone={status.tone}>{STATUS_LABEL[incident.status] ?? status.label}</Badge>
+          <Badge tone={STATUS_TONE[incident.status]}>{STATUS_LABEL[incident.status]}</Badge>
           {incident.isDomestic && <Badge tone="danger">Domestic</Badge>}
           {lockedBy && <Badge tone="warn">{lockedBy} is editing</Badge>}
         </div>
@@ -270,17 +442,19 @@ function ReportRow({
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        {errors > 0 ? (
+        {/* Blocking problems only matter while the report is still the
+            officer's to fix; on a submitted one they would be noise. */}
+        {editable && errors > 0 ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-danger-soft px-2 py-1 text-[12px] font-medium text-danger">
             <AlertCircle size={13} aria-hidden />
             {errors} to fix
           </span>
-        ) : (
+        ) : editable ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-ok-soft px-2 py-1 text-[12px] font-medium text-ok">
             <CheckCircle2 size={13} aria-hidden />
-            Complete
+            Ready
           </span>
-        )}
+        ) : null}
         <span className="text-[11.5px] text-faint">Updated {relativeTime(incident.updatedAt)}</span>
       </div>
     </button>

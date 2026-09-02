@@ -48,7 +48,7 @@ export default function App() {
 
   return (
     <div className="h-full">
-      {setupOpen && !incident && (can('agency.configure') || can('users.manage') || can('audit.view')) ? (
+      {setupOpen && !incident && (can('agency.configure') || can('users.manage') || can('audit.view') || can('reports.approve')) ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
       ) : incident ? (
         <IncidentEditor />

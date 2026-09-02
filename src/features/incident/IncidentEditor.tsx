@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -26,6 +26,7 @@ import { SectionNarrative } from './sections/SectionNarrative';
 import { SectionAttachments } from './sections/SectionAttachments';
 import { SectionReview } from './sections/SectionReview';
 import { EditorHeader } from './EditorHeader';
+import { PrintableReport } from '@/features/print/PrintableReport';
 
 const SECTION_ICON: Record<SectionId, typeof FileText> = {
   incident: FileText,
@@ -51,6 +52,7 @@ const SECTION_HINT: Record<SectionId, string> = {
 
 export function IncidentEditor() {
   const { incident, activeSection, setSection, validation, goToIssue, reportEditable } = useStore();
+  const [printing, setPrinting] = useState(false);
 
   // F8 walks to the next unresolved problem, the way a spellchecker would.
   useEffect(() => {
@@ -73,7 +75,8 @@ export function IncidentEditor() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <EditorHeader />
+      <EditorHeader onPrint={() => setPrinting(true)} />
+      {printing && <PrintableReport onClose={() => setPrinting(false)} />}
 
       <div className="flex min-h-0 flex-1">
         {/* -------- Section rail ---------------------------------------- */}

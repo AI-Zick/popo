@@ -137,3 +137,32 @@ button:focus-visible,
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Paper.
+ *
+ * The print sheet is portalled to <body>; while it is up, `printing` on <html>
+ * takes the application out of the printed document entirely. Without this the
+ * browser lays out the editor's scroll containers as well and the first page
+ * comes out as a screenshot of a sidebar.
+ */
+@media print {
+  html.printing #root {
+    display: none !important;
+  }
+  html.printing,
+  html.printing body {
+    background: #fff;
+    height: auto;
+    overflow: visible;
+  }
+  .print-sheet {
+    position: static !important;
+    overflow: visible !important;
+    /* Paper is white whatever the officer's theme is. */
+    color-scheme: light;
+  }
+  @page {
+    margin: 0.55in;
+  }
+}

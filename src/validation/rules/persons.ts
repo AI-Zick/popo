@@ -3,6 +3,12 @@ import { attachNewPerson } from '@/domain/factory';
 import { ageAt } from '@/lib/format';
 import { DOMESTIC_RELATIONSHIPS } from '@/domain/codes';
 
+/**
+ * Victim types that are organizations: they carry a name, and nothing else a
+ * person carries. 'S' (society) and 'L' (an officer) are deliberately absent.
+ */
+const ENTITY_VICTIM_TYPES = new Set(['B', 'F', 'G', 'R', 'O']);
+
 export const personRules: Rule[] = [
   // ---- Crimes against persons need an individual victim -----------------
   (ctx) => {
@@ -100,10 +106,26 @@ export const personRules: Rule[] = [
     for (const person of ctx.persons) {
       const scope = ctx.personLabel(person);
       const at = (field: Parameters<typeof path.person>[1]) => path.person(person.id, field);
-      const isOrg = person.role === 'victim' && person.victimType !== 'I' && person.victimType !== '';
+      /*
+        Victim types split three ways, and conflating them is how a records
+        system ends up refusing to file a DUI.
+
+          S  Society / Public — a victimless offense. Nobody is named, and
+             asking for a name is asking for a fiction.
+          L  Law Enforcement Officer — a natural person, named and described
+             like any other individual victim.
+          B F G R O — entities, which have a name but no date of birth.
+      */
+      const isSocietyVictim = person.role === 'victim' && person.victimType === 'S';
+      const isEntityVictim =
+        person.role === 'victim' && ENTITY_VICTIM_TYPES.has(person.victimType);
+      const isIndividualVictim =
+        person.role === 'victim' && (person.victimType === 'I' || person.victimType === 'L');
 
       // Identity
-      if (isOrg) {
+      if (isSocietyVictim) {
+        // Nothing to record. Society has no name, age or sex.
+      } else if (isEntityVictim) {
         if (blank(person.businessName)) {
           issues.push({
             key: `person.${person.id}.businessName`,
@@ -141,7 +163,7 @@ export const personRules: Rule[] = [
       }
 
       // Victim demographics
-      if (person.role === 'victim' && person.victimType === 'I') {
+      if (isIndividualVictim) {
         if (blank(person.dob) && blank(person.ageFrom)) {
           issues.push({
             key: `person.${person.id}.age`,

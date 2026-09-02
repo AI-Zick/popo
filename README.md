@@ -166,6 +166,23 @@ The client still writes whole collections back on a debounce. Coarse, and the
 seam to narrow when it stops owning domain logic — the schema does not change
 when it does.
 
+### The case list is the home page
+
+The first screen is not a menu. It is four counts an officer or a supervisor
+actually asks at the start of a shift — **my open cases**, **sent back to me**,
+**waiting on review** (a supervisor's whole department, an officer's own), and
+**approved** — and each tile *is* the filter for what it counts. Reading the
+number and getting to the reports behind it are the same click, so there is
+nothing to hunt for after reading it.
+
+Under that: the same list, narrowed by chip, sorted by recently worked on,
+oldest incident, or case number, and searchable by case number, last name,
+street, or offense. A report with blocking problems carries a *"3 to fix"*
+badge — but only while it is still yours to fix, because telling someone a
+read-only report has errors is telling them about a job they cannot do.
+
+Supervisors get a **review queue** tab alongside it, aged longest-wait-first.
+
 ### Supervisor review
 
 A report goes up, and comes back either approved or with what needs fixing.
@@ -190,6 +207,52 @@ The queue ages: longest wait first, flagged overdue past 72 hours. A report is
 read-only while it is with a supervisor or after approval — a supervisor can
 reopen an approved one, and the approval stays in the history rather than being
 erased.
+
+### The paper copy
+
+Prosecutors, defence counsel and courts work from paper. **Print** renders the
+whole report in a fixed order — every section, with the coded values spelled
+out, because `20` means nothing to anyone outside the system — and the footer
+records who printed it and when.
+
+PDF is the browser's own print-to-PDF. That keeps the layout engine the same
+one the officer previewed and avoids shipping a second renderer whose output
+nobody checks. The sheet is portalled out of the application and the app is
+taken out of the printed document entirely, so the first page is the report
+rather than a screenshot of a sidebar.
+
+**Printing a report is an access event** and is logged as one. A report is a
+disclosure of everything in it.
+
+### NIBRS submission
+
+Approved reports, written as the fixed-width file a state collection system
+reads: six segment levels — administrative, offense, property, victim,
+offender, arrestee — one line each.
+
+Two things matter more than the file:
+
+- **Only approved reports go in.** A draft is by definition unfinished and a
+  report still in review has been checked by nobody. Either one in the file
+  means the agency's published crime figures contain work no one signed off.
+- **Everything held back is named, with the reason.** The failure mode of every
+  records system is a report that quietly never gets counted and surfaces a
+  year later as a hole in the annual return. Held-back reports are listed on
+  the screen: *still a draft*, *sent back for correction*, *2 unresolved
+  validation problems*.
+
+A blank field goes out as spaces, never zeroes. An age of `00` is a claim the
+person is a newborn, and a premises-entered count of `00` on an offense that
+has no such count is a claim the state's edit checks reject.
+
+**The layout needs reconciling before a first real submission.** Field
+positions follow the FBI's national layout; effectively every state modifies
+it, several require extra state-specific segments, and a growing number take
+NIBRS XML instead of fixed width. This is the right shape, said plainly on the
+screen rather than buried in a manual, because a file that is the right shape
+in the wrong dialect gets rejected in bulk weeks later.
+
+Downloading the file is logged, with the case count.
 
 ### Two people, one report
 
@@ -365,7 +428,9 @@ src/
   domain/         Types and reference data. Offense codes carry the flags
                   that drive conditional validation; `matching.ts` and
                   `locationMatching.ts` hold the resolution scoring for
-                  people and places.
+                  people and places; `nibrs.ts` builds the state file as
+                  pure functions, so the same code runs in the browser for
+                  a preview and on the server for the real thing.
   validation/
     engine.ts     Issue/Rule types, the runner, field-path helpers.
     rules/        Rules by area — incident, offenses, persons, property,
@@ -373,7 +438,8 @@ src/
   state/          Store, browser persistence, seed data.
   components/     Field primitives that render their own issues, and the
                   issue panel.
-  features/       Dashboard and the incident editor's seven sections.
+  features/       Case list, the incident editor's eight sections, review,
+                  setup, the printable report and the NIBRS export.
 ```
 
 A rule is a plain function, which is what lets cross-record checks — "this
@@ -413,10 +479,9 @@ attached to.
 
 ## Deliberately not here yet
 
-This is one module, not a system. Absent: a real backend and database, auth and
-role-based access, the supervisor review queue as a working screen, a master
-vehicle index, supplements and case management, evidence and chain of custody,
-CAD integration, and the actual NIBRS export.
+Absent: a master vehicle index, supplements and follow-up reports, case
+management beyond the report itself, CAD and MDT integration, migration from an
+existing records system, and geocoding.
 
 Deployment is covered in `DEPLOYMENT.md`, including what it deliberately does
 not do. The short version: **no MFA**, which CJIS requires for access to
@@ -425,7 +490,10 @@ out rather than approximated — bolting on TOTP without enrolment and recovery
 would look like compliance without being it.
 
 Still single-instance: rate limiting lives in process memory and SQLite takes
-one writer. Fine for one agency, wrong for a county. Merging two identities that are
-*already* separate records is not built either — only linking at entry time. The validation
-engine is written to move to a server unchanged — it is a pure function of the
-incident.
+one writer. Fine for one agency, wrong for a county. Merging two identities that
+are *already* separate records is not built either — only linking at entry time.
+
+The NIBRS export is generated in the browser from the same pure functions the
+server can call, and is a submission *file*, not a submission: there is no
+transmission, no acknowledgement handling, and no reconciliation of what the
+state rejected.

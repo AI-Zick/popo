@@ -37,6 +37,8 @@ export type AuditAction =
   | 'report.approved'
   | 'report.returned'
   | 'report.reopened'
+  | 'report.printed'
+  | 'nibrs.exported'
   | 'agency.configured';
 
 export const ACTION_LABEL: Record<AuditAction, string> = {
@@ -60,6 +62,8 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'report.approved': 'Report approved',
   'report.returned': 'Report returned',
   'report.reopened': 'Report reopened',
+  'report.printed': 'Report printed',
+  'nibrs.exported': 'NIBRS file exported',
   'agency.configured': 'Agency setup changed',
 };
 
@@ -73,6 +77,8 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'attachment.retracted',
   'report.returned',
   'report.reopened',
+  'report.printed',
+  'nibrs.exported',
   'user.created',
   'user.updated',
   'user.deactivated',

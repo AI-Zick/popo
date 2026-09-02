@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronLeft, Cloud, CornerUpLeft, Send, UserCog } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, Cloud, CornerUpLeft, Printer, Send, UserCog } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { Badge, Button } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
@@ -13,7 +13,7 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
   returned: { label: 'Returned', tone: 'warn' },
 };
 
-export function EditorHeader() {
+export function EditorHeader({ onPrint }: { onPrint: () => void }) {
   const { incident, closeIncident, savedAt, validation, attemptSubmit, conflict, dismissConflict, lockOn } =
     useStore();
   if (!incident) return null;
@@ -98,6 +98,11 @@ export function EditorHeader() {
       <UserMenu />
 
       <ThemeToggle />
+
+      <Button onClick={onPrint} title="Print, or save as PDF">
+        <Printer size={15} aria-hidden />
+        Print
+      </Button>
 
       <Button
         variant="primary"

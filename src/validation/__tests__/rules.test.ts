@@ -201,6 +201,46 @@ describe('victim rules', () => {
     expect(ruleIds(result.errors)).toContain('persons.victim.notIndividual');
   });
 
+  it('asks nothing of a society victim', () => {
+    // Drug and DUI offenses are reported with society as the victim. Demanding
+    // a business name for it blocks every one of them from being filed.
+    const offense = createOffense({ code: '35A', locationType: '13' });
+    const result = check(
+      baseIncident({
+        offenses: [offense],
+        persons: [mkPerson('victim', { victimType: 'S', offenseIds: [offense.id] })],
+      }),
+    );
+    expect(ruleIds(result.errors)).not.toContain('person.businessName');
+    expect(ruleIds(result.errors)).not.toContain('person.lastName');
+    expect(ruleIds(result.errors)).not.toContain('person.age');
+  });
+
+  it('treats a law-enforcement-officer victim as a person, not an organization', () => {
+    const offense = createOffense({ code: '13B', locationType: '20' });
+    const result = check(
+      baseIncident({
+        offenses: [offense],
+        persons: [mkPerson('victim', { victimType: 'L', offenseIds: [offense.id] })],
+      }),
+    );
+    const ids = ruleIds(result.errors);
+    expect(ids).not.toContain('person.businessName');
+    expect(ids).toContain('person.lastName');
+    expect(ids).toEqual(expect.arrayContaining(['person.age', 'person.sex', 'person.race']));
+  });
+
+  it('still requires a name from a business victim', () => {
+    const offense = createOffense({ code: '23F', locationType: '20' });
+    const result = check(
+      baseIncident({
+        offenses: [offense],
+        persons: [mkPerson('victim', { victimType: 'B', offenseIds: [offense.id] })],
+      }),
+    );
+    expect(ruleIds(result.errors)).toContain('person.businessName');
+  });
+
   it('requires age, sex and race on an individual victim', () => {
     const offense = createOffense({ code: '13B', locationType: '20' });
     const result = check(

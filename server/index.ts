@@ -374,6 +374,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       'note.restored',
       'note.restrictedViewed',
       'report.submitted',
+      'report.printed',
+      'nibrs.exported',
     ]);
     if (!allowed.has(String(action))) {
       res.status(400).json({ error: 'Not a client-reportable action.' });

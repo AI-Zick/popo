@@ -8,6 +8,7 @@ import { Button, FieldGrid, Panel } from '@/components/ui/primitives';
 import { ZoneMap } from '@/components/location/ZoneMap';
 import { UserAdmin } from './UserAdmin';
 import { AuditLog } from './AuditLog';
+import { NibrsExport } from '@/features/nibrs/NibrsExport';
 import { cn } from '@/lib/cn';
 
 /**
@@ -15,7 +16,7 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab = 'jurisdiction' | 'accounts' | 'audit';
+type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs';
 
 export function AgencySetup({ onClose }: { onClose: () => void }) {
   const { agency, updateAgency, can } = useStore();
@@ -23,8 +24,10 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
   const mayConfigure = can('agency.configure');
   const mayManageUsers = can('users.manage');
   const mayViewAudit = can('audit.view');
+  // Records staff run the state submission; so does anyone who reviews reports.
+  const mayExport = can('agency.configure') || can('reports.approve');
   const [tab, setTab] = useState<Tab>(
-    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : 'audit',
+    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : mayViewAudit ? 'audit' : 'nibrs',
   );
 
   const control =
@@ -55,6 +58,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Audit log
             </TabButton>
           )}
+          {mayExport && (
+            <TabButton active={tab === 'nibrs'} onClick={() => setTab('nibrs')}>
+              NIBRS export
+            </TabButton>
+          )}
         </nav>
       </header>
 
@@ -62,6 +70,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
         <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
           {tab === 'audit' && mayViewAudit && <AuditLog />}
+          {tab === 'nibrs' && mayExport && <NibrsExport />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>
