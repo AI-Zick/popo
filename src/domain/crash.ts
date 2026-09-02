@@ -22,6 +22,7 @@
 import type { UUID } from './person';
 import type { ReportStatus } from './types';
 import type { ReviewComment, ReviewEvent } from './review';
+import type { Diagram } from './diagram';
 
 /* ------------------------------------------------------------------ */
 /* Reference data                                                      */
@@ -225,8 +226,11 @@ export interface CrashReport {
 
   /** The worst injury in the crash. Drives deadlines and who responds. */
   severity: Severity;
-  /** Photographs, measurements and a diagram, held as attachments. */
-  hasDiagram: boolean;
+  /**
+   * The scene diagram, stored as shapes rather than a picture — so it reopens
+   * editable, prints at full resolution and costs kilobytes.
+   */
+  diagram: Diagram | null;
 
   units: CrashUnit[];
   narrative: string;
@@ -326,7 +330,7 @@ export function createCrashReport(partial: Partial<CrashReport> = {}): CrashRepo
     workZone: false,
     schoolZone: false,
     severity: 'none',
-    hasDiagram: false,
+    diagram: null,
     units: [],
     narrative: '',
     linkedIncidentId: '',
@@ -529,6 +533,19 @@ export function checkCrash(report: CrashReport): CrashProblem[] {
       'linkedIncidentId',
       'A fatal crash with no linked incident report.',
       'Start an incident report for the investigation and link it, or say in the narrative why one is not needed.',
+    );
+  }
+
+  /*
+    A diagram is the part of the report a jury actually looks at, and the state
+    form has a box for it. Not a blocker — a single-vehicle deer strike does not
+    need one — but worth asking about on anything with two units.
+  */
+  if (report.units.length > 1 && (!report.diagram || report.diagram.shapes.length === 0)) {
+    warn(
+      'diagram',
+      'No scene diagram.',
+      'Two units means somebody will want to see how they came together. The units are already on the report, so placing them takes a moment.',
     );
   }
 

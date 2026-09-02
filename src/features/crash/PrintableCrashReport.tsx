@@ -16,6 +16,8 @@ import { STATUS_LABEL } from '@/domain/review';
 import { formalName } from '@/domain/person';
 import { labelOf } from '@/domain/codes';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, isEmpty } from '@/domain/diagram';
+import { DiagramShape, NorthArrow } from './DiagramShapes';
 
 /**
  * The crash report on paper.
@@ -166,6 +168,30 @@ export function PrintableCrashReport({ onClose }: { onClose: () => void }) {
             )}
           </Section>
         ))}
+
+        {/*
+          The diagram, drawn from the same shapes and the same component as the
+          editor — so what the officer arranged is exactly what a jury sees, at
+          whatever resolution the printer has.
+        */}
+        {!isEmpty(crash.diagram) && (
+          <Section title="Scene diagram">
+            <svg
+              viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
+              className="w-full border border-black"
+              style={{ maxHeight: '4.6in' }}
+            >
+              <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#fff" />
+              {crash.diagram!.shapes.map((shape) => (
+                <DiagramShape key={shape.id} shape={shape} print />
+              ))}
+              <NorthArrow rotation={crash.diagram!.northRotation} print />
+            </svg>
+            <p className="mt-1 text-[9.5px] italic">
+              Not to scale. A scene diagram shows relative position and direction of travel.
+            </p>
+          </Section>
+        )}
 
         <Section title="Narrative">
           <p className="whitespace-pre-wrap text-[11.5px] leading-relaxed">

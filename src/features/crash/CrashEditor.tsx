@@ -35,7 +35,9 @@ import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { InboundPanel } from './InboundPanel';
+import { DiagramEditor } from './DiagramEditor';
 import { PrintableCrashReport } from './PrintableCrashReport';
+import { emptyDiagram } from '@/domain/diagram';
 
 /**
  * Writing a crash report.
@@ -299,6 +301,26 @@ export function CrashEditor() {
                 <Plus size={15} aria-hidden />
                 Add a unit
               </Button>
+
+              <Panel
+                title="Scene diagram"
+                description="Place the units, turn them to face the way they were going, and draw the marks. It prints with the report."
+              >
+                <DiagramEditor
+                  diagram={crash.diagram ?? emptyDiagram()}
+                  units={crash.units}
+                  readOnly={!editable || !mine}
+                  onChange={(next) =>
+                    updateCrash({
+                      diagram: {
+                        ...next,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: currentUser.name,
+                      },
+                    })
+                  }
+                />
+              </Panel>
 
               <Panel
                 title="Narrative"

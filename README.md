@@ -349,6 +349,46 @@ then records a fatality on unit 2 has produced a report the state rejects and �
 far worse — one that does not trigger the response a fatality requires. The
 header and the occupants cannot disagree.
 
+#### The scene diagram
+
+Every state crash form has a diagram box, and it is the part of the report a
+jury actually looks at. It is also the part officers dread, because the tools
+they get are either a photograph of a hand sketch or a CAD program that takes
+an afternoon.
+
+The target is **two minutes, on a trackpad, at 0300**, and that drove every
+decision:
+
+- **Stamps, not drawing.** Nobody sketches a car with a mouse. Pick a stamp,
+  click the canvas, turn it with `R`.
+- **The units come pre-labelled from the report.** The officer has already said
+  there is a 2011 Silverado and a 2018 Altima; the palette offers
+  *Unit 1 — 2011 Chevrolet Silverado* and picks a pickup body for it. The
+  diagram and the report cannot end up disagreeing about which car is unit 1,
+  and the numbered badge stays upright however the vehicle is turned — a "2"
+  rotated 180° reads as a different number.
+- **Vector, not a picture.** Stored as shapes, so it reopens editable, prints
+  at the printer's resolution, and costs a couple of kilobytes instead of a
+  megabyte of PNG.
+- **One component draws the editor and the paper**, so what the officer
+  arranged is exactly what a jury sees.
+
+Freehand marks are thinned on release — a pointer emits several hundred points
+for one skid mark, of which a dozen matter, and the rest would bloat every save
+and slow every later render for no visible difference.
+
+Two performance decisions worth naming. **Dragging never touches the store**:
+the moving shape lives in local state until the pointer comes up, so a drag
+re-renders one `<g>` rather than the report, the validation panel and the
+inbound feed sixty times a second. And **one history entry per drag**, not one
+per pointer event, so undo steps back to where the shape was rather than
+crawling it across the canvas.
+
+It says *"not to scale"* on the printed sheet. A scene diagram shows relative
+position and direction of travel; anything measured comes from a total station
+and a reconstruction team, and implying otherwise puts numbers in front of a
+jury that nobody took.
+
 #### What dispatch and the registries already know
 
 By the time an officer opens the report they have read the plate over the
@@ -807,9 +847,7 @@ attached to.
 ## Deliberately not here yet
 
 Absent: a master vehicle index, case management beyond the case file itself,
-migration from an existing records system, and geocoding. The crash module has
-no diagram tool — the state form wants one, and photographs and measurements go
-in as attachments in the meantime. Crash reports are not yet written to a state
+migration from an existing records system, and geocoding. Crash reports are not yet written to a state
 crash file; that is the same per-state layout problem the NIBRS packs solve,
 and it should reuse them.
 
