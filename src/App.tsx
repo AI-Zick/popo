@@ -9,7 +9,7 @@ import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 
 export default function App() {
-  const { incident, supplement, can, isAuthenticated, mustChangePassword, loading, connectionError } =
+  const { incident, supplement, isAuthenticated, mustChangePassword, loading, connectionError } =
     useStore();
   const [setupOpen, setSetupOpen] = useState(false);
 
@@ -49,7 +49,7 @@ export default function App() {
 
   return (
     <div className="h-full">
-      {setupOpen && !incident && (can('agency.configure') || can('users.manage') || can('audit.view') || can('reports.approve')) ? (
+      {setupOpen && !incident ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
       ) : supplement ? (
         // A supplement takes over the screen: it is its own document, and

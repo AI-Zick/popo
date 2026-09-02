@@ -119,6 +119,7 @@ function parentFacts(incident: Incident) {
   return {
     clearanceStatus: incident.clearanceStatus,
     hasArrestee: incident.persons.some((p) => p.role === 'arrestee'),
+    status: incident.status,
   };
 }
 
@@ -133,7 +134,10 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       return;
     }
 
-    const allowed = canSupplement(user, incident.status);
+    const allowed = canSupplement(user, {
+      status: incident.status,
+      createdBy: incident.createdBy,
+    });
     if (!allowed.ok) {
       res.status(409).json({ error: allowed.reason });
       return;

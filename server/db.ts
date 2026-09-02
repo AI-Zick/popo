@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS supplements (
 );
 CREATE INDEX IF NOT EXISTS supplements_case ON supplements(case_id, number);
 
+-- Traffic stops. Most produce no report, so without their own record an
+-- officer who spent the night on traffic shows as having done nothing.
+CREATE TABLE IF NOT EXISTS stops (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  officer_id  TEXT NOT NULL DEFAULT '',
+  at          TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stops_officer ON stops(officer_id, at);
+
 CREATE TABLE IF NOT EXISTS people (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -168,7 +180,7 @@ export function openDatabase(path: string): DatabaseSync {
 /* ------------------------------------------------------------------ */
 
 export interface DocTable {
-  name: 'incidents' | 'people' | 'locations' | 'supplements';
+  name: 'incidents' | 'people' | 'locations' | 'supplements' | 'stops';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -189,6 +201,13 @@ export const DOC_TABLES: Record<string, DocTable> = {
       case_number: String(doc.caseNumber ?? ''),
       number: String(doc.number ?? 1),
       status: String(doc.status ?? 'draft'),
+    }),
+  },
+  stops: {
+    name: 'stops',
+    columns: (doc) => ({
+      officer_id: String(doc.officerId ?? ''),
+      at: String(doc.at ?? ''),
     }),
   },
   people: {

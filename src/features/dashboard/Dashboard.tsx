@@ -180,8 +180,9 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
 
         <UserMenu />
 
-        {(can('agency.configure') || can('users.manage') || can('audit.view')) && (
-          <button
+        {/* Open to everyone: it holds the stop log and the activity report,
+            which an officer runs on their own numbers. */}
+        <button
             type="button"
             onClick={onOpenSetup}
             aria-label="Setup"
@@ -189,7 +190,6 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           >
             <Settings size={16} aria-hidden />
           </button>
-        )}
 
         <ThemeToggle />
 

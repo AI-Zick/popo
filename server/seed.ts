@@ -44,6 +44,7 @@ export async function seedDatabase(db: DatabaseSync): Promise<void> {
   }
 
   writeDocs(db, DOC_TABLES.incidents, state.incidents as unknown as Record<string, unknown>[]);
+  writeDocs(db, DOC_TABLES.stops, state.stops as unknown as Record<string, unknown>[]);
   writeDocs(db, DOC_TABLES.people, Object.values(state.people) as unknown as Record<string, unknown>[]);
   writeDocs(db, DOC_TABLES.locations, Object.values(state.locations) as unknown as Record<string, unknown>[]);
 

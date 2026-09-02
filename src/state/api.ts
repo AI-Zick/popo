@@ -8,6 +8,7 @@
 
 import type { Incident } from '@/domain/types';
 import type { Supplement } from '@/domain/supplement';
+import type { TrafficStop } from '@/domain/activity';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
@@ -125,6 +126,20 @@ export const api = {
     return request('/api/extract', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  /* ---- Traffic stops ----------------------------------------------- */
+
+  createStop(stop: Partial<TrafficStop>): Promise<{ stop: TrafficStop }> {
+    return request('/api/stops', { method: 'POST', body: JSON.stringify(stop) });
+  },
+
+  saveStop(id: string, patch: Partial<TrafficStop>): Promise<{ stop: TrafficStop }> {
+    return request(`/api/stops/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  deleteStop(id: string): Promise<{ ok: true }> {
+    return request(`/api/stops/${id}`, { method: 'DELETE' });
+  },
+
   /* ---- Supplements ------------------------------------------------- */
 
   createSupplement(caseId: string): Promise<{ supplement: Supplement }> {
@@ -162,6 +177,7 @@ export const api = {
   state(): Promise<{
     incidents: Incident[];
     supplements: Supplement[];
+    stops: TrafficStop[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;

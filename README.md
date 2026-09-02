@@ -284,12 +284,24 @@ with its own author, its own review, and its own place in the audit chain. Any
 officer can write one, not just the original author — a detective picking up
 someone else's case is the point.
 
-**You cannot supplement a report that has not been approved.** Not a
-technicality: allowing both would give officers a way to route new material
-around review — file a thin report, get it approved, put the substance in a
-supplement — and leave nobody able to say which document the case rests on.
-While the report is still a draft or still in review, the message says to put
-the information in the report itself.
+**Who may supplement, and when, turns on who is asking.** Two different things
+were being conflated:
+
+- An **assisting officer** documenting their own part. Three units respond to a
+  burglary; one writes the report and the other two record what *they* did —
+  who they canvassed, what they processed. They cannot edit the primary's
+  report, because it is the primary's sworn statement, and making them wait for
+  it to clear review means writing it from memory a week later. They may
+  supplement immediately, at any status.
+- The **author** adding to their own report. Here the restriction holds: until
+  it is approved, new information belongs in the report itself. Otherwise there
+  is a way to route material around review — file a thin report, get it
+  approved, put the substance in a supplement — and nobody can say which
+  document the case rests on.
+
+A **disposition change** still needs the report approved either way. An
+assisting officer can file their part before the report clears review, but
+nobody closes a case whose report a supervisor has not signed.
 
 **The one thing a supplement may reach out and change is the case's
 disposition**, and only when a supervisor approves it. A case cleared by an
@@ -315,6 +327,48 @@ waiting on me", not "what reports are waiting on me" — and separation of dutie
 does not relax because the document is shorter. Approved supplements print with
 the case file; a case handed to a prosecutor without its follow-ups reads as
 though nothing happened after the first shift.
+
+### Officer activity reports
+
+What a sergeant runs before a shift review, what a chief runs before a council
+meeting, and what an officer runs when their evaluation is coming up. One
+officer or several, a single date or a range, and **only the sections asked
+for** — "traffic stops alone" and "everything" are both real requests, and a
+report that always shows everything is one nobody reads.
+
+Sections: traffic stops, citations and warnings, reports, supplements, arrests,
+offenses, property, and case status. Printable, with the same portal mechanics
+as the case report.
+
+**Traffic stops needed their own record first.** An officer runs twenty stops a
+shift and writes two reports; every trace of the other eighteen lives in CAD or
+a notebook. An activity report built only from incident reports therefore shows
+an officer who spent the night on traffic as having done nothing, which is both
+wrong and the fastest way to make supervisors stop trusting the numbers. So a
+stop is a lightweight record of its own — time defaults to now, location is
+free text because officers describe stops by landmark, everything else
+optional. It has to be fast or it does not get filed, and then the report on
+top of it is wrong.
+
+**Arrests are counted by the arresting officer**, which meant adding one. An
+assisting unit makes the arrest and the primary writes it up constantly;
+counting by report author credits the wrong person. Older records with no
+arresting officer fall back to the report's author rather than being dropped,
+so the agency total stays right.
+
+Two rules run through the whole thing:
+
+- **A zero is a fact, not a gap.** An officer who did nothing on Tuesday shows
+  a 0, not an empty row. A report that silently omits people makes every number
+  in it unverifiable — the reader cannot tell absence from omission.
+- **Every table says where its number came from**, printed underneath it.
+  "Arrests by report author" and "arrests by arresting officer" are different
+  numbers, and a page of counts with no basis is a page that gets argued with
+  in a grievance a year later.
+
+Officers can run it on themselves without any permission. Another officer's
+figures are a personnel record and need review permission — who may read whose
+activity is not a UI decision.
 
 ### The paper copy
 
@@ -682,6 +736,11 @@ geocoding. Supplements carry a narrative and a disposition change but cannot
 yet add structured people, property or vehicles to a case — an arrest is
 described and referenced rather than recorded as an arrestee record, which is
 the next piece of that work.
+
+Activity reports count what the system holds. Traffic stops are entered by hand
+here; in a real deployment most would arrive from CAD or the MDT, and until
+that integration exists a stop nobody logs is a stop that never happened as far
+as the report is concerned — which the printed footer says plainly.
 
 Deployment is covered in `DEPLOYMENT.md`, including what it deliberately does
 not do. The short version: **no MFA**, which CJIS requires for access to

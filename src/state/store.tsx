@@ -62,6 +62,7 @@ import { api, ApiError, type Attachment, type Collection, type LockHolder } from
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { profileFor, stateRules } from '@/domain/nibrs';
+import type { TrafficStop } from '@/domain/activity';
 import {
   canSupplement,
   checkSupplement,
@@ -190,6 +191,18 @@ interface StoreValue {
    * report is evidence, and a field the officer did not enter has no business
    * appearing over their badge number.
    */
+  /* ---- Activity ---------------------------------------------------- */
+  /**
+   * Traffic stops, agency-wide.
+   *
+   * Most stops produce no report, so without them an officer who spent the
+   * night on traffic reads as having done nothing.
+   */
+  stops: TrafficStop[];
+  logStop: (stop: Partial<TrafficStop>) => Promise<GuardResult>;
+  saveStop: (id: string, patch: Partial<TrafficStop>) => Promise<GuardResult>;
+  removeStop: (id: string) => Promise<GuardResult>;
+
   /* ---- Supplements ------------------------------------------------- */
   /** Every supplement the agency has, across all cases. */
   supplements: Supplement[];
@@ -285,6 +298,7 @@ const NO_PERSONS: Person[] = [];
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
+  const [stops, setStops] = useState<TrafficStop[]>([]);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
   const [people, setPeople] = useState<PersonIndex>({});
   const [locations, setLocations] = useState<LocationIndex>({});
@@ -400,6 +414,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const state = await api.state();
     setIncidents(state.incidents);
     setSupplements(state.supplements ?? []);
+    setStops(state.stops ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -732,6 +747,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [activeId, people, setSection, revealField],
   );
 
+  /* -------------------------------------------------- stops ------------- */
+
+  const logStop = useCallback(async (stop: Partial<TrafficStop>): Promise<GuardResult> => {
+    try {
+      const { stop: created } = await api.createStop(stop);
+      setStops((prev) => [...prev, created]);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not log it.' };
+    }
+  }, []);
+
+  const saveStop = useCallback(
+    async (id: string, patch: Partial<TrafficStop>): Promise<GuardResult> => {
+      try {
+        const { stop } = await api.saveStop(id, patch);
+        setStops((prev) => prev.map((s) => (s.id === id ? stop : s)));
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not save it.' };
+      }
+    },
+    [],
+  );
+
+  const removeStop = useCallback(async (id: string): Promise<GuardResult> => {
+    try {
+      await api.deleteStop(id);
+      setStops((prev) => prev.filter((s) => s.id !== id));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not remove it.' };
+    }
+  }, []);
+
   /* -------------------------------------------------- supplements ------- */
 
   /*
@@ -755,11 +805,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return checkSupplement(supplement, {
       clearanceStatus: incident.clearanceStatus,
       hasArrestee: incident.persons.some((p) => p.role === 'arrestee'),
+      status: incident.status,
     });
   }, [supplement, incident]);
 
   const canAddSupplement = useMemo(
-    () => (incident ? canSupplement(currentUser, incident.status) : { ok: false }),
+    () =>
+      incident
+        ? canSupplement(currentUser, { status: incident.status, createdBy: incident.createdBy })
+        : { ok: false },
     [incident, currentUser],
   );
 
@@ -1850,6 +1904,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSection,
     goToIssue,
     applyQuickFix,
+    stops,
+    logStop,
+    saveStop,
+    removeStop,
+
     supplements,
     caseSupplements,
     supplement,

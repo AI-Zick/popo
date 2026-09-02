@@ -59,6 +59,7 @@ export function createIncidentPerson(
     isUnknown: false,
     arrestDate: '',
     arrestType: '',
+    arrestingOfficerId: '',
     charges: [],
     notes: '',
     ...partial,

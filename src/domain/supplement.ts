@@ -157,28 +157,49 @@ export function supplementsFor(all: Supplement[], caseId: UUID): Supplement[] {
 /* ------------------------------------------------------------------ */
 
 /**
- * You cannot supplement a report that has not been approved.
+ * Who may supplement a case, and when.
  *
- * Not a technicality. A supplement is for what happened *after* the report was
- * signed off; while the report is still a draft or still in review, the right
- * place for new information is the report itself. Allowing both would give
- * officers a way to route new material around review — write a thin report,
- * get it approved, put the substance in a supplement — and would leave nobody
- * able to say which document the case actually rests on.
+ * The rule turns on *who is asking*, not just on the report's status, because
+ * two different things were being conflated:
+ *
+ *   A **secondary officer** documenting their own involvement. Three units
+ *   respond to a burglary; one writes the report, and the other two each need
+ *   to record what they did — who they canvassed, what they processed. They
+ *   cannot edit the primary's report, because it is the primary's sworn
+ *   statement, and making them wait for it to clear review means writing it
+ *   from memory a week later. They may supplement immediately, at any status.
+ *
+ *   The **author** adding to their own report. Here the earlier rule holds:
+ *   until it is approved, new information belongs in the report itself.
+ *   Otherwise there is a way to route material around review — file a thin
+ *   report, get it approved, put the substance in a supplement — and nobody
+ *   can say which document the case rests on.
  */
 export function canSupplement(
   user: User | null,
-  parentStatus: ReportStatus,
+  parent: { status: ReportStatus; createdBy: string },
 ): TransitionCheck {
   if (!user) return { ok: false, reason: 'You are not signed in.' };
-  if (parentStatus === 'approved') return { ok: true };
+
+  // Not your report: you are documenting your own part in the same incident.
+  if (parent.createdBy && parent.createdBy !== user.id) return { ok: true };
+
+  if (parent.status === 'approved') return { ok: true };
   return {
     ok: false,
     reason:
-      parentStatus === 'pending_review'
-        ? 'This report is still with a supervisor. Wait for it to be approved, or ask them to send it back.'
-        : 'This report has not been approved yet — add the information to the report itself.',
+      parent.status === 'pending_review'
+        ? 'This is your report and it is with a supervisor. Wait for it to come back, or ask them to return it — a supplement is for what happens after it is approved.'
+        : 'This is your own report and it is not approved yet — put the information in the report itself.',
   };
+}
+
+/** True when the supplement is somebody other than the report's author. */
+export function isSecondaryOfficer(
+  supplement: Supplement,
+  parent: { createdBy: string },
+): boolean {
+  return Boolean(parent.createdBy) && parent.createdBy !== supplement.createdBy;
 }
 
 /**
@@ -225,7 +246,7 @@ export const MIN_NARRATIVE_WORDS = 15;
  */
 export function checkSupplement(
   supplement: Supplement,
-  parent: { clearanceStatus: ClearanceStatus; hasArrestee: boolean },
+  parent: { clearanceStatus: ClearanceStatus; hasArrestee: boolean; status: ReportStatus },
 ): SupplementProblem[] {
   const problems: SupplementProblem[] = [];
   const words = supplement.narrative.trim() ? supplement.narrative.trim().split(/\s+/).length : 0;
@@ -246,6 +267,19 @@ export function checkSupplement(
 
   const change = supplement.disposition;
   if (change) {
+    /*
+      A secondary officer can file their part of an incident before the report
+      clears review, but nobody closes a case whose report is not finished. The
+      clearance would be resting on a document a supervisor has not signed.
+    */
+    if (parent.status !== 'approved') {
+      problems.push({
+        field: 'disposition',
+        message: 'The report has not been approved yet, so the case status cannot change.',
+        tip: 'File this as a narrative supplement now. The case can be cleared once the report is approved.',
+      });
+    }
+
     if (change.clearanceStatus === parent.clearanceStatus) {
       problems.push({
         field: 'disposition',
@@ -293,7 +327,7 @@ export function checkSupplement(
 
 export function isReadyToSubmit(
   supplement: Supplement,
-  parent: { clearanceStatus: ClearanceStatus; hasArrestee: boolean },
+  parent: { clearanceStatus: ClearanceStatus; hasArrestee: boolean; status: ReportStatus },
 ): boolean {
   return checkSupplement(supplement, parent).length === 0;
 }

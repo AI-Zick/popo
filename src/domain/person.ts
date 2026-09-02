@@ -169,6 +169,18 @@ export interface IncidentPerson {
 
   arrestDate: string;
   arrestType: string;
+  /**
+   * The account that made the arrest.
+   *
+   * Not always the officer who wrote the report — an assisting unit makes the
+   * arrest and the primary writes it up all the time. Counting arrests by
+   * report author would credit the wrong person, and a shift activity report
+   * that does that is one a sergeant stops trusting.
+   *
+   * Blank on older records; the activity report falls back to the report's
+   * author and says so.
+   */
+  arrestingOfficerId: UUID | '';
   charges: Charge[];
 
   notes: string;

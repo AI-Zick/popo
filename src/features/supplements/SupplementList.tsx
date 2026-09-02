@@ -45,7 +45,7 @@ export function SupplementList() {
   return (
     <Panel
       title={`Supplements (${caseSupplements.length})`}
-      description="Anything learned after this report was approved. A supplement never changes the report — it stands beside it."
+      description="A supplement never changes the report — it stands beside it. Assisting officers write their own; the primary adds one once the report is approved."
       aside={<Layers size={17} className="text-faint" aria-hidden />}
     >
       {error && (
@@ -54,8 +54,8 @@ export function SupplementList() {
 
       {caseSupplements.length === 0 ? (
         <p className="text-[12.5px] leading-relaxed text-muted">
-          Nothing yet. A supplement is for what comes later — a lab result, a follow-up interview,
-          an arrest, a change in how the case stands.
+          Nothing yet. Write one to record your own part in this incident, or anything that comes
+          later — a lab result, a follow-up interview, an arrest, a change in how the case stands.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -73,6 +73,9 @@ export function SupplementList() {
                     </span>
                     <Badge tone={TONE[s.status]}>{STATUS_LABEL[s.status]}</Badge>
                     {s.disposition && <Badge tone="warn">Changes case status</Badge>}
+                    {incident.createdBy && s.createdBy !== incident.createdBy && (
+                      <Badge tone="neutral">Assisting officer</Badge>
+                    )}
                   </div>
                   <p className="mt-0.5 truncate text-[12.5px] text-muted">
                     {SUPPLEMENT_TYPE_LABEL[s.type]} · {s.reportingOfficer || 'Unassigned'} ·{' '}

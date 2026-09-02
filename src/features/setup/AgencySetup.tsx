@@ -9,6 +9,8 @@ import { ZoneMap } from '@/components/location/ZoneMap';
 import { UserAdmin } from './UserAdmin';
 import { AuditLog } from './AuditLog';
 import { NibrsExport } from '@/features/nibrs/NibrsExport';
+import { ActivityReportView } from '@/features/activity/ActivityReportView';
+import { StopLog } from '@/features/activity/StopLog';
 import { cn } from '@/lib/cn';
 
 /**
@@ -16,7 +18,7 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs';
+type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs' | 'activity' | 'stops';
 
 export function AgencySetup({ onClose }: { onClose: () => void }) {
   const { agency, updateAgency, can } = useStore();
@@ -26,8 +28,10 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
   const mayViewAudit = can('audit.view');
   // Records staff run the state submission; so does anyone who reviews reports.
   const mayExport = can('agency.configure') || can('reports.approve');
+  // Everyone can reach the activity screens: an officer logging their own
+  // stops and running their own numbers needs no permission at all.
   const [tab, setTab] = useState<Tab>(
-    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : mayViewAudit ? 'audit' : 'nibrs',
+    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : mayViewAudit ? 'audit' : 'activity',
   );
 
   const control =
@@ -63,6 +67,12 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               NIBRS export
             </TabButton>
           )}
+          <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
+            Traffic stops
+          </TabButton>
+          <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>
+            Activity report
+          </TabButton>
         </nav>
       </header>
 
@@ -71,6 +81,8 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
           {tab === 'audit' && mayViewAudit && <AuditLog />}
           {tab === 'nibrs' && mayExport && <NibrsExport />}
+          {tab === 'stops' && <StopLog />}
+          {tab === 'activity' && <ActivityReportView />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>

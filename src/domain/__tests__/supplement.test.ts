@@ -33,42 +33,60 @@ function supp(partial: Partial<Supplement> = {}): Supplement {
   });
 }
 
-const openCase = { clearanceStatus: 'open' as const, hasArrestee: false };
+const openCase = { clearanceStatus: 'open' as const, hasArrestee: false, status: 'approved' as const };
 
 /* ------------------------------------------------------------------ */
 /* When a supplement is allowed                                        */
 /* ------------------------------------------------------------------ */
 
 describe('when a case can be supplemented', () => {
-  it('allows it once the report is approved', () => {
-    expect(canSupplement(officer, 'approved').ok).toBe(true);
+  // "author" is the officer who wrote the report; "detective" is anyone else.
+  const own = (status: 'draft' | 'pending_review' | 'approved' | 'returned') => ({
+    status,
+    createdBy: officer.id,
   });
 
-  it('refuses on a draft, and says to edit the report instead', () => {
-    // Allowing both would let an officer route new material around review:
-    // file a thin report, get it approved, put the substance in a supplement.
-    const result = canSupplement(officer, 'draft');
+  it('lets the author supplement once their report is approved', () => {
+    expect(canSupplement(officer, own('approved')).ok).toBe(true);
+  });
+
+  it('refuses the author on their own draft, and says to edit the report', () => {
+    // Otherwise there is a way to route material around review: file a thin
+    // report, get it approved, put the substance in a supplement.
+    const result = canSupplement(officer, own('draft'));
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/report itself/i);
   });
 
-  it('refuses while the report is still with a supervisor', () => {
-    const result = canSupplement(officer, 'pending_review');
+  it('refuses the author while their report is with a supervisor', () => {
+    const result = canSupplement(officer, own('pending_review'));
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/supervisor/i);
   });
 
-  it('refuses a returned report — that is a correction, not a supplement', () => {
-    expect(canSupplement(officer, 'returned').ok).toBe(false);
+  it('lets a secondary officer supplement a report still in draft', () => {
+    // Three units respond; one writes the report and the others document what
+    // they did. They cannot edit the primary's sworn statement, and making
+    // them wait means writing it from memory a week later.
+    expect(canSupplement(detective, own('draft')).ok).toBe(true);
+  });
+
+  it('lets a secondary officer supplement while the report is in review', () => {
+    expect(canSupplement(detective, own('pending_review')).ok).toBe(true);
+  });
+
+  it('lets a secondary officer supplement an approved report', () => {
+    expect(canSupplement(detective, own('approved')).ok).toBe(true);
   });
 
   it('refuses when nobody is signed in', () => {
-    expect(canSupplement(null, 'approved').ok).toBe(false);
+    expect(canSupplement(null, own('approved')).ok).toBe(false);
   });
 
-  it('is not restricted to the original author', () => {
-    // The whole point is that a detective picks up someone else's case.
-    expect(canSupplement(detective, 'approved').ok).toBe(true);
+  it('treats a report with no recorded author as the asker\'s own', () => {
+    // Migrated records may have no createdBy. Falling open would let anyone
+    // supplement an unapproved report, which is the case the rule exists for.
+    expect(canSupplement(officer, { status: 'draft', createdBy: '' }).ok).toBe(false);
   });
 });
 
@@ -204,7 +222,7 @@ describe('changing the case disposition', () => {
   it('does not ask again when the original report already has an arrestee', () => {
     const problems = checkSupplement(
       supp({ disposition: change({ clearanceStatus: 'cleared_arrest' }) }),
-      { clearanceStatus: 'open', hasArrestee: true },
+      { clearanceStatus: 'open', hasArrestee: true, status: 'approved' },
     );
     expect(problems).toEqual([]);
   });

@@ -9,6 +9,7 @@ import type {
 } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
+import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createUser, type User } from '@/domain/auth';
 
 /**
@@ -195,6 +196,7 @@ function isoDaysAgo(days: number, hour = 14, minute = 30): string {
  */
 export function seedState(): {
   incidents: Incident[];
+  stops: TrafficStop[];
   people: PersonIndex;
   locations: LocationIndex;
   agency: AgencyProfile;
@@ -495,8 +497,57 @@ export function seedState(): {
   const priorSuspect = samePerson(arrestee, 'suspect', { offenseIds: [] });
   incomplete.persons.push(priorSuspect);
 
+  /* ---- Traffic stops --------------------------------------------------- */
+
+  /*
+    A shift's worth of stops, so the activity report has something real to
+    count. Most produce nothing but a warning, which is the point — an officer
+    who ran twenty stops and wrote two reports should not read as idle.
+  */
+  const STOPS: TrafficStop[] = [
+    ['u-reyes', 0, 21, 'US-411 at Watson Rd', 'speed', 'citation', 1, 0],
+    ['u-reyes', 0, 22, 'US-411 near mile 14', 'speed', 'warning', 0, 0],
+    ['u-reyes', 0, 22, 'Depot St at 3rd', 'equipment', 'warning', 0, 1],
+    ['u-reyes', 0, 23, 'US-411 at Watson Rd', 'registration', 'citation', 2, 0],
+    ['u-reyes', 1, 20, 'N Marion St', 'moving', 'warning', 0, 0],
+    ['u-reyes', 1, 23, 'US-411 at the county line', 'suspicion', 'arrest', 0, 0],
+    ['u-tam', 0, 19, 'Cedar Ave at Willow', 'speed', 'citation', 1, 0],
+    ['u-tam', 0, 20, 'Cedar Ave at Willow', 'speed', 'citation', 1, 0],
+    ['u-tam', 0, 21, 'Old Mill Rd', 'equipment', 'no_action', 0, 0],
+    ['u-tam', 2, 18, 'Depot St at 3rd', 'bolo', 'warning', 0, 0],
+  ].map(([officerId, daysBack, hour, location, reason, outcome, cited, warned], index) => {
+    const officer = USERS.find((u) => u.id === officerId)!;
+    const at = new Date();
+    at.setDate(at.getDate() - Number(daysBack));
+    at.setHours(Number(hour), 15 + index, 0, 0);
+    return createTrafficStop({
+      id: `stop_seed_${index}`,
+      officerId: String(officerId),
+      officerName: officer.name,
+      at: at.toISOString(),
+      location: String(location),
+      beat: index % 2 === 0 ? '2C' : '3B',
+      reason: reason as TrafficStop['reason'],
+      outcome: outcome as TrafficStop['outcome'],
+      citations: [
+        ...Array.from({ length: Number(cited) }, (_, i) =>
+          createCitation({ id: `cit_${index}_${i}`, statute: '32-5A-171', description: 'Speeding' }),
+        ),
+        ...Array.from({ length: Number(warned) }, (_, i) =>
+          createCitation({
+            id: `warn_${index}_${i}`,
+            statute: '32-5-240',
+            description: 'Defective equipment',
+            warningOnly: true,
+          }),
+        ),
+      ],
+    });
+  });
+
   return {
     incidents: [incomplete, complete, approved],
+    stops: STOPS,
     people: PEOPLE,
     locations: LOCATIONS,
     agency: AGENCY,
