@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, Loader2, LogIn, Shield, TriangleAlert } from 'lucide-react';
+import { AlertCircle, Loader2, LogIn, Shield } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { DEMO_PASSWORD } from '@/state/seed';
 import { Button } from '@/components/ui/primitives';
@@ -110,32 +110,37 @@ export function SignIn() {
 }
 
 /**
- * The honest label. Verification here runs in the browser, where the person
- * being checked controls the code doing the checking — so this screen is a
- * workflow, not a lock, until it is backed by a server.
+ * Still honest, but the claim has changed: credentials are now verified by the
+ * server and the session lives in a cookie the page cannot read. What remains
+ * is deployment work, not a missing boundary.
  */
 function DemoNotice() {
-  const { users } = useStore();
   return (
-    <div className="mt-4 rounded-xl border border-warn/30 bg-warn-soft/50 p-4">
-      <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-warn">
-        <TriangleAlert size={13} aria-hidden />
-        Prototype — not a security boundary
-      </p>
+    <div className="mt-4 rounded-xl border border-line bg-surface p-4">
+      <p className="text-[12.5px] font-semibold text-ink">Demo accounts</p>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-        Passwords are hashed correctly, but the check runs in your browser, so anyone can bypass it
-        with dev tools. Real authentication needs the same code behind an API. Sign in with any of
-        these and the password <code className="rounded bg-surface px-1 font-mono">{DEMO_PASSWORD}</code>:
+        Seeded on first run, all with the password{' '}
+        <code className="rounded bg-raised px-1 font-mono">{DEMO_PASSWORD}</code>. Each sees a
+        different slice of the app.
       </p>
       <ul className="mt-2 space-y-0.5">
-        {users
-          .filter((u) => u.active)
-          .map((user) => (
-            <li key={user.id} className="text-[12px] text-muted">
-              <code className="font-mono text-ink">{user.username}</code> — {user.name}
-            </li>
-          ))}
+        {[
+          ['mreyes', 'Patrol officer — writes reports, cannot withdraw notes'],
+          ['dtam', 'Patrol officer designated to withdraw notes'],
+          ['aboone', 'Supervisor — reads the audit log'],
+          ['rvance', 'Agency administrator — manages accounts and setup'],
+          ['platform', 'Vendor — provisions agency administrators'],
+        ].map(([username, description]) => (
+          <li key={username} className="text-[12px] text-muted">
+            <code className="font-mono text-ink">{username}</code> — {description}
+          </li>
+        ))}
       </ul>
+      <p className="mt-3 border-t border-line pt-2.5 text-[11.5px] leading-relaxed text-faint">
+        Passwords are verified on the server and the session is an httpOnly cookie, so this is a
+        real boundary. Before live data it still needs TLS, CJIS-eligible hosting and credentials
+        that were never printed on a screen.
+      </p>
     </div>
   );
 }

@@ -10,12 +10,21 @@ it runs with nothing but `npm install`.
 
 ## Running it
 
+Two processes — an API and the web client.
+
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # validation rule suite
-npm run build    # typecheck + production build
+
+npm run server   # terminal 1 — API on :4000, creates data/aegis.db on first run
+npm run dev      # terminal 2 — client on :5173, proxies /api to the server
+
+npm test             # domain and validation suites
+npm run build        # typecheck + production build
+npm run typecheck:server
 ```
+
+Sign in with any of the seeded accounts listed on the sign-in screen. The
+database is a single SQLite file at `data/aegis.db`; delete it to start over.
 
 Three sample reports are seeded on first load. The one marked **2026-000431** is
 deliberately half-finished — it is the fastest way to see the validation surface
@@ -135,21 +144,51 @@ Withdrawal is not deletion. The note, its author, who withdrew it and why are al
 kept; it simply stops showing on the location. "Who removed the gate code, and
 when" is a question that gets asked after something goes wrong at an address.
 
-### Sign-in — and what it is not
+## The server
 
-**This is not yet a security boundary, and the app says so on its own sign-in
-screen.** Passwords are hashed with PBKDF2-HMAC-SHA256 at OWASP's iteration
-floor, salted per record, compared in constant time, and never stored in
-readable form. But the check runs in the browser, where the person being
-verified controls the code doing the verifying — anyone can bypass it with dev
-tools.
+There is a real API and a real database, so the shared indexes are actually
+shared: a note one officer writes at a location is on the next officer's screen,
+on a different machine, because both are reading the same record.
 
-What exists is the correct *mechanism*, written as pure functions over explicit
-state with no browser assumptions, so moving verification behind an API is a
-relocation rather than a rewrite. Argon2id should replace PBKDF2 on the server;
-the stored format carries its own parameters so records upgrade in place.
+`server/` is Express over SQLite through Node's built-in driver — no native
+build, no service to run alongside. It imports the domain modules from `src/`
+**unchanged**: `credentials.ts`, `session.ts`, `auth.ts` and `audit.ts` were
+written as pure functions over explicit state precisely so this move would be a
+relocation rather than a rewrite, and it was.
 
-The parts that are already right:
+Records read by shape — users, credentials, sessions, audit — have real
+columns. Records only ever fetched whole and searched loosely — incidents,
+people, locations — are JSON documents with the few columns needed to find
+them. That is stage-appropriate rather than ideal: the domain model is still
+moving, and a migration per field would slow that down.
+
+The client still writes whole collections back on a debounce. Coarse, and the
+seam to narrow when it stops owning domain logic — the schema does not change
+when it does.
+
+### Sign-in
+
+**This is now a real boundary.** Passwords are verified by the server, the
+session id is an httpOnly `SameSite=Strict` cookie the page cannot read, and
+every route re-decides authorisation from the session the server issued. What
+the browser knows about roles and permissions only decides what to *render*.
+
+Passwords are hashed with PBKDF2-HMAC-SHA256 at OWASP's iteration floor, salted
+per record, compared in constant time, and never leave the server in any form.
+Argon2id is the better algorithm; the stored format carries its own parameters
+so records can be upgraded in place at next sign-in.
+
+The parts that make it hold:
+
+- **Permissions are enforced server-side.** An officer POSTing to `/api/users`
+  gets 403 regardless of what their browser is showing, and the audit log is
+  simply absent from their `/api/state` response.
+- **Over-reaching requests are refused, not downgraded.** An administrator
+  asking to create a vendor account gets 403 with the reason — an earlier pass
+  silently created an officer instead, which is safe but dishonest.
+- **Deactivating an account ends its sessions immediately**, rather than at
+  next expiry.
+- **Timeouts are the server's**, so closing the laptop does not extend them.
 
 - **Failures are indistinguishable.** Wrong password, unknown username and
   deactivated account all return one message, because saying which was wrong
@@ -167,6 +206,11 @@ The parts that are already right:
   to include a symbol, which only ever produces `P@ssw0rd`.
 
 ### Audit log
+
+Written by the server, from the session it resolved — an actor name is
+something the server knows, never something a request claimed. Appends are
+serialised, because two concurrent requests chaining from the same tail would
+fork the chain.
 
 Append-only and hash-chained: every entry carries the hash of the one before
 it, so altering or removing one breaks every hash after it and the log says
@@ -317,13 +361,14 @@ role-based access, the supervisor review queue as a working screen, a master
 vehicle index, supplements and case management, evidence and chain of custody,
 CAD integration, and the actual NIBRS export.
 
-Most importantly, **the security boundary is still missing.** Sign-in, hashing,
-sessions, lockout and the audit log are all implemented correctly, but they run
-in the browser, so none of them constrains a determined user. Moving
-`credentials.ts` and `session.ts` behind an API — with the session id in an
-httpOnly cookie and the audit log written server-side — is what turns this from
-a faithful model into actual security. Everything above is written to make that
-a relocation rather than a rewrite. Merging two identities that are
+Before live data this still needs TLS, CJIS-eligible hosting, credentials that
+were never printed on a screen, and rate limiting at the edge. The application
+boundary is real; the deployment around it is not built.
+
+The client also still writes whole collections rather than individual records,
+which is fine for one agency's caseload and wrong for a county's. Two people
+editing the same report will overwrite each other — there is no conflict
+detection yet. Merging two identities that are
 *already* separate records is not built either — only linking at entry time. The validation
 engine is written to move to a server unchanged — it is a pure function of the
 incident.

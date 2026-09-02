@@ -92,8 +92,8 @@ export function UserAdmin() {
           <li key={user.id}>
             <AccountRow
               user={user}
-              onDeactivate={() => {
-                const result = deactivateUser(user.id);
+              onDeactivate={async () => {
+                const result = await deactivateUser(user.id);
                 setError(result.ok ? null : (result.reason ?? null));
               }}
             />
@@ -116,7 +116,7 @@ export function UserAdmin() {
                   </span>
                 </span>
                 {canManageUser(currentUser, user) && (
-                  <Button size="sm" onClick={() => reactivateUser(user.id)}>
+                  <Button size="sm" onClick={() => void reactivateUser(user.id)}>
                     Reactivate
                   </Button>
                 )}
@@ -133,7 +133,7 @@ export function UserAdmin() {
   );
 }
 
-function AccountRow({ user, onDeactivate }: { user: User; onDeactivate: () => void }) {
+function AccountRow({ user, onDeactivate }: { user: User; onDeactivate: () => void | Promise<void> }) {
   const { users, currentUser } = useStore();
   const designations = (Object.keys(PERMISSION_LABEL) as Permission[]).filter((p) =>
     isDesignated(user, p),
@@ -194,7 +194,7 @@ function AccountRow({ user, onDeactivate }: { user: User; onDeactivate: () => vo
           variant="danger"
           disabled={!guard.ok}
           title={guard.reason}
-          onClick={onDeactivate}
+          onClick={() => void onDeactivate()}
         >
           <UserMinus size={13} aria-hidden />
           Deactivate

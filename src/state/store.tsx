@@ -31,10 +31,8 @@ import {
 } from '@/domain/factory';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
-import { ROLE_LABEL as ROLE_LABEL_FOR_AUDIT } from '@/domain/auth';
 import {
   can as canDo,
-  canDeactivate,
   canManageUser,
   createUser,
   sanitizeUserInput,
@@ -57,27 +55,12 @@ import {
   searchLocations as searchLocationIndex,
   type LocationMatch,
 } from '@/domain/locationMatching';
-import { newId } from '@/lib/id';
-import { hashPassword, checkPassword, generateTemporaryPassword, verifyPassword } from '@/domain/credentials';
-import {
-  createCredential,
-  createSession,
-  isLockedOut,
-  lockoutRemainingMs,
-  registerFailure,
-  registerSuccess,
-  sessionState,
-  touchSession,
-  SIGN_IN_FAILURE_MESSAGE,
-  type Credential,
-  type Session,
-  type SignInOutcome,
-} from '@/domain/session';
-import { appendEntry, verifyChain, type AuditDraft, type AuditEntry, type ChainStatus } from '@/domain/audit';
+import { createSession, touchSession, type Session, type SignInOutcome } from '@/domain/session';
+import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
+import { api, ApiError } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
-import { loadState, saveState } from './persistence';
-import { DEMO_PASSWORD } from './seed';
+
 
 type Mutator = (draft: Incident) => void;
 
@@ -102,9 +85,13 @@ interface StoreValue {
   currentUser: User;
   /** Permission check for the signed-in user. */
   can: (permission: Permission) => boolean;
-  /** Null until someone signs in. */
+  /** Null until someone signs in. Display only — the server owns the real one. */
   session: Session | null;
   isAuthenticated: boolean;
+  /** True while the initial fetch is in flight. */
+  loading: boolean;
+  /** Set when the API cannot be reached at all. */
+  connectionError: string | null;
   mustChangePassword: boolean;
   auditLog: AuditEntry[];
 
@@ -120,8 +107,8 @@ interface StoreValue {
    */
   createAccount: (input: Partial<User>) => Promise<GuardResult & { temporaryPassword?: string }>;
   updateUser: (userId: string, patch: Partial<User>) => GuardResult;
-  deactivateUser: (userId: string) => GuardResult;
-  reactivateUser: (userId: string) => GuardResult;
+  deactivateUser: (userId: string) => Promise<GuardResult>;
+  reactivateUser: (userId: string) => Promise<GuardResult>;
   incident: Incident | null;
   /** Participants on the active incident, joined to their identities. */
   persons: Person[];
@@ -200,42 +187,35 @@ const EMPTY_VALIDATION = runRules(createIncident(), []);
 const NO_PERSONS: Person[] = [];
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const initial = useMemo(() => loadState(), []);
-  const [incidents, setIncidents] = useState<Incident[]>(initial.incidents);
-  const [people, setPeople] = useState<PersonIndex>(initial.people);
-  const [locations, setLocations] = useState<LocationIndex>(initial.locations);
-  const [agency, setAgency] = useState<AgencyProfile>(initial.agency ?? emptyAgency());
-  const [users, setUsers] = useState<User[]>(initial.users);
-  const [credentials, setCredentials] = useState<Record<string, Credential>>(initial.credentials);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [people, setPeople] = useState<PersonIndex>({});
+  const [locations, setLocations] = useState<LocationIndex>({});
+  const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
+  const [users, setUsers] = useState<User[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+
+  const [identity, setIdentity] = useState<{ user: User; mustChangePassword: boolean } | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>(initial.auditLog);
+  const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // The log is kept in a ref as well, so serialised appends always chain onto
-  // the newest entry rather than a stale render's copy.
-  const logRef = useRef<AuditEntry[]>(initial.auditLog);
-  const auditQueue = useRef<Promise<void>>(Promise.resolve());
+  const currentUser = identity?.user ?? createUser({ id: 'anonymous', name: 'Not signed in' });
+  const isAuthenticated = Boolean(identity);
+  const mustChangePassword = Boolean(identity?.mustChangePassword);
 
-  const currentUser = useMemo(
-    () =>
-      users.find((u) => u.id === session?.userId) ??
-      createUser({ id: 'anonymous', name: 'Not signed in' }),
-    [users, session],
-  );
-
-  const isAuthenticated = Boolean(session) && currentUser.id !== 'anonymous';
-  const mustChangePassword = Boolean(
-    session && credentials[session.userId]?.mustChangePassword,
-  );
-
+  /**
+   * Audit entries are written by the server, from the session it resolved.
+   * The client only reports that something happened; it cannot say who did it.
+   */
   const record = useCallback((draft: AuditDraft) => {
-    auditQueue.current = auditQueue.current.then(async () => {
-      const next = await appendEntry(logRef.current, draft, newId('aud'));
-      logRef.current = next;
-      setAuditLog(next);
-    });
+    void api
+      .record(draft.action, draft.target, draft.detail)
+      .then(() => api.auditLog())
+      .then(({ entries }) => setAuditLog(entries))
+      .catch(() => undefined);
   }, []);
 
-  const verifyAuditLog = useCallback(() => verifyChain(logRef.current), []);
+  const verifyAuditLog = useCallback((): Promise<ChainStatus> => api.verifyAudit(), []);
 
   const can = useCallback(
     (permission: Permission) => canDo(currentUser, permission),
@@ -252,7 +232,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fields = useRef(new Map<string, HTMLElement>());
   /** Kept in refs so audit entries can name their target without re-creating callbacks. */
   const incidentRef = useRef<Incident | null>(null);
-  const locationsRef = useRef<LocationIndex>(initial.locations);
+  const locationsRef = useRef<LocationIndex>({});
+  const incidentsRef = useRef<Incident[]>([]);
+  const peopleRef = useRef<PersonIndex>({});
   const pendingFocus = useRef<string | null>(null);
 
   const incident = useMemo(
@@ -278,10 +260,96 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   incidentRef.current = incident;
   locationsRef.current = locations;
+  incidentsRef.current = incidents;
+  peopleRef.current = people;
+
+  /** Pulls everything the signed-in user is entitled to see. */
+  const refresh = useCallback(async () => {
+    const state = await api.state();
+    setIncidents(state.incidents);
+    setPeople(state.people);
+    setLocations(state.locations);
+    setUsers(state.users);
+    setAuditLog(state.auditLog);
+    if (state.agency) setAgency(state.agency);
+  }, []);
+
+  // Resolve the session on load, then fetch. A 401 simply means the sign-in
+  // screen, which is not an error worth reporting.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const me = await api.me();
+        if (cancelled) return;
+        setIdentity(me);
+        if (me) {
+          setSession(createSession(me.user.id, 'local'));
+          await refresh();
+        }
+        setConnectionError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setConnectionError(
+            error instanceof ApiError ? error.message : 'Could not reach the server.',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
+
+  /**
+   * Write-through. Local state stays the working copy so the UI keeps its
+   * synchronous feel, and changed collections are pushed a moment later.
+   * Coarse — whole collections at a time — and the seam to narrow when the
+   * client stops owning domain logic.
+   */
+  const dirty = useRef(new Set<'incidents' | 'people' | 'locations'>());
+  const flushTimer = useRef<number | null>(null);
+
+  const scheduleFlush = useCallback(
+    (collection: 'incidents' | 'people' | 'locations') => {
+      dirty.current.add(collection);
+      if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
+      flushTimer.current = window.setTimeout(() => {
+        const pending = [...dirty.current];
+        dirty.current.clear();
+        for (const name of pending) {
+          const docs =
+            name === 'incidents'
+              ? incidentsRef.current
+              : name === 'people'
+                ? Object.values(peopleRef.current)
+                : Object.values(locationsRef.current);
+          void api.putCollection(name, docs).catch(() => {
+            // Keep it dirty so the next change retries the write.
+            dirty.current.add(name);
+          });
+        }
+      }, 600);
+    },
+    [],
+  );
 
   useEffect(() => {
-    saveState({ incidents, people, locations, agency, users, credentials, auditLog });
-  }, [incidents, people, locations, agency, users, credentials, auditLog]);
+    if (loading || !isAuthenticated) return;
+    scheduleFlush('incidents');
+  }, [incidents, loading, isAuthenticated, scheduleFlush]);
+
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+    scheduleFlush('people');
+  }, [people, loading, isAuthenticated, scheduleFlush]);
+
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+    scheduleFlush('locations');
+  }, [locations, loading, isAuthenticated, scheduleFlush]);
 
   /* -------------------------------------------------- field registry --- */
   const registerField = useCallback((path: string, el: HTMLElement | null) => {
@@ -784,45 +852,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    */
   const createAccount = useCallback(
     async (input: Partial<User>): Promise<GuardResult & { temporaryPassword?: string }> => {
-      if (!canDo(currentUser, 'users.manage')) {
-        return { ok: false, reason: 'You do not have permission to manage accounts.' };
+      try {
+        const { user, temporaryPassword } = await api.createUser(input);
+        setUsers((prev) => [...prev, user]);
+        void api.auditLog().then(({ entries }) => setAuditLog(entries)).catch(() => undefined);
+        setSavedAt(new Date().toISOString());
+        return { ok: true, temporaryPassword };
+      } catch (error) {
+        // The server refuses over-reaching requests outright rather than
+        // quietly creating something lesser, so its reason is the useful one.
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not create the account.' };
       }
-      const safe = sanitizeUserInput(currentUser, input);
-      if (!safe.name?.trim()) return { ok: false, reason: 'A name is required.' };
-      const username = safe.username?.trim().toLowerCase() ?? '';
-      if (!username) return { ok: false, reason: 'A username is required.' };
-      if (users.some((u) => u.username.toLowerCase() === username)) {
-        return { ok: false, reason: 'That username is already in use.' };
-      }
-
-      const account = createUser({
-        id: newId('usr'),
-        ...safe,
-        username,
-        name: safe.name.trim(),
-        createdBy: currentUser.name,
-      });
-
-      // Issued once, shown once, and must be changed at first sign-in.
-      const temporaryPassword = generateTemporaryPassword();
-      const passwordHash = await hashPassword(temporaryPassword);
-
-      setUsers((prev) => [...prev, account]);
-      setCredentials((prev) => ({
-        ...prev,
-        [account.id]: createCredential(account.id, { passwordHash, mustChangePassword: true }),
-      }));
-      record({
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        action: 'user.created',
-        target: account.name,
-        detail: `${ROLE_LABEL_FOR_AUDIT[account.role]}${account.grants.length ? ` · designated: ${account.grants.join(', ')}` : ''}`,
-      });
-      setSavedAt(new Date().toISOString());
-      return { ok: true, temporaryPassword };
     },
-    [currentUser, users, record],
+    [],
   );
 
   const updateUser = useCallback(
@@ -851,52 +893,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [currentUser, users, record],
   );
 
-  const deactivateUser = useCallback(
-    (userId: string): GuardResult => {
-      const target = users.find((u) => u.id === userId);
-      if (!target) return { ok: false, reason: 'No such account.' };
-      const guard = canDeactivate(currentUser, target, users);
-      if (!guard.ok) return guard;
-
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === userId ? { ...u, active: false, deactivatedAt: new Date().toISOString() } : u,
-        ),
-      );
-      record({
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        action: 'user.deactivated',
-        target: target.name,
-        detail: '',
-      });
+  const deactivateUser = useCallback(async (userId: string): Promise<GuardResult> => {
+    try {
+      await api.deactivateUser(userId);
+      await refresh();
       setSavedAt(new Date().toISOString());
       return { ok: true };
-    },
-    [currentUser, users, record],
-  );
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not deactivate.' };
+    }
+  }, [refresh]);
 
-  const reactivateUser = useCallback(
-    (userId: string): GuardResult => {
-      const target = users.find((u) => u.id === userId);
-      if (!target) return { ok: false, reason: 'No such account.' };
-      if (!canManageUser(currentUser, target)) {
-        return { ok: false, reason: 'This account has more authority than yours.' };
-      }
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, active: true, deactivatedAt: '' } : u)),
-      );
-      record({
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        action: 'user.reactivated',
-        target: target.name,
-        detail: '',
-      });
+  const reactivateUser = useCallback(async (userId: string): Promise<GuardResult> => {
+    try {
+      await api.reactivateUser(userId);
+      await refresh();
       return { ok: true };
-    },
-    [currentUser, users],
-  );
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not reactivate.' };
+    }
+  }, [refresh]);
+
+  /* -------------------------------------------------- locations ------- */
 
   /** Jurisdiction centre, used to rank search results by distance. */
   const searchOrigin = useMemo(() => {
@@ -979,164 +997,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const updateAgency = useCallback((patch: Partial<AgencyProfile>) => {
-    setAgency((prev) => ({ ...prev, ...patch }));
+    setAgency((prev) => {
+      const next = { ...prev, ...patch };
+      // Agency setup is admin-gated server-side; a refusal here is expected
+      // for anyone else and leaves the stored copy untouched.
+      void api.putAgency(next).catch(() => undefined);
+      return next;
+    });
     setSavedAt(new Date().toISOString());
   }, []);
 
   /* -------------------------------------------------- auth ------------- */
 
-  /**
-   * Demo bootstrap. Hashing is async so it cannot happen in the seed, and a
-   * real deployment issues credentials at provisioning time instead. This only
-   * runs when no credentials exist at all.
-   */
-  useEffect(() => {
-    if (Object.keys(credentials).length > 0) return;
-    let cancelled = false;
-    void (async () => {
-      const passwordHash = await hashPassword(DEMO_PASSWORD);
-      if (cancelled) return;
-      const seeded: Record<string, Credential> = {};
-      for (const user of users) {
-        seeded[user.id] = createCredential(user.id, {
-          passwordHash,
-          mustChangePassword: false,
-        });
-      }
-      setCredentials(seeded);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [credentials, users]);
-
-  /**
-   * Every failure returns the same message. Distinguishing "no such user" from
-   * "wrong password" hands an attacker a way to enumerate valid usernames,
-   * which is the first thing they want. Lockout is the one exception, because
-   * the real account holder needs to understand why they cannot get in.
-   */
   const signIn = useCallback(
     async (username: string, password: string): Promise<SignInOutcome> => {
-      const now = Date.now();
-      const handle = username.trim().toLowerCase();
-      const user = users.find((u) => u.username.toLowerCase() === handle);
-      const credential = user ? credentials[user.id] : undefined;
-
-      if (!user || !user.active || !credential?.passwordHash) {
-        // Still do the work, so a missing account does not answer faster than
-        // a wrong password and reveal itself by timing.
-        await verifyPassword(password, 'pbkdf2$sha256$210000$c2FsdHNhbHRzYWx0c2E=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
-        record({
-          actorId: '',
-          actorName: username.trim() || 'unknown',
-          action: 'auth.signInFailed',
-          target: '',
-          detail: 'No matching active account',
-        });
-        return { ok: false, reason: SIGN_IN_FAILURE_MESSAGE };
-      }
-
-      if (isLockedOut(credential, now)) {
-        const minutes = Math.ceil(lockoutRemainingMs(credential, now) / 60_000);
+      try {
+        const me = await api.signIn(username, password);
+        setIdentity(me);
+        // Display-only mirror; the server holds the session that counts.
+        setSession(createSession(me.user.id, 'local'));
+        await refresh();
+        setConnectionError(null);
+        return { ok: true, mustChangePassword: me.mustChangePassword };
+      } catch (error) {
         return {
           ok: false,
-          reason: `This account is locked after too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask an administrator to unlock it.`,
+          reason: error instanceof ApiError ? error.message : 'Could not sign in.',
         };
       }
-
-      const valid = await verifyPassword(password, credential.passwordHash);
-
-      if (!valid) {
-        const failed = registerFailure(credential, now);
-        setCredentials((prev) => ({ ...prev, [user.id]: failed }));
-        record({
-          actorId: '',
-          actorName: user.username,
-          action: 'auth.signInFailed',
-          target: '',
-          detail: `Attempt ${failed.failedAttempts}`,
-        });
-        if (isLockedOut(failed, now)) {
-          record({
-            actorId: '',
-            actorName: user.username,
-            action: 'auth.lockout',
-            target: '',
-            detail: 'Locked after repeated failures',
-          });
-        }
-        return { ok: false, reason: SIGN_IN_FAILURE_MESSAGE };
-      }
-
-      setCredentials((prev) => ({ ...prev, [user.id]: registerSuccess(credential, now) }));
-      setSession(createSession(user.id, newId('ses'), now));
-      record({
-        actorId: user.id,
-        actorName: user.name,
-        action: 'auth.signIn',
-        target: '',
-        detail: ROLE_LABEL_FOR_AUDIT[user.role],
-      });
-      return { ok: true, mustChangePassword: credential.mustChangePassword };
     },
-    [users, credentials, record],
+    [refresh],
   );
 
   const signOut = useCallback(() => {
-    if (session) {
-      record({
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        action: 'auth.signOut',
-        target: '',
-        detail: '',
-      });
-    }
+    void api.signOut().catch(() => undefined);
+    setIdentity(null);
     setSession(null);
     setActiveId(null);
-  }, [session, currentUser, record]);
+    // Nothing the signed-out user should still be holding.
+    setIncidents([]);
+    setPeople({});
+    setLocations({});
+    setUsers([]);
+    setAuditLog([]);
+  }, []);
 
   const changePassword = useCallback(
     async (current: string, next: string): Promise<GuardResult> => {
-      if (!session) return { ok: false, reason: 'Not signed in.' };
-      const credential = credentials[session.userId];
-      if (!credential) return { ok: false, reason: 'No credential on file.' };
-
-      if (credential.passwordHash && !(await verifyPassword(current, credential.passwordHash))) {
-        return { ok: false, reason: 'That is not your current password.' };
+      try {
+        await api.changePassword(current, next);
+        setIdentity((prev) => (prev ? { ...prev, mustChangePassword: false } : prev));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof ApiError ? error.message : 'Could not change the password.',
+        };
       }
-
-      const policy = checkPassword(next, {
-        username: currentUser.username,
-        name: currentUser.name,
-      });
-      if (!policy.ok) return { ok: false, reason: policy.problems.join(' ') };
-
-      if (await verifyPassword(next, credential.passwordHash)) {
-        return { ok: false, reason: 'The new password must be different from the old one.' };
-      }
-
-      const passwordHash = await hashPassword(next);
-      setCredentials((prev) => ({
-        ...prev,
-        [session.userId]: {
-          ...credential,
-          passwordHash,
-          mustChangePassword: false,
-          passwordChangedAt: new Date().toISOString(),
-        },
-      }));
-      record({
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        action: 'auth.passwordChanged',
-        target: '',
-        detail: '',
-      });
-      return { ok: true };
     },
-    [session, credentials, currentUser, record],
+    [],
   );
 
   /**
@@ -1146,12 +1065,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) return;
     const tick = window.setInterval(() => {
-      const state = sessionState(session);
-      if (state !== 'active') {
-        setSession(null);
-        setActiveId(null);
-      }
-    }, 30_000);
+      // The server enforces both timeouts and will simply stop recognising
+      // the cookie; this only notices and clears the screen.
+      void api.me().then((me) => {
+        if (!me) {
+          setIdentity(null);
+          setSession(null);
+          setActiveId(null);
+        }
+      }).catch(() => undefined);
+    }, 60_000);
     return () => window.clearInterval(tick);
   }, [session]);
 
@@ -1246,6 +1169,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     can,
     session,
     isAuthenticated,
+    loading,
+    connectionError,
     mustChangePassword,
     auditLog,
     signIn,

@@ -6,4 +6,8 @@ import path from 'node:path';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
+  server: {
+    // The API runs separately; same-origin in dev so the session cookie works.
+    proxy: { '/api': { target: 'http://localhost:4000', changeOrigin: false } },
+  },
 });

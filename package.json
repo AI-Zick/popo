@@ -9,20 +9,27 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "server": "tsx watch server/index.ts",
+    "typecheck:server": "tsc -p tsconfig.server.json"
   },
   "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.2",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^4.17.25",
     "@types/node": "^26.4.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
     "vitest": "^4.1.11"
