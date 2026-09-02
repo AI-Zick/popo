@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   FileText,
   Gavel,
+  Lock,
   Package,
   Paperclip,
   Users,
@@ -49,7 +50,7 @@ const SECTION_HINT: Record<SectionId, string> = {
 };
 
 export function IncidentEditor() {
-  const { incident, activeSection, setSection, validation, goToIssue } = useStore();
+  const { incident, activeSection, setSection, validation, goToIssue, reportEditable } = useStore();
 
   // F8 walks to the next unresolved problem, the way a spellchecker would.
   useEffect(() => {
@@ -144,7 +145,30 @@ export function IncidentEditor() {
               </h1>
             </header>
 
-            <SectionBody section={activeSection} />
+            {!reportEditable && (
+              <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-line bg-raised px-4 py-3">
+                <Lock size={15} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+                <p className="text-[12.5px] leading-relaxed text-muted">
+                  {incident.status === 'pending_review'
+                    ? 'This report is with a supervisor and cannot be edited until it comes back.'
+                    : 'This report has been approved and is part of the record. A supervisor can reopen it if something needs changing.'}
+                </p>
+              </div>
+            )}
+
+            {/*
+              Disabling the fieldset is what actually stops edits; the banner
+              only explains why. The review section is exempt: a nested fieldset
+              cannot re-enable itself inside a disabled ancestor, and a reviewer
+              has to act on a report that is deliberately read-only for its
+              author. The review actions carry their own guards.
+            */}
+            <fieldset
+              disabled={!reportEditable && activeSection !== 'review'}
+              className="min-w-0 border-0 p-0"
+            >
+              <SectionBody section={activeSection} />
+            </fieldset>
 
             <div className="mt-6 flex items-center justify-between border-t border-line pt-5">
               {prev ? (

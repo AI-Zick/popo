@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronLeft, Cloud, Send, UserCog } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, Cloud, CornerUpLeft, Send, UserCog } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { Badge, Button } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
@@ -19,6 +19,8 @@ export function EditorHeader() {
   if (!incident) return null;
 
   const heldBy = lockOn(incident.id);
+  const wasReturned = incident.status === 'returned' && incident.returnedReason;
+  const outstanding = (incident.reviewComments ?? []).filter((c) => !c.resolvedAt).length;
 
   const status = STATUS[incident.status];
   const locked = incident.status === 'pending_review' || incident.status === 'approved';
@@ -38,6 +40,26 @@ export function EditorHeader() {
           <Button size="sm" onClick={dismissConflict}>
             Got it
           </Button>
+        </div>
+      )}
+
+      {wasReturned && (
+        <div className="flex items-start gap-3 border-b border-warn/35 bg-warn-soft px-4 py-3">
+          <CornerUpLeft size={16} className="mt-0.5 shrink-0 text-warn" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium text-ink">
+              Sent back by {incident.reviewedBy || 'a supervisor'}
+            </p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink/80">
+              {incident.returnedReason}
+            </p>
+            {outstanding > 0 && (
+              <p className="mt-1 text-[12.5px] text-muted">
+                {outstanding} {outstanding === 1 ? 'note is' : 'notes are'} pinned to sections — they
+                are in the report check panel, with the validation problems.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

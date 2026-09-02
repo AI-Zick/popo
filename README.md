@@ -166,6 +166,31 @@ The client still writes whole collections back on a debounce. Coarse, and the
 seam to narrow when it stops owning domain logic — the schema does not change
 when it does.
 
+### Supervisor review
+
+A report goes up, and comes back either approved or with what needs fixing.
+The part that matters is the coming back: *"do it again"* costs an officer a
+shift, *"the victim's date of birth is missing"* costs them a minute. So a
+return carries a reason plus notes pinned to sections.
+
+**Those notes reach the officer through the same panel as validation
+problems** — same section badges, same *Take me there*, plus *Mark done*.
+A supervisor's note and a missing required field are, to the person fixing
+them, the same kind of thing: something specific, attached to a place in the
+report, that has to be dealt with. Folding them into one list meant they
+inherited the whole mechanism for free.
+
+**Nobody approves their own report.** That is the entire point of a review
+step; without it the queue is a formality, and the first time it matters is the
+first time someone needs a report to say something it should not. Enforced
+server-side, not in the browser. A reviewer's own report still appears in their
+queue, marked and unactionable, so it is visibly waiting on someone else.
+
+The queue ages: longest wait first, flagged overdue past 72 hours. A report is
+read-only while it is with a supervisor or after approval — a supervisor can
+reopen an approved one, and the approval stays in the history rather than being
+erased.
+
 ### Two people, one report
 
 Every record carries a version. A save sends the version it was based on, and

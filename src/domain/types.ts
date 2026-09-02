@@ -5,8 +5,10 @@
  */
 
 import type { IncidentPerson } from './person';
+import type { ReviewComment, ReviewEvent } from './review';
 
 export type { AgencyProfile } from './agency';
+export type { ReviewComment, ReviewEvent } from './review';
 export type {
   LocationIndex,
   MasterLocation,
@@ -206,6 +208,16 @@ export interface Incident {
 
   createdAt: string;
   updatedAt: string;
+
+  /** The account that wrote it — separate from the officer's display name,
+   *  because separation of duties has to compare identities, not strings. */
+  createdBy: UUID | '';
   submittedAt: string;
+  reviewedBy: string;
+  reviewedAt: string;
   returnedReason: string;
+  /** Supervisor notes pinned to fields, shown to the officer like validation. */
+  reviewComments: ReviewComment[];
+  /** Every submit, approval, return and reopen, oldest first. */
+  reviewHistory: ReviewEvent[];
 }

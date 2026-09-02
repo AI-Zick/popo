@@ -3,9 +3,11 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
+  Check,
   CheckCircle2,
   ChevronRight,
   Lightbulb,
+  MessageSquare,
   ShieldCheck,
   Wrench,
 } from 'lucide-react';
@@ -175,14 +177,17 @@ function IssueRow({
   onGo: () => void;
   onFix: () => void;
 }) {
+  const { resolveReviewComment } = useStore();
   const isError = issue.severity === 'error';
-  const Icon = isError ? AlertCircle : AlertTriangle;
+  // Supervisor notes are folded into the same list; they read differently.
+  const reviewCommentId = issue.key.startsWith('review:') ? issue.key.slice(7) : null;
+  const Icon = reviewCommentId ? MessageSquare : isError ? AlertCircle : AlertTriangle;
 
   return (
     <div
       className={cn(
         'overflow-hidden rounded-lg border bg-surface transition',
-        isError ? 'border-danger/25' : 'border-warn/25',
+        reviewCommentId ? 'border-accent/35' : isError ? 'border-danger/25' : 'border-warn/25',
         expanded && 'ring-1',
         expanded && (isError ? 'ring-danger/25' : 'ring-warn/25'),
       )}
@@ -193,7 +198,14 @@ function IssueRow({
         aria-expanded={expanded}
         className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition hover:bg-raised"
       >
-        <Icon size={15} className={cn('mt-0.5 shrink-0', isError ? 'text-danger' : 'text-warn')} aria-hidden />
+        <Icon
+          size={15}
+          className={cn(
+            'mt-0.5 shrink-0',
+            reviewCommentId ? 'text-accent' : isError ? 'text-danger' : 'text-warn',
+          )}
+          aria-hidden
+        />
         <span className="min-w-0 flex-1">
           <span className="block text-[13px] font-medium leading-snug text-ink">{issue.title}</span>
           {issue.scope && <span className="mt-0.5 block text-[11.5px] text-faint">{issue.scope}</span>}
@@ -223,6 +235,12 @@ function IssueRow({
               <Button size="sm" variant="primary" onClick={onFix}>
                 <Wrench size={13} aria-hidden />
                 {issue.quickFix.label}
+              </Button>
+            )}
+            {reviewCommentId && (
+              <Button size="sm" variant="primary" onClick={() => resolveReviewComment(reviewCommentId)}>
+                <Check size={13} aria-hidden />
+                Mark done
               </Button>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, FilePlus2, Search, Settings, Shield } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, FilePlus2, Search, Settings, Shield } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -11,6 +11,7 @@ import { UserMenu } from '@/components/layout/UserMenu';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
+import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
 
 const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' }> = {
   draft: { label: 'Draft', tone: 'neutral' },
@@ -20,7 +21,12 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
 };
 
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
-  const { incidents, people, locations, agency, can, lockOn, openIncident, createNew } = useStore();
+  const { incidents, people, locations, agency, can, currentUser, lockOn, openIncident, createNew } =
+    useStore();
+  const [tab, setTab] = useState<'all' | 'queue'>('all');
+
+  const queue = useMemo(() => buildQueue(incidents, currentUser), [incidents, currentUser]);
+  const mayReview = can('reports.approve');
   const [query, setQuery] = useState('');
 
   const rows = useMemo(() => {
@@ -111,7 +117,72 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
             />
           </div>
 
-          {rows.length === 0 ? (
+          {mayReview && (
+            <div className="mb-4 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTab('all')}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
+                  tab === 'all' ? 'bg-surface text-ink ring-1 ring-line' : 'text-muted hover:bg-surface/60',
+                )}
+              >
+                All reports
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('queue')}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
+                  tab === 'queue' ? 'bg-surface text-ink ring-1 ring-line' : 'text-muted hover:bg-surface/60',
+                )}
+              >
+                Review queue
+                {queue.length > 0 && (
+                  <span className="rounded bg-accent px-1.5 text-[11px] font-semibold text-white tabular">
+                    {queue.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
+          {mayReview && tab === 'queue' ? (
+            queue.length === 0 ? (
+              <EmptyState
+                icon={<CheckCircle2 size={20} />}
+                title="Nothing waiting"
+                body="Every submitted report has been dealt with."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {queue.map((entry) => (
+                  <li key={entry.report.id}>
+                    <button
+                      type="button"
+                      onClick={() => openIncident(entry.report.id)}
+                      className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[13.5px] font-semibold text-ink">
+                            {entry.report.caseNumber}
+                          </span>
+                          {entry.overdue && <Badge tone="danger">Overdue</Badge>}
+                          {!entry.reviewable && <Badge tone="neutral">Your own report</Badge>}
+                        </div>
+                        <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                          {entry.report.reportingOfficer || 'Unassigned'} · waiting{' '}
+                          {describeWait(entry.waitingHours)}
+                        </p>
+                      </div>
+                      <ArrowRight size={15} className="shrink-0 text-faint" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : rows.length === 0 ? (
             <EmptyState
               icon={<Search size={20} />}
               title={query ? 'No reports match that search' : 'No reports yet'}
@@ -187,7 +258,7 @@ function ReportRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[13.5px] font-semibold text-ink">{incident.caseNumber}</span>
-          <Badge tone={status.tone}>{status.label}</Badge>
+          <Badge tone={status.tone}>{STATUS_LABEL[incident.status] ?? status.label}</Badge>
           {incident.isDomestic && <Badge tone="danger">Domestic</Badge>}
           {lockedBy && <Badge tone="warn">{lockedBy} is editing</Badge>}
         </div>

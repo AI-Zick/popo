@@ -209,6 +209,41 @@ export const api = {
     });
   },
 
+  /* ---- Review ------------------------------------------------------- */
+
+  submitReport(id: string): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/submit`, { method: 'POST' });
+  },
+
+  approveReport(id: string, note = ''): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  returnReport(
+    id: string,
+    reason: string,
+    comments: { path: string; section: string; message: string }[],
+  ): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/return`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, comments }),
+    });
+  },
+
+  reopenReport(id: string, reason: string): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  resolveComment(id: string, commentId: string): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/comments/${commentId}/resolve`, { method: 'POST' });
+  },
+
   putAgency(agency: AgencyProfile) {
     return request<{ ok: true }>('/api/agency', {
       method: 'PUT',

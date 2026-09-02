@@ -168,8 +168,13 @@ export function createIncident(partial: Partial<Incident> = {}): Incident {
     narrative: '',
     createdAt: now,
     updatedAt: now,
+    createdBy: '',
     submittedAt: '',
+    reviewedBy: '',
+    reviewedAt: '',
     returnedReason: '',
+    reviewComments: [],
+    reviewHistory: [],
     ...partial,
   };
 }

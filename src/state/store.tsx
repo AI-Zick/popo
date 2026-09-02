@@ -56,6 +56,7 @@ import {
   type LocationMatch,
 } from '@/domain/locationMatching';
 import { createSession, touchSession, type Session, type SignInOutcome } from '@/domain/session';
+import { isEditable, unresolvedComments } from '@/domain/review';
 import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
 import { api, ApiError, type Attachment, type Collection, type LockHolder } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
@@ -99,6 +100,16 @@ interface StoreValue {
   lockOn: (id: string) => LockHolder | null;
   takeOverLock: (id: string) => void;
   attachments: Attachment[];
+  /** True when this report is the officer's to edit right now. */
+  reportEditable: boolean;
+  submitForReview: () => Promise<GuardResult>;
+  approveReport: (note: string) => Promise<GuardResult>;
+  returnReport: (
+    reason: string,
+    comments: { path: string; section: string; message: string }[],
+  ) => Promise<GuardResult>;
+  reopenReport: (reason: string) => Promise<GuardResult>;
+  resolveReviewComment: (commentId: string) => void;
   uploadAttachment: (file: File, caption: string) => Promise<GuardResult>;
   retractAttachment: (id: string, reason: string) => Promise<GuardResult>;
   verifyAttachment: (id: string) => Promise<{ intact: boolean }>;
@@ -270,11 +281,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incident, locations],
   );
 
-  const validation = useMemo(
-    () =>
-      incident ? runRules(incident, ALL_RULES, { people, locations, agency }) : EMPTY_VALIDATION,
-    [incident, people, locations, agency],
-  );
+  const validation = useMemo(() => {
+    if (!incident) return EMPTY_VALIDATION;
+    const base = runRules(incident, ALL_RULES, { people, locations, agency });
+
+    // A supervisor's note is, for the officer, exactly the same kind of thing
+    // as a validation problem: something specific, attached to a field, that
+    // has to be dealt with. Folding them into one list means they inherit the
+    // panel, the section badges and jump-to-the-field for free.
+    const notes = unresolvedComments(incident.reviewComments ?? []);
+    if (notes.length === 0) return base;
+
+    const asIssues: Issue[] = notes.map((comment) => ({
+      key: `review:${comment.id}`,
+      ruleId: 'review.comment',
+      severity: 'error',
+      section: comment.section,
+      path: comment.path || comment.section,
+      scope: `From ${comment.authorName}`,
+      title: 'Supervisor asked for a change',
+      message: comment.message,
+      tip: 'Make the change, then mark it done in the panel. The report cannot go back up with this outstanding.',
+    }));
+
+    return runRules(incident, [...ALL_RULES, () => asIssues], { people, locations, agency });
+  }, [incident, people, locations, agency]);
 
   incidentRef.current = incident;
   locationsRef.current = locations;
@@ -1268,6 +1299,85 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [activeId],
   );
 
+  /* -------------------------------------------------- review ----------- */
+
+  const reportEditable = incident ? isEditable(incident.status) : false;
+
+  /** Applies a report the server just returned, keeping its new version. */
+  const adoptReport = useCallback(async () => {
+    await refresh().catch(() => undefined);
+  }, [refresh]);
+
+  const submitForReview = useCallback(async (): Promise<GuardResult> => {
+    if (!incident) return { ok: false, reason: 'No report is open.' };
+    setSubmitAttempted(true);
+    if (!validation.canSubmit) {
+      const first = validation.errors[0];
+      if (first) goToIssue(first);
+      return { ok: false, reason: 'Fix the blocking problems first.' };
+    }
+    try {
+      await api.submitReport(incident.id);
+      await adoptReport();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not submit.' };
+    }
+  }, [incident, validation, goToIssue, adoptReport]);
+
+  const approveReport = useCallback(
+    async (note: string): Promise<GuardResult> => {
+      if (!incident) return { ok: false, reason: 'No report is open.' };
+      try {
+        await api.approveReport(incident.id, note);
+        await adoptReport();
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not approve.' };
+      }
+    },
+    [incident, adoptReport],
+  );
+
+  const returnReport = useCallback(
+    async (
+      reason: string,
+      comments: { path: string; section: string; message: string }[],
+    ): Promise<GuardResult> => {
+      if (!incident) return { ok: false, reason: 'No report is open.' };
+      try {
+        await api.returnReport(incident.id, reason, comments);
+        await adoptReport();
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not return it.' };
+      }
+    },
+    [incident, adoptReport],
+  );
+
+  const reopenReport = useCallback(
+    async (reason: string): Promise<GuardResult> => {
+      if (!incident) return { ok: false, reason: 'No report is open.' };
+      try {
+        await api.reopenReport(incident.id, reason);
+        await adoptReport();
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not reopen.' };
+      }
+    },
+    [incident, adoptReport],
+  );
+
+  const resolveReviewComment = useCallback(
+    (commentId: string) => {
+      if (!incident) return;
+      void api.resolveComment(incident.id, commentId).then(adoptReport).catch(() => undefined);
+    },
+    [incident, adoptReport],
+  );
+
   const attemptSubmit = useCallback(() => {
     setSubmitAttempted(true);
     if (!validation.canSubmit) {
@@ -1275,19 +1385,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (first) goToIssue(first);
       return false;
     }
-    update((draft) => {
-      draft.status = 'pending_review';
-      draft.submittedAt = new Date().toISOString();
-    });
-    record({
-      actorId: currentUser.id,
-      actorName: currentUser.name,
-      action: 'report.submitted',
-      target: incident?.caseNumber ?? '',
-      detail: '',
-    });
+    void submitForReview();
     return true;
-  }, [validation, goToIssue, update, record, currentUser, incident]);
+  }, [validation, goToIssue, submitForReview]);
 
   const value: StoreValue = {
     incidents,
@@ -1307,6 +1407,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lockOn,
     takeOverLock,
     attachments,
+    reportEditable,
+    submitForReview,
+    approveReport,
+    returnReport,
+    reopenReport,
+    resolveReviewComment,
     uploadAttachment,
     retractAttachment,
     verifyAttachment: verifyAttachmentFile,

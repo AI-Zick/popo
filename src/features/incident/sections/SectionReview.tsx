@@ -7,6 +7,8 @@ import { OFFENSE_BY_CODE } from '@/domain/codes';
 import { personDisplayName } from '@/validation/engine';
 import { fullAddress } from '@/domain/location';
 import { cn } from '@/lib/cn';
+import { ReviewPanel } from '@/features/review/ReviewPanel';
+import { STATUS_LABEL } from '@/domain/review';
 
 export function SectionReview() {
   const { incident, persons, location, validation, goToIssue, setSection, attemptSubmit } =
@@ -20,6 +22,31 @@ export function SectionReview() {
 
   return (
     <div className="space-y-4">
+      {incident.status === 'returned' && incident.returnedReason && (
+        <div className="rounded-xl border border-warn/35 bg-warn-soft p-4">
+          <p className="text-[14px] font-semibold text-ink">
+            Sent back by {incident.reviewedBy || 'a supervisor'}
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-ink/85">{incident.returnedReason}</p>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
+            Anything they pinned to a section is in the report check panel on the right, alongside
+            the validation problems. Mark each one done as you deal with it.
+          </p>
+        </div>
+      )}
+
+      {incident.status === 'pending_review' && (
+        <div className="rounded-xl border border-accent/35 bg-accent-soft p-4">
+          <p className="text-[14px] font-semibold text-ink">Waiting on a supervisor</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+            Submitted {incident.submittedAt ? formatDateTime(incident.submittedAt) : ''}. It is
+            read-only until it comes back or is approved.
+          </p>
+        </div>
+      )}
+
+      <ReviewPanel />
+
       {/* -------- Readiness banner ---------------------------------------- */}
       <div
         className={cn(
@@ -188,11 +215,5 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 }
 
 function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    draft: 'Draft',
-    pending_review: 'Pending supervisor review',
-    approved: 'Approved',
-    returned: 'Returned for correction',
-  };
-  return map[status] ?? status;
+  return STATUS_LABEL[status as keyof typeof STATUS_LABEL] ?? status;
 }
