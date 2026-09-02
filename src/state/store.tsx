@@ -63,6 +63,13 @@ import { runRules, type Issue, type ValidationResult } from '@/validation/engine
 import { ALL_RULES } from '@/validation/rules';
 import { profileFor, stateRules } from '@/domain/nibrs';
 import {
+  canSupplement,
+  checkSupplement,
+  supplementsFor,
+  type Supplement,
+  type SupplementProblem,
+} from '@/domain/supplement';
+import {
   applySuggestion,
   mergeFindings,
   readNarrative,
@@ -183,6 +190,26 @@ interface StoreValue {
    * report is evidence, and a field the officer did not enter has no business
    * appearing over their badge number.
    */
+  /* ---- Supplements ------------------------------------------------- */
+  /** Every supplement the agency has, across all cases. */
+  supplements: Supplement[];
+  /** Supplements on the report currently open, in order. */
+  caseSupplements: Supplement[];
+  /** The supplement being written or reviewed, when one is open. */
+  supplement: Supplement | null;
+  /** What still has to be true before the open supplement can go up. */
+  supplementProblems: SupplementProblem[];
+  /** Whether a supplement may be started against the open report. */
+  canAddSupplement: { ok: boolean; reason?: string };
+  openSupplement: (id: string) => void;
+  closeSupplement: () => void;
+  startSupplement: () => Promise<GuardResult>;
+  updateSupplement: (patch: Partial<Supplement>) => void;
+  submitSupplement: () => Promise<GuardResult>;
+  approveSupplement: (note: string) => Promise<GuardResult>;
+  returnSupplement: (reason: string) => Promise<GuardResult>;
+  reopenSupplement: (reason: string) => Promise<GuardResult>;
+
   suggestions: Suggestion[];
   dismissedSuggestions: string[];
   /** Accepted this session, newest first, each still undoable. */
@@ -257,6 +284,8 @@ const NO_PERSONS: Person[] = [];
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [supplements, setSupplements] = useState<Supplement[]>([]);
+  const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
   const [people, setPeople] = useState<PersonIndex>({});
   const [locations, setLocations] = useState<LocationIndex>({});
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
@@ -370,6 +399,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const state = await api.state();
     setIncidents(state.incidents);
+    setSupplements(state.supplements ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -455,6 +485,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [refresh]);
+
+  /*
+    Supplements save on their own path rather than through `markDirty`.
+
+    The record write-through carries an optimistic version and belongs to the
+    three shared collections; a supplement is a single-author draft that only
+    its author can edit, so a version race cannot happen and the extra
+    machinery would only get in the way.
+  */
+  const supplementDirty = useRef(new Set<string>());
+  const supplementTimer = useRef<number | null>(null);
+  const supplementsRef = useRef<Supplement[]>([]);
+  supplementsRef.current = supplements;
+
+  const flushSupplement = useCallback(async (id: string) => {
+    if (!supplementDirty.current.has(id)) return;
+    supplementDirty.current.delete(id);
+    const doc = supplementsRef.current.find((s) => s.id === id);
+    if (!doc) return;
+    try {
+      await api.saveSupplement(id, {
+        type: doc.type,
+        narrative: doc.narrative,
+        disposition: doc.disposition,
+        arrest: doc.arrest,
+      });
+    } catch {
+      // Put it back so the next tick tries again rather than losing the edit.
+      supplementDirty.current.add(id);
+    }
+  }, []);
+
+  const markSupplementDirty = useCallback(
+    (id: string) => {
+      supplementDirty.current.add(id);
+      if (supplementTimer.current !== null) window.clearTimeout(supplementTimer.current);
+      supplementTimer.current = window.setTimeout(() => void flushSupplement(id), 600);
+    },
+    [flushSupplement],
+  );
 
   const markDirty = useCallback(
     (collection: Collection, id: string) => {
@@ -660,6 +730,113 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     },
     [activeId, people, setSection, revealField],
+  );
+
+  /* -------------------------------------------------- supplements ------- */
+
+  /*
+    A supplement is its own document. It never edits the report it hangs from —
+    the original stays exactly as it was signed off — so the only thing that
+    reaches the case is a disposition change, and only once a supervisor has
+    approved it. The server re-decides all of that; this is the client's view.
+  */
+  const caseSupplements = useMemo(
+    () => (activeId ? supplementsFor(supplements, activeId) : []),
+    [supplements, activeId],
+  );
+
+  const supplement = useMemo(
+    () => supplements.find((s) => s.id === activeSupplementId) ?? null,
+    [supplements, activeSupplementId],
+  );
+
+  const supplementProblems = useMemo(() => {
+    if (!supplement || !incident) return [];
+    return checkSupplement(supplement, {
+      clearanceStatus: incident.clearanceStatus,
+      hasArrestee: incident.persons.some((p) => p.role === 'arrestee'),
+    });
+  }, [supplement, incident]);
+
+  const canAddSupplement = useMemo(
+    () => (incident ? canSupplement(currentUser, incident.status) : { ok: false }),
+    [incident, currentUser],
+  );
+
+  const openSupplement = useCallback((id: string) => setActiveSupplementId(id), []);
+  const closeSupplement = useCallback(() => setActiveSupplementId(null), []);
+
+  const startSupplement = useCallback(async (): Promise<GuardResult> => {
+    if (!activeId) return { ok: false, reason: 'No case is open.' };
+    try {
+      const { supplement: created } = await api.createSupplement(activeId);
+      setSupplements((prev) => [...prev, created]);
+      setActiveSupplementId(created.id);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not start it.' };
+    }
+  }, [activeId]);
+
+  /**
+   * Saves a draft supplement.
+   *
+   * Optimistic locally and debounced to the server through the same dirty-record
+   * path the rest of the editor uses, so typing does not wait on a round trip.
+   */
+  const updateSupplement = useCallback(
+    (patch: Partial<Supplement>) => {
+      if (!activeSupplementId) return;
+      setSupplements((prev) =>
+        prev.map((s) =>
+          s.id === activeSupplementId ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s,
+        ),
+      );
+      setSavedAt(new Date().toISOString());
+      markSupplementDirty(activeSupplementId);
+    },
+    [activeSupplementId, markSupplementDirty],
+  );
+
+  /** One transition, applied to the supplement and to the case it may move. */
+  const supplementAction = useCallback(
+    async (
+      action: 'submit' | 'approve' | 'return' | 'reopen',
+      body: Record<string, unknown> = {},
+    ): Promise<GuardResult> => {
+      if (!activeSupplementId) return { ok: false, reason: 'No supplement is open.' };
+      try {
+        // Anything unsaved has to reach the server before the transition does.
+        await flushSupplement(activeSupplementId);
+        const result = await api.supplementAction(activeSupplementId, action, body);
+        setSupplements((prev) => prev.map((s) => (s.id === result.supplement.id ? result.supplement : s)));
+        // An approval may have moved the case's clearance.
+        if (result.incident) {
+          setIncidents((prev) => prev.map((i) => (i.id === result.incident!.id ? result.incident! : i)));
+        }
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof ApiError ? error.message : 'That did not work.',
+        };
+      }
+    },
+    [activeSupplementId, flushSupplement],
+  );
+
+  const submitSupplement = useCallback(() => supplementAction('submit'), [supplementAction]);
+  const approveSupplement = useCallback(
+    (note: string) => supplementAction('approve', { note }),
+    [supplementAction],
+  );
+  const returnSupplement = useCallback(
+    (reason: string) => supplementAction('return', { reason }),
+    [supplementAction],
+  );
+  const reopenSupplement = useCallback(
+    (reason: string) => supplementAction('reopen', { reason }),
+    [supplementAction],
   );
 
   /* -------------------------------------------------- narrative -------- */
@@ -1673,6 +1850,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSection,
     goToIssue,
     applyQuickFix,
+    supplements,
+    caseSupplements,
+    supplement,
+    supplementProblems,
+    canAddSupplement,
+    openSupplement,
+    closeSupplement,
+    startSupplement,
+    updateSupplement,
+    submitSupplement,
+    approveSupplement,
+    returnSupplement,
+    reopenSupplement,
+
     suggestions,
     dismissedSuggestions,
     acceptedSuggestions,

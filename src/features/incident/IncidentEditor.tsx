@@ -9,6 +9,7 @@ import {
   Gavel,
   Lock,
   Package,
+  Layers,
   Paperclip,
   Users,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ import { SectionVehicles } from './sections/SectionVehicles';
 import { SectionNarrative } from './sections/SectionNarrative';
 import { SectionAttachments } from './sections/SectionAttachments';
 import { SectionReview } from './sections/SectionReview';
+import { SupplementList } from '@/features/supplements/SupplementList';
 import { EditorHeader } from './EditorHeader';
 import { PrintableReport } from '@/features/print/PrintableReport';
 
@@ -36,6 +38,7 @@ const SECTION_ICON: Record<SectionId, typeof FileText> = {
   vehicles: Car,
   narrative: BookOpen,
   attachments: Paperclip,
+  supplements: Layers,
   review: ClipboardCheck,
 };
 
@@ -47,6 +50,7 @@ const SECTION_HINT: Record<SectionId, string> = {
   vehicles: 'Stolen, towed, suspect',
   narrative: 'What happened, in your words',
   attachments: 'Photographs and documents',
+  supplements: 'What happened since',
   review: 'Check and send',
 };
 
@@ -167,7 +171,7 @@ export function IncidentEditor() {
               author. The review actions carry their own guards.
             */}
             <fieldset
-              disabled={!reportEditable && activeSection !== 'review'}
+              disabled={!reportEditable && activeSection !== 'review' && activeSection !== 'supplements'}
               className="min-w-0 border-0 p-0"
             >
               <SectionBody section={activeSection} />
@@ -214,6 +218,8 @@ function SectionBody({ section }: { section: SectionId }) {
       return <SectionNarrative />;
     case 'attachments':
       return <SectionAttachments />;
+    case 'supplements':
+      return <SupplementList />;
     case 'review':
       return <SectionReview />;
   }

@@ -21,6 +21,7 @@ import { Badge, Button, EmptyState } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
+import { supplementLabel, type Supplement } from '@/domain/supplement';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
@@ -51,15 +52,35 @@ const FILTER_LABEL: Record<Filter, string> = {
 type Sort = 'updated' | 'oldest' | 'case';
 
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
-  const { incidents, people, locations, agency, can, currentUser, lockOn, openIncident, createNew } =
-    useStore();
+  const {
+    incidents,
+    supplements,
+    people,
+    locations,
+    agency,
+    can,
+    currentUser,
+    lockOn,
+    openIncident,
+    openSupplement,
+    createNew,
+  } = useStore();
   const [tab, setTab] = useState<'cases' | 'queue'>('cases');
   const [filter, setFilter] = useState<Filter>('mine_open');
   const [sort, setSort] = useState<Sort>('updated');
   const [query, setQuery] = useState('');
 
   const mayReview = can('reports.approve');
-  const queue = useMemo(() => buildQueue(incidents, currentUser), [incidents, currentUser]);
+
+  /*
+    Reports and supplements queue together. A supervisor asks "what is waiting
+    on me", not "what reports are waiting on me" — and a supplement that sits
+    unreviewed for a week is a case whose clearance never reached the state.
+  */
+  const queue = useMemo(
+    () => buildQueue([...incidents, ...supplements], currentUser),
+    [incidents, supplements, currentUser],
+  );
 
   const mine = (i: Incident) => i.createdBy === currentUser.id;
 
@@ -296,18 +317,32 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
               />
             ) : (
               <ul className="space-y-2">
-                {queue.map((entry) => (
+                {queue.map((entry) => {
+                  // A supplement carries the case it hangs from; a report does
+                  // not. That is what tells the two apart in one queue.
+                  const asSupplement = entry.report as Partial<Supplement>;
+                  const isSupplement = Boolean(asSupplement.caseId);
+
+                  return (
                   <li key={entry.report.id}>
                     <button
                       type="button"
-                      onClick={() => openIncident(entry.report.id)}
+                      onClick={() =>
+                        isSupplement
+                          ? (openIncident(asSupplement.caseId!), openSupplement(entry.report.id))
+                          : openIncident(entry.report.id)
+                      }
                       className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-[13.5px] font-semibold text-ink">
-                            {entry.report.caseNumber}
+                            {isSupplement
+                              ? supplementLabel(entry.report as Supplement)
+                              : entry.report.caseNumber}
                           </span>
+                          {isSupplement && <Badge tone="accent">Supplement</Badge>}
+                          {asSupplement.disposition && <Badge tone="warn">Changes case status</Badge>}
                           {entry.overdue && <Badge tone="danger">Overdue</Badge>}
                           {!entry.reviewable && <Badge tone="neutral">Your own report</Badge>}
                         </div>
@@ -319,7 +354,8 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                       <ArrowRight size={15} className="shrink-0 text-faint" aria-hidden />
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )
           ) : rows.length === 0 ? (

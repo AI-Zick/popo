@@ -3,12 +3,13 @@ import { Loader2, ServerCrash } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { Dashboard } from '@/features/dashboard/Dashboard';
 import { IncidentEditor } from '@/features/incident/IncidentEditor';
+import { SupplementEditor } from '@/features/supplements/SupplementEditor';
 import { AgencySetup } from '@/features/setup/AgencySetup';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 
 export default function App() {
-  const { incident, can, isAuthenticated, mustChangePassword, loading, connectionError } =
+  const { incident, supplement, can, isAuthenticated, mustChangePassword, loading, connectionError } =
     useStore();
   const [setupOpen, setSetupOpen] = useState(false);
 
@@ -50,6 +51,11 @@ export default function App() {
     <div className="h-full">
       {setupOpen && !incident && (can('agency.configure') || can('users.manage') || can('audit.view') || can('reports.approve')) ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
+      ) : supplement ? (
+        // A supplement takes over the screen: it is its own document, and
+        // editing one inside the report it hangs from would blur exactly the
+        // line this feature exists to draw.
+        <SupplementEditor />
       ) : incident ? (
         <IncidentEditor />
       ) : (

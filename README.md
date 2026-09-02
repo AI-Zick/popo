@@ -265,6 +265,57 @@ What the report already says is marked rather than hidden — showing that the
 system read the narrative and agreed is worth more than a list that silently
 shrinks. Sending a narrative to the model is logged as an access event.
 
+### Supplements
+
+A report has a terminal state; a case does not. The original is written at 3am
+and approved the next morning, and then the case keeps moving: the lab comes
+back a week later, a detective picks it up, an arrest happens in March on a
+January burglary.
+
+None of that is a *correction*. Without supplements the only way to record it is
+to reopen the report, which reverses a supervisor's approval and rewrites a
+document that was accurate when it was signed. That is how a system loses the
+distinction between "the officer got it wrong" and "we learned something new" —
+and that distinction is what a defence attorney will spend an afternoon on.
+
+**A supplement never edits the report it hangs from.** It is its own document,
+numbered within the case (`2026-000418 S2`, which is how an officer says it),
+with its own author, its own review, and its own place in the audit chain. Any
+officer can write one, not just the original author — a detective picking up
+someone else's case is the point.
+
+**You cannot supplement a report that has not been approved.** Not a
+technicality: allowing both would give officers a way to route new material
+around review — file a thin report, get it approved, put the substance in a
+supplement — and leave nobody able to say which document the case rests on.
+While the report is still a draft or still in review, the message says to put
+the information in the report itself.
+
+**The one thing a supplement may reach out and change is the case's
+disposition**, and only when a supervisor approves it. A case cleared by an
+arrest in March has to actually read as cleared; a clearance buried in a
+narrative nobody parses never reaches the state, and the agency's published
+figures say the crime was never solved. So the change is a declared field, the
+supervisor is warned that approving it moves the case, and:
+
+- **Only the most recent approved decision stands.** Two detectives filing
+  conflicting dispositions a week apart is real, and the answer is the latest
+  decision with both visible in the history.
+- **Returning or reopening takes the change back off.** The case reverts to
+  what the report itself said — not to whatever the previous supplement
+  decided. Leaving it cleared after the decision was withdrawn would be the
+  worst outcome available: the paperwork says one thing and the statistics
+  another, and nobody notices until the annual return.
+- **Clearing by arrest needs the arrest named.** Usually it was booked under
+  its own case number weeks later, so a reference to it is what is actually
+  available — requiring an arrestee on the *original* report would be wrong.
+
+Supplements queue for review alongside reports — a supervisor asks "what is
+waiting on me", not "what reports are waiting on me" — and separation of duties
+does not relax because the document is shorter. Approved supplements print with
+the case file; a case handed to a prosecutor without its follow-ups reads as
+though nothing happened after the first shift.
+
 ### The paper copy
 
 Prosecutors, defence counsel and courts work from paper. **Print** renders the
@@ -625,9 +676,12 @@ attached to.
 
 ## Deliberately not here yet
 
-Absent: a master vehicle index, supplements and follow-up reports, case
-management beyond the report itself, CAD and MDT integration, migration from an
-existing records system, and geocoding.
+Absent: a master vehicle index, case management beyond the case file itself,
+CAD and MDT integration, migration from an existing records system, and
+geocoding. Supplements carry a narrative and a disposition change but cannot
+yet add structured people, property or vehicles to a case — an arrest is
+described and referenced rather than recorded as an arrestee record, which is
+the next piece of that work.
 
 Deployment is covered in `DEPLOYMENT.md`, including what it deliberately does
 not do. The short version: **no MFA**, which CJIS requires for access to

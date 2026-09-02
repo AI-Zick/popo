@@ -38,6 +38,11 @@ export type AuditAction =
   | 'report.returned'
   | 'report.reopened'
   | 'report.printed'
+  | 'supplement.created'
+  | 'supplement.submitted'
+  | 'supplement.approved'
+  | 'supplement.returned'
+  | 'supplement.reopened'
   | 'nibrs.exported'
   | 'narrative.read'
   | 'agency.configured';
@@ -64,6 +69,11 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'report.returned': 'Report returned',
   'report.reopened': 'Report reopened',
   'report.printed': 'Report printed',
+  'supplement.created': 'Supplement started',
+  'supplement.submitted': 'Supplement submitted',
+  'supplement.approved': 'Supplement approved',
+  'supplement.returned': 'Supplement returned',
+  'supplement.reopened': 'Supplement reopened',
   'nibrs.exported': 'NIBRS file exported',
   'narrative.read': 'Narrative sent for reading',
   'agency.configured': 'Agency setup changed',
@@ -83,6 +93,11 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'nibrs.exported',
   // A narrative leaving the building is an access event, not a convenience.
   'narrative.read',
+  // A supplement can change a case's clearance, which changes the agency's
+  // published figures. Worth surfacing on its own.
+  'supplement.approved',
+  'supplement.returned',
+  'supplement.reopened',
   'user.created',
   'user.updated',
   'user.deactivated',

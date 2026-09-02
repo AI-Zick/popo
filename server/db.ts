@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS incidents (
 );
 CREATE INDEX IF NOT EXISTS incidents_case ON incidents(case_number);
 
+-- Follow-up reports. A supplement never edits the report it hangs from; it is
+-- its own document, with its own author and its own review.
+CREATE TABLE IF NOT EXISTS supplements (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  case_id     TEXT NOT NULL DEFAULT '',
+  case_number TEXT NOT NULL DEFAULT '',
+  number      INTEGER NOT NULL DEFAULT 1,
+  status      TEXT NOT NULL DEFAULT 'draft',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS supplements_case ON supplements(case_id, number);
+
 CREATE TABLE IF NOT EXISTS people (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -154,7 +168,7 @@ export function openDatabase(path: string): DatabaseSync {
 /* ------------------------------------------------------------------ */
 
 export interface DocTable {
-  name: 'incidents' | 'people' | 'locations';
+  name: 'incidents' | 'people' | 'locations' | 'supplements';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -166,6 +180,15 @@ export const DOC_TABLES: Record<string, DocTable> = {
       case_number: String(doc.caseNumber ?? ''),
       status: String(doc.status ?? 'draft'),
       reported_at: String(doc.reportedAt ?? ''),
+    }),
+  },
+  supplements: {
+    name: 'supplements',
+    columns: (doc) => ({
+      case_id: String(doc.caseId ?? ''),
+      case_number: String(doc.caseNumber ?? ''),
+      number: String(doc.number ?? 1),
+      status: String(doc.status ?? 'draft'),
     }),
   },
   people: {

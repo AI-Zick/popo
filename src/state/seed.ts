@@ -465,6 +465,7 @@ export function seedState(): {
     unit: 'Patrol 12',
     supervisor: 'Sgt. A. Boone',
     clearanceStatus: 'cleared_arrest',
+    dispositionBeforeSupplement: null,
     offenses: [dui],
     persons: [arrestee, societyVictim],
     vehicles: [

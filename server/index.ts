@@ -19,6 +19,7 @@ import { registerRecordRoutes, listLocks } from './records';
 import { registerAttachmentRoutes, listAttachments } from './attachments';
 import { registerReviewRoutes } from './review';
 import { registerExtractionRoutes } from './extract';
+import { registerSupplementRoutes } from './supplements';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -172,6 +173,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const people = readDocsWithVersions(db, DOC_TABLES.people);
     const locations = readDocsWithVersions(db, DOC_TABLES.locations);
     const incidents = readDocsWithVersions(db, DOC_TABLES.incidents);
+    const supplements = readDocsWithVersions(db, DOC_TABLES.supplements);
 
     // Versions travel with the data so the client can send back what it saw.
     const versions: Record<string, number> = {};
@@ -181,6 +183,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
 
     res.json({
       incidents: incidents.map((i) => i.doc),
+      supplements: supplements.map((s) => s.doc),
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
       versions,
@@ -396,6 +399,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerRecordRoutes(app, db);
   registerReviewRoutes(app, db);
   registerExtractionRoutes(app, db);
+  registerSupplementRoutes(app, db);
   registerAttachmentRoutes(app, db, config.dataDir);
 
   app.use('/api', (_req, res) => {

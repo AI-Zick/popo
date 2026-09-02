@@ -5,6 +5,7 @@ import { CLEARANCE_OPTIONS, OFFENSE_BY_CODE, labelOf, LOCATION_TYPES, INJURY_TYP
 import { fullAddress } from '@/domain/location';
 import { formalName } from '@/domain/person';
 import { STATUS_LABEL, REVIEW_ACTION_LABEL } from '@/domain/review';
+import { SUPPLEMENT_TYPE_LABEL, supplementLabel } from '@/domain/supplement';
 import { currency, formatDate, formatDateTime } from '@/lib/format';
 import { ageForPrint } from '@/domain/freshness';
 
@@ -21,7 +22,8 @@ import { ageForPrint } from '@/domain/freshness';
  * whose output nobody checks.
  */
 export function PrintableReport({ onClose }: { onClose: () => void }) {
-  const { incident, persons, locations, agency, attachments, currentUser, record } = useStore();
+  const { incident, persons, locations, agency, attachments, caseSupplements, currentUser, record } =
+    useStore();
 
   useEffect(() => {
     if (!incident) return;
@@ -269,6 +271,34 @@ export function PrintableReport({ onClose }: { onClose: () => void }) {
             ))}
           </Section>
         )}
+
+        {/*
+          Approved supplements are part of the case file and print with it. A
+          case handed to a prosecutor without its follow-ups is a case that
+          reads as though nothing happened after the first shift.
+        */}
+        {caseSupplements
+          .filter((s) => s.status === 'approved')
+          .map((s) => (
+            <Section key={s.id} title={`${supplementLabel(s)} — ${SUPPLEMENT_TYPE_LABEL[s.type]}`}>
+              <p className="text-[11px]">
+                {s.reportingOfficer} · approved by {s.reviewedBy} ·{' '}
+                {formatDateTime(s.reviewedAt)}
+              </p>
+              {s.disposition && (
+                <p className="mt-1 text-[11px] font-semibold">
+                  Case status changed to{' '}
+                  {labelOf(CLEARANCE_OPTIONS, s.disposition.clearanceStatus)} as at{' '}
+                  {formatDate(s.disposition.clearedAt)}
+                  {s.arrest?.personName && ` — ${s.arrest.personName}, arrested ${formatDate(s.arrest.arrestDate)}`}
+                  {s.arrest?.arrestCaseNumber && ` under ${s.arrest.arrestCaseNumber}`}
+                </p>
+              )}
+              <p className="mt-1.5 whitespace-pre-wrap text-[11.5px] leading-relaxed">
+                {s.narrative}
+              </p>
+            </Section>
+          ))}
 
         {(incident.reviewHistory?.length ?? 0) > 0 && (
           <Section title="Review history">

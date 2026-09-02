@@ -26,6 +26,7 @@ export type SectionId =
   | 'vehicles'
   | 'narrative'
   | 'attachments'
+  | 'supplements'
   | 'review';
 
 export const SECTION_ORDER: SectionId[] = [
@@ -36,6 +37,7 @@ export const SECTION_ORDER: SectionId[] = [
   'vehicles',
   'narrative',
   'attachments',
+  'supplements',
   'review',
 ];
 
@@ -47,6 +49,7 @@ export const SECTION_LABEL: Record<SectionId, string> = {
   vehicles: 'Vehicles',
   narrative: 'Narrative',
   attachments: 'Attachments',
+  supplements: 'Supplements',
   review: 'Review & Submit',
 };
 
@@ -198,6 +201,19 @@ export interface Incident {
   clearanceStatus: ClearanceStatus;
   exceptionalClearanceReason: string;
   clearedAt: string;
+  /**
+   * What the disposition said before a supplement moved it.
+   *
+   * Captured the first time an approved supplement changes the case status, so
+   * that returning or reopening that supplement puts the case back rather than
+   * leaving it cleared on the strength of a decision that was withdrawn. Null
+   * whenever no supplement is currently moving the case.
+   */
+  dispositionBeforeSupplement: {
+    clearanceStatus: ClearanceStatus;
+    exceptionalClearanceReason: string;
+    clearedAt: string;
+  } | null;
 
   offenses: Offense[];
   persons: IncidentPerson[];

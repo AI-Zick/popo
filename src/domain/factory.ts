@@ -161,6 +161,7 @@ export function createIncident(partial: Partial<Incident> = {}): Incident {
     clearanceStatus: 'open',
     exceptionalClearanceReason: '',
     clearedAt: '',
+    dispositionBeforeSupplement: null,
     offenses: [],
     persons: [],
     property: [],

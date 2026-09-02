@@ -7,6 +7,7 @@
  */
 
 import type { Incident } from '@/domain/types';
+import type { Supplement } from '@/domain/supplement';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
@@ -124,6 +125,27 @@ export const api = {
     return request('/api/extract', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  /* ---- Supplements ------------------------------------------------- */
+
+  createSupplement(caseId: string): Promise<{ supplement: Supplement }> {
+    return request('/api/supplements', { method: 'POST', body: JSON.stringify({ caseId }) });
+  },
+
+  saveSupplement(id: string, patch: Partial<Supplement>): Promise<{ supplement: Supplement }> {
+    return request(`/api/supplements/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  supplementAction(
+    id: string,
+    action: 'submit' | 'approve' | 'return' | 'reopen',
+    body: Record<string, unknown> = {},
+  ): Promise<{ supplement: Supplement; incident?: Incident }> {
+    return request(`/api/supplements/${id}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
   signOut(): Promise<{ ok: true }> {
     return request('/api/auth/sign-out', { method: 'POST' });
   },
@@ -139,6 +161,7 @@ export const api = {
 
   state(): Promise<{
     incidents: Incident[];
+    supplements: Supplement[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;
