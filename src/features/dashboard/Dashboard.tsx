@@ -178,9 +178,16 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Case number, name, address, offense…"
-            className="w-full rounded-lg border border-line bg-canvas py-2 pl-9 pr-3 text-[13.5px] text-ink placeholder:text-faint"
+            placeholder="Filter these reports…"
+            className="w-full rounded-lg border border-line bg-canvas py-2 pl-9 pr-16 text-[13.5px] text-ink placeholder:text-faint"
           />
+          {/*
+            This box filters the list in front of you. Searching everything the
+            agency knows is a different job, so it says where that lives.
+          */}
+          <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-faint">
+            ⌘K all
+          </kbd>
         </div>
 
         <UserMenu />

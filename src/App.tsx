@@ -5,6 +5,7 @@ import { Dashboard } from '@/features/dashboard/Dashboard';
 import { IncidentEditor } from '@/features/incident/IncidentEditor';
 import { SupplementEditor } from '@/features/supplements/SupplementEditor';
 import { CrashEditor } from '@/features/crash/CrashEditor';
+import { CommandSearch, useSearchHotkey } from '@/features/search/CommandSearch';
 import { AgencySetup } from '@/features/setup/AgencySetup';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
@@ -13,6 +14,8 @@ export default function App() {
   const { incident, supplement, crash, isAuthenticated, mustChangePassword, loading, connectionError } =
     useStore();
   const [setupOpen, setSetupOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useSearchHotkey(() => setSearchOpen(true));
 
   if (loading) {
     return (
@@ -50,6 +53,9 @@ export default function App() {
 
   return (
     <div className="h-full">
+      {/* Reachable from every screen, because searching is not a screen. */}
+      <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
       {setupOpen && !incident ? (
         <AgencySetup onClose={() => setSetupOpen(false)} />
       ) : crash ? (

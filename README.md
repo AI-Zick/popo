@@ -166,6 +166,45 @@ The client still writes whole collections back on a debounce. Coarse, and the
 seam to narrow when it stops owning domain logic — the schema does not change
 when it does.
 
+### Search
+
+Officers search far more than they write. *"Have we dealt with this guy
+before?"*, *"what do we know about this address?"*, *"whose plate is that?"* —
+asked from a car, at 2am, with one hand. Everything good already in this system
+was worth nothing while the only way to reach it was to open a report you were
+not writing.
+
+**Ctrl-K from anywhere**, or `/` when you are not already typing. Type, arrow,
+Enter — no pointer needed, because half the time there isn't a spare hand.
+People, places, vehicles, reports and crash reports, grouped.
+
+**An inverted index, not a scan.** Tokens are extracted once when the data
+changes; a keystroke intersects posting lists. An agency with 200,000 people in
+the name index cannot afford to lowercase and substring-match every one of them
+on every character, and the difference does not show up until it is somebody's
+Tuesday.
+
+Four decisions worth naming:
+
+- **Indexing is generous, querying is precise.** `2026-000418` is *stored* as
+  `2026`, `000418` and `2026000418`, so any fragment finds it. But a *query*
+  with no whitespace is one identifier and collapses to its joined form —
+  because every query term has to match, and splitting `4AC-7821` into `4ac`
+  AND `7821` finds nothing against a plate stored as `4AC7821`. The two
+  spellings of a plate now behave identically.
+- **More words narrow, they don't widen.** Two words means both. That is what
+  people expect and what makes a two-word search useful on a large index.
+- **Cautions ride on the result row.** An officer-safety flag is *why* somebody
+  searched a name at 2am; it does not belong one click further in.
+- **Some things are deliberately unfindable.** Social security numbers are not
+  in the token list at all — being able to reverse-look-up a person from
+  fragments of one is not a feature. Neither are restricted location notes: a
+  gate code must not be findable by typing it.
+
+A person or place has no screen of its own yet, so a hit opens the most recent
+report it appears on — and the row says *which*, so the jump is never a
+surprise.
+
 ### The case list is the home page
 
 The first screen is not a menu. It is four counts an officer or a supervisor
