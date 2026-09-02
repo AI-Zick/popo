@@ -43,6 +43,12 @@ export type AuditAction =
   | 'supplement.approved'
   | 'supplement.returned'
   | 'supplement.reopened'
+  | 'crash.created'
+  | 'crash.submitted'
+  | 'crash.approved'
+  | 'crash.returned'
+  | 'crash.reopened'
+  | 'inbound.received'
   | 'nibrs.exported'
   | 'narrative.read'
   | 'agency.configured';
@@ -74,6 +80,12 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'supplement.approved': 'Supplement approved',
   'supplement.returned': 'Supplement returned',
   'supplement.reopened': 'Supplement reopened',
+  'crash.created': 'Crash report started',
+  'crash.submitted': 'Crash report submitted',
+  'crash.approved': 'Crash report approved',
+  'crash.returned': 'Crash report returned',
+  'crash.reopened': 'Crash report reopened',
+  'inbound.received': 'Data received from dispatch or a registry',
   'nibrs.exported': 'NIBRS file exported',
   'narrative.read': 'Narrative sent for reading',
   'agency.configured': 'Agency setup changed',

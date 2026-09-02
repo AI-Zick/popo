@@ -10,6 +10,7 @@ import type {
 import type { LocationIndex, MasterLocation } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
 import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
+import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
 import { createUser, type User } from '@/domain/auth';
 
 /**
@@ -197,6 +198,7 @@ function isoDaysAgo(days: number, hour = 14, minute = 30): string {
 export function seedState(): {
   incidents: Incident[];
   stops: TrafficStop[];
+  returns: QueryReturn[];
   people: PersonIndex;
   locations: LocationIndex;
   agency: AgencyProfile;
@@ -545,9 +547,191 @@ export function seedState(): {
     });
   });
 
+  /* ---- What dispatch and the registries already know -------------------- */
+
+  /*
+    A crash call and the queries that came back on it, so the autofill panel has
+    something real to offer. This is the shape a CAD or MDT adapter posts to the
+    ingest endpoint — one call record and the returns the officer ran at the
+    scene, tied together by the call number.
+  */
+  const CALL_NUMBER = 'CF-2026-0417';
+  const crashHour = (minutes: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    d.setHours(23, minutes, 0, 0);
+    return d.toISOString();
+  };
+
+  const RETURNS: QueryReturn[] = [
+    createQueryReturn({
+      id: 'ret_seed_call',
+      source: 'cad',
+      query: CALL_NUMBER,
+      callNumber: CALL_NUMBER,
+      officerId: 'u-reyes',
+      officerName: 'M. Reyes',
+      receivedAt: crashHour(12),
+      payload: {
+        kind: 'call',
+        callNumber: CALL_NUMBER,
+        nature: 'Motor vehicle crash — injuries unknown',
+        address: 'US-411',
+        city: 'Cedar Falls',
+        state: 'AL',
+        crossStreet: 'Watson Rd',
+        latitude: '33.5992',
+        longitude: '-86.4881',
+        beat: '2C',
+        receivedAt: crashHour(12),
+        dispatchedAt: crashHour(13),
+        arrivedAt: crashHour(19),
+        clearedAt: '',
+        units: ['12', '14'],
+        comments: [
+          'Caller reports two vehicles, one in the roadway blocking the northbound lane.',
+          'Second caller states occupants are out and walking.',
+        ],
+      },
+    }),
+    createQueryReturn({
+      id: 'ret_seed_reg1',
+      source: 'dmv',
+      query: '4AC7821',
+      callNumber: CALL_NUMBER,
+      officerId: 'u-reyes',
+      officerName: 'M. Reyes',
+      receivedAt: crashHour(24),
+      payload: {
+        kind: 'registration',
+        plate: '4AC7821',
+        plateState: 'AL',
+        plateYear: '2026',
+        vin: '3GCPKSE31BG104457',
+        year: '2011',
+        make: 'Chevrolet',
+        model: 'Silverado',
+        style: 'PK',
+        color: 'RED',
+        ownerLastName: 'Mercer',
+        ownerFirstName: 'Travis',
+        ownerMiddleName: 'Ray',
+        ownerAddress: '88 Depot St',
+        ownerCity: 'Cedar Falls',
+        ownerState: 'AL',
+        ownerZip: '35004',
+        status: 'Active',
+        expiresOn: '2026-11-30',
+        insuranceCarrier: 'Statewide Mutual',
+        insurancePolicy: 'SM-448120',
+      },
+    }),
+    createQueryReturn({
+      id: 'ret_seed_reg2',
+      source: 'dmv',
+      query: 'JHK4402',
+      callNumber: CALL_NUMBER,
+      officerId: 'u-reyes',
+      officerName: 'M. Reyes',
+      receivedAt: crashHour(26),
+      payload: {
+        kind: 'registration',
+        plate: 'JHK4402',
+        plateState: 'AL',
+        plateYear: '2025',
+        vin: '1N4AL3AP7JC232210',
+        year: '2018',
+        make: 'Nissan',
+        model: 'Altima',
+        style: '4D',
+        color: 'SIL',
+        ownerLastName: 'Okafor',
+        ownerFirstName: 'Samuel',
+        ownerMiddleName: '',
+        ownerAddress: '88 Marion St',
+        ownerCity: 'Cedar Falls',
+        ownerState: 'AL',
+        ownerZip: '35004',
+        // The reason the query was worth running.
+        status: 'EXPIRED',
+        expiresOn: '2025-12-31',
+        insuranceCarrier: '',
+        insurancePolicy: '',
+      },
+    }),
+    createQueryReturn({
+      id: 'ret_seed_dl1',
+      source: 'dmv',
+      query: 'AL5512890',
+      callNumber: CALL_NUMBER,
+      officerId: 'u-reyes',
+      officerName: 'M. Reyes',
+      receivedAt: crashHour(28),
+      payload: {
+        kind: 'license',
+        licenseNumber: 'AL5512890',
+        licenseState: 'AL',
+        licenseClass: 'D',
+        status: 'Valid',
+        expiresOn: '2030-04-18',
+        restrictions: '',
+        lastName: 'Mercer',
+        firstName: 'Travis',
+        middleName: 'Ray',
+        suffix: '',
+        dob: '1994-07-22',
+        sex: 'M',
+        race: 'W',
+        height: '6-01',
+        weight: '205',
+        eyeColor: 'BLU',
+        hairColor: 'BRO',
+        address: '88 Depot St',
+        city: 'Cedar Falls',
+        state: 'AL',
+        zip: '35004',
+      },
+    }),
+    createQueryReturn({
+      id: 'ret_seed_dl2',
+      source: 'nlets',
+      query: 'GA9930114',
+      callNumber: CALL_NUMBER,
+      officerId: 'u-reyes',
+      officerName: 'M. Reyes',
+      receivedAt: crashHour(31),
+      payload: {
+        kind: 'license',
+        licenseNumber: 'GA9930114',
+        licenseState: 'GA',
+        licenseClass: 'C',
+        // The other reason the query was worth running.
+        status: 'SUSPENDED',
+        expiresOn: '2027-02-02',
+        restrictions: 'Corrective lenses',
+        lastName: 'Okafor',
+        firstName: 'Samuel',
+        middleName: 'A',
+        suffix: '',
+        dob: '1988-11-04',
+        sex: 'M',
+        race: 'B',
+        height: '5-10',
+        weight: '180',
+        eyeColor: 'BRO',
+        hairColor: 'BLK',
+        address: '88 Marion St',
+        city: 'Cedar Falls',
+        state: 'AL',
+        zip: '35004',
+      },
+    }),
+  ];
+
   return {
     incidents: [incomplete, complete, approved],
     stops: STOPS,
+    returns: RETURNS,
     people: PEOPLE,
     locations: LOCATIONS,
     agency: AGENCY,

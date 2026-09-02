@@ -9,6 +9,8 @@
 import type { Incident } from '@/domain/types';
 import type { Supplement } from '@/domain/supplement';
 import type { TrafficStop } from '@/domain/activity';
+import type { CrashReport } from '@/domain/crash';
+import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
@@ -126,6 +128,36 @@ export const api = {
     return request('/api/extract', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  /* ---- Crash reports and inbound data ------------------------------ */
+
+  createCrash(callNumber: string): Promise<{ crash: CrashReport; prefilled: boolean }> {
+    return request('/api/crashes', { method: 'POST', body: JSON.stringify({ callNumber }) });
+  },
+
+  saveCrash(id: string, patch: Partial<CrashReport>): Promise<{ crash: CrashReport }> {
+    return request(`/api/crashes/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  crashAction(
+    id: string,
+    action: 'submit' | 'approve' | 'return' | 'reopen',
+    body: Record<string, unknown> = {},
+  ): Promise<{ crash: CrashReport }> {
+    return request(`/api/crashes/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /** The seam a CAD, MDT or query gateway posts to. */
+  ingest(returns: unknown[]): Promise<{ returns: QueryReturn[] }> {
+    return request('/api/inbound', { method: 'POST', body: JSON.stringify({ returns }) });
+  },
+
+  markReturnApplied(id: string, documentId: string): Promise<{ return: QueryReturn }> {
+    return request(`/api/inbound/${id}/applied`, {
+      method: 'POST',
+      body: JSON.stringify({ documentId }),
+    });
+  },
+
   /* ---- Traffic stops ----------------------------------------------- */
 
   createStop(stop: Partial<TrafficStop>): Promise<{ stop: TrafficStop }> {
@@ -178,6 +210,8 @@ export const api = {
     incidents: Incident[];
     supplements: Supplement[];
     stops: TrafficStop[];
+    crashes: CrashReport[];
+    returns: QueryReturn[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;

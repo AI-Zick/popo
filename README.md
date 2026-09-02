@@ -328,6 +328,82 @@ does not relax because the document is shorter. Approved supplements print with
 the case file; a case handed to a prosecutor without its follow-ups reads as
 though nothing happened after the first shift.
 
+### Crash reports, and not retyping what was already run
+
+A crash report is a separate document from an incident report, not a section of
+one. They answer different questions for different readers: an incident report
+describes a crime for a prosecutor and feeds NIBRS; a crash report describes a
+collision for a state highway safety office and two insurance adjusters, and
+feeds the state crash file. They meet when a crash is also a crime — a DUI, a
+hit and run, a fatality — and that produces **both**, linked, because squeezing
+one into the other loses half of each.
+
+It is built around **units**. A unit is one vehicle plus its driver and
+occupants, numbered 1, 2, 3, which is how a crash is written, diagrammed and
+argued about ("unit 2 failed to yield"). Pedestrians and cyclists are units
+too, because the state form counts them that way and the alternative is a
+special case in every rule.
+
+**Severity is derived, not typed.** An officer who marks a crash "minor" and
+then records a fatality on unit 2 has produced a report the state rejects and —
+far worse — one that does not trigger the response a fatality requires. The
+header and the occupants cannot disagree.
+
+#### What dispatch and the registries already know
+
+By the time an officer opens the report they have read the plate over the
+radio, had the registration come back, and run two licences. Every one of those
+is structured data that a records system then asks them to type again, at the
+roadside, in the rain. That is where the transcription errors come from, and it
+is most of why the job feels like data entry.
+
+So returns are stored as they arrived and sit beside the report:
+
+```
+CF-2026-0417 · Motor vehicle crash — injuries unknown     [Use the time and place]
+  "Caller reports two vehicles, one blocking the northbound lane."
+
+2011 Chevrolet Silverado · 4AC7821                        [Add as a unit]
+
+Samuel Okafor · DOB 1988-11-04
+  ⚠ Licence status: SUSPENDED       [Driver of Unit 1] [Driver of Unit 2] [Passenger]
+```
+
+Four things about that panel are load-bearing:
+
+- **The alert comes first.** A suspended licence or an expired registration is
+  usually the reason the query was run. Filling it silently into a field would
+  waste the one piece of information the officer actually needed.
+- **The registered owner is not the driver.** The owner is a fact about the
+  car; who was driving is a fact about the crash. A system that quietly files
+  one as the other produces reports naming people who were asleep at home. The
+  owner comes across with the vehicle, as a person on the report; saying they
+  were driving is a separate click.
+- **Everything filled is marked unverified.** A licence return says what the
+  state has on file — the address may be three moves out of date, and the photo
+  may not be the person holding it. Fields land carrying `dmv` provenance and
+  read *"DMV return · not confirmed with this person"* until an officer says
+  otherwise, using the same strip that has been there since provenance went in.
+- **The call record only fills what is blank.** Dispatch's address is where the
+  *caller* said it was; what the officer saw standing there wins.
+
+The returns are also evidence of what was known when. A registration showing an
+owner who had sold the car two weeks earlier is not an error in the report — it
+is what the state's system said at 0230, and the stored return is what proves
+that later.
+
+#### The integration itself
+
+`POST /api/inbound` takes one return or a batch, in a documented shape.
+**Nothing here speaks a real CAD vendor's protocol, and nothing talks to NCIC
+or NLETS** — those are vendor-specific, and NCIC access is federally controlled
+and certified per agency. Connecting a real system means writing an adapter
+that posts to that endpoint.
+
+That is deliberately the same bet as the state NIBRS packs: push the awkward,
+vendor-specific part to the edge, and keep the report module from ever needing
+to know which CAD an agency bought.
+
 ### Officer activity reports
 
 What a sergeant runs before a shift review, what a chief runs before a council
@@ -731,8 +807,15 @@ attached to.
 ## Deliberately not here yet
 
 Absent: a master vehicle index, case management beyond the case file itself,
-CAD and MDT integration, migration from an existing records system, and
-geocoding. Supplements carry a narrative and a disposition change but cannot
+migration from an existing records system, and geocoding. The crash module has
+no diagram tool — the state form wants one, and photographs and measurements go
+in as attachments in the meantime. Crash reports are not yet written to a state
+crash file; that is the same per-state layout problem the NIBRS packs solve,
+and it should reuse them.
+
+CAD and MDT integration is defined but not connected: the ingest contract and
+the whole autofill path exist and are exercised, but no adapter for any real
+CAD, and no NCIC or NLETS link. Supplements carry a narrative and a disposition change but cannot
 yet add structured people, property or vehicles to a case — an arrest is
 described and referenced rather than recorded as an arrestee record, which is
 the next piece of that work.

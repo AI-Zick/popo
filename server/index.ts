@@ -21,6 +21,7 @@ import { registerReviewRoutes } from './review';
 import { registerExtractionRoutes } from './extract';
 import { registerSupplementRoutes } from './supplements';
 import { registerStopRoutes } from './stops';
+import { registerCrashRoutes } from './crashes';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -176,6 +177,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const incidents = readDocsWithVersions(db, DOC_TABLES.incidents);
     const supplements = readDocsWithVersions(db, DOC_TABLES.supplements);
     const stops = readDocsWithVersions(db, DOC_TABLES.stops);
+    const crashes = readDocsWithVersions(db, DOC_TABLES.crashes);
+    const returns = readDocsWithVersions(db, DOC_TABLES.returns);
 
     // Versions travel with the data so the client can send back what it saw.
     const versions: Record<string, number> = {};
@@ -187,6 +190,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       incidents: incidents.map((i) => i.doc),
       supplements: supplements.map((s) => s.doc),
       stops: stops.map((s) => s.doc),
+      crashes: crashes.map((c) => c.doc),
+      returns: returns.map((r) => r.doc),
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
       versions,
@@ -404,6 +409,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerExtractionRoutes(app, db);
   registerSupplementRoutes(app, db);
   registerStopRoutes(app, db);
+  registerCrashRoutes(app, db);
   registerAttachmentRoutes(app, db, config.dataDir);
 
   app.use('/api', (_req, res) => {

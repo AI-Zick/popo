@@ -111,6 +111,33 @@ CREATE TABLE IF NOT EXISTS stops (
 );
 CREATE INDEX IF NOT EXISTS stops_officer ON stops(officer_id, at);
 
+-- Crash reports. A separate document from an incident report: different
+-- fields, a different state file, and a different reader.
+CREATE TABLE IF NOT EXISTS crashes (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  case_number TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'draft',
+  occurred_at TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS crashes_case ON crashes(case_number);
+
+-- Returns from CAD, the MDT and the registries. Stored as they arrived: they
+-- are evidence of what was known when, not just a convenience.
+CREATE TABLE IF NOT EXISTS returns (
+  id           TEXT PRIMARY KEY,
+  version      INTEGER NOT NULL DEFAULT 1,
+  call_number  TEXT NOT NULL DEFAULT '',
+  officer_id   TEXT NOT NULL DEFAULT '',
+  received_at  TEXT NOT NULL DEFAULT '',
+  updated_at   TEXT NOT NULL,
+  doc          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS returns_call ON returns(call_number, received_at);
+CREATE INDEX IF NOT EXISTS returns_officer ON returns(officer_id, received_at);
+
 CREATE TABLE IF NOT EXISTS people (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -180,7 +207,7 @@ export function openDatabase(path: string): DatabaseSync {
 /* ------------------------------------------------------------------ */
 
 export interface DocTable {
-  name: 'incidents' | 'people' | 'locations' | 'supplements' | 'stops';
+  name: 'incidents' | 'people' | 'locations' | 'supplements' | 'stops' | 'crashes' | 'returns';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -201,6 +228,22 @@ export const DOC_TABLES: Record<string, DocTable> = {
       case_number: String(doc.caseNumber ?? ''),
       number: String(doc.number ?? 1),
       status: String(doc.status ?? 'draft'),
+    }),
+  },
+  crashes: {
+    name: 'crashes',
+    columns: (doc) => ({
+      case_number: String(doc.caseNumber ?? ''),
+      status: String(doc.status ?? 'draft'),
+      occurred_at: String(doc.occurredAt ?? ''),
+    }),
+  },
+  returns: {
+    name: 'returns',
+    columns: (doc) => ({
+      call_number: String(doc.callNumber ?? ''),
+      officer_id: String(doc.officerId ?? ''),
+      received_at: String(doc.receivedAt ?? ''),
     }),
   },
   stops: {

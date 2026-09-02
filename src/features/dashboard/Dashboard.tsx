@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
+  Car,
   CheckCircle2,
   ClipboardList,
   CornerUpLeft,
@@ -22,6 +23,7 @@ import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
 import { supplementLabel, type Supplement } from '@/domain/supplement';
+import type { CrashReport } from '@/domain/crash';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
@@ -63,6 +65,9 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
     lockOn,
     openIncident,
     openSupplement,
+    crashes,
+    openCrash,
+    startCrash,
     createNew,
   } = useStore();
   const [tab, setTab] = useState<'cases' | 'queue'>('cases');
@@ -78,8 +83,8 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
     unreviewed for a week is a case whose clearance never reached the state.
   */
   const queue = useMemo(
-    () => buildQueue([...incidents, ...supplements], currentUser),
-    [incidents, supplements, currentUser],
+    () => buildQueue([...incidents, ...supplements, ...crashes], currentUser),
+    [incidents, supplements, crashes, currentUser],
   );
 
   const mine = (i: Incident) => i.createdBy === currentUser.id;
@@ -192,6 +197,11 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
           </button>
 
         <ThemeToggle />
+
+        <Button onClick={() => void startCrash('')}>
+          <Car size={15} aria-hidden />
+          New crash
+        </Button>
 
         <Button variant="primary" onClick={createNew}>
           <FilePlus2 size={15} aria-hidden />
@@ -322,15 +332,19 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                   // not. That is what tells the two apart in one queue.
                   const asSupplement = entry.report as Partial<Supplement>;
                   const isSupplement = Boolean(asSupplement.caseId);
+                  // A crash report carries units; neither of the others does.
+                  const isCrash = Array.isArray((entry.report as Partial<CrashReport>).units);
 
                   return (
                   <li key={entry.report.id}>
                     <button
                       type="button"
                       onClick={() =>
-                        isSupplement
-                          ? (openIncident(asSupplement.caseId!), openSupplement(entry.report.id))
-                          : openIncident(entry.report.id)
+                        isCrash
+                          ? openCrash(entry.report.id)
+                          : isSupplement
+                            ? (openIncident(asSupplement.caseId!), openSupplement(entry.report.id))
+                            : openIncident(entry.report.id)
                       }
                       className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
                     >
@@ -341,6 +355,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                               ? supplementLabel(entry.report as Supplement)
                               : entry.report.caseNumber}
                           </span>
+                          {isCrash && <Badge tone="accent">Crash</Badge>}
                           {isSupplement && <Badge tone="accent">Supplement</Badge>}
                           {asSupplement.disposition && <Badge tone="warn">Changes case status</Badge>}
                           {entry.overdue && <Badge tone="danger">Overdue</Badge>}
@@ -389,6 +404,56 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {/*
+            Crash reports are a separate document with their own numbering, so
+            they get their own list rather than being mixed into the incident
+            rows where the columns would mean different things.
+          */}
+          {tab === 'cases' && crashes.length > 0 && (
+            <div className="mt-6">
+              <p className="mb-2 flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wider text-faint">
+                <Car size={13} aria-hidden />
+                Crash reports ({crashes.length})
+              </p>
+              <ul className="space-y-2">
+                {[...crashes]
+                  .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                  .map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => openCrash(c.id)}
+                        className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-[13.5px] font-semibold text-ink">
+                              {c.caseNumber}
+                            </span>
+                            <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                            {c.severity === 'fatal' && <Badge tone="danger">Fatal</Badge>}
+                            {c.units.length > 0 && (
+                              <span className="text-[12px] text-faint">
+                                {c.units.length} {c.units.length === 1 ? 'unit' : 'units'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                            {[c.onRoad, c.crossStreet].filter(Boolean).join(' at ') || 'Location not set'}
+                            {' · '}
+                            {c.reportingOfficer || 'Unassigned'}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[12px] text-faint">
+                          {relativeTime(c.updatedAt)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            </div>
           )}
         </div>
       </div>

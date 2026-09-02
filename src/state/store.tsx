@@ -26,9 +26,11 @@ import {
   createIncident,
   createIncidentPerson,
   createLocation,
+  createMasterPerson,
   createNote,
   newCaseNumber,
 } from '@/domain/factory';
+import { newId } from '@/lib/id';
 import { autoLinkCandidate, findMatches, type MatchResult } from '@/domain/matching';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import {
@@ -63,6 +65,23 @@ import { runRules, type Issue, type ValidationResult } from '@/validation/engine
 import { ALL_RULES } from '@/validation/rules';
 import { profileFor, stateRules } from '@/domain/nibrs';
 import type { TrafficStop } from '@/domain/activity';
+import {
+  checkCrash,
+  createOccupant,
+  createUnit,
+  nextUnitNumber,
+  type CrashProblem,
+  type CrashReport,
+  type CrashUnit,
+} from '@/domain/crash';
+import {
+  ownerFromRegistration,
+  personFromLicense,
+  recentReturns,
+  returnsForCall,
+  vehicleFromRegistration,
+  type QueryReturn,
+} from '@/domain/inbound';
 import {
   canSupplement,
   checkSupplement,
@@ -191,6 +210,33 @@ interface StoreValue {
    * report is evidence, and a field the officer did not enter has no business
    * appearing over their badge number.
    */
+  /* ---- Crash reports ----------------------------------------------- */
+  crashes: CrashReport[];
+  /** The crash report currently open, if any. */
+  crash: CrashReport | null;
+  crashProblems: CrashProblem[];
+  openCrash: (id: string) => void;
+  closeCrash: () => void;
+  startCrash: (callNumber: string) => Promise<GuardResult>;
+  updateCrash: (patch: Partial<CrashReport>) => void;
+  updateUnit: (unitId: string, patch: Partial<CrashUnit>) => void;
+  addUnit: () => void;
+  removeUnit: (unitId: string) => void;
+  submitCrash: () => Promise<GuardResult>;
+  approveCrash: (note: string) => Promise<GuardResult>;
+  returnCrash: (reason: string) => Promise<GuardResult>;
+  reopenCrash: (reason: string) => Promise<GuardResult>;
+
+  /* ---- Inbound data ------------------------------------------------- */
+  /** Everything CAD, the MDT and the registries have sent. */
+  returns: QueryReturn[];
+  /** The returns that belong to the open crash's scene. */
+  sceneReturns: QueryReturn[];
+  /** Applies a return to the open crash — a vehicle, a driver, an owner. */
+  applyReturn: (returnId: string, as: 'unit' | 'driver' | 'owner' | 'occupant', unitId?: string) => void;
+  /** Fills the crash's time and place from the dispatch call record. */
+  applyCallDetails: (returnId: string) => void;
+
   /* ---- Activity ---------------------------------------------------- */
   /**
    * Traffic stops, agency-wide.
@@ -299,6 +345,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [stops, setStops] = useState<TrafficStop[]>([]);
+  const [crashes, setCrashes] = useState<CrashReport[]>([]);
+  const [returns, setReturns] = useState<QueryReturn[]>([]);
+  const [activeCrashId, setActiveCrashId] = useState<string | null>(null);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
   const [people, setPeople] = useState<PersonIndex>({});
   const [locations, setLocations] = useState<LocationIndex>({});
@@ -415,6 +464,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setIncidents(state.incidents);
     setSupplements(state.supplements ?? []);
     setStops(state.stops ?? []);
+    setCrashes(state.crashes ?? []);
+    setReturns(state.returns ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -745,6 +796,282 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     },
     [activeId, people, setSection, revealField],
+  );
+
+  /* -------------------------------------------------- crashes ----------- */
+
+  const crash = useMemo(
+    () => crashes.find((c) => c.id === activeCrashId) ?? null,
+    [crashes, activeCrashId],
+  );
+
+  const crashProblems = useMemo(() => (crash ? checkCrash(crash) : []), [crash]);
+
+  const crashDirty = useRef(new Set<string>());
+  const crashTimer = useRef<number | null>(null);
+  const crashesRef = useRef<CrashReport[]>([]);
+  crashesRef.current = crashes;
+
+  const flushCrash = useCallback(async (id: string) => {
+    if (!crashDirty.current.has(id)) return;
+    crashDirty.current.delete(id);
+    const doc = crashesRef.current.find((c) => c.id === id);
+    if (!doc) return;
+    try {
+      await api.saveCrash(id, doc);
+    } catch {
+      crashDirty.current.add(id);
+    }
+  }, []);
+
+  const markCrashDirty = useCallback(
+    (id: string) => {
+      crashDirty.current.add(id);
+      if (crashTimer.current !== null) window.clearTimeout(crashTimer.current);
+      crashTimer.current = window.setTimeout(() => void flushCrash(id), 600);
+    },
+    [flushCrash],
+  );
+
+  const openCrash = useCallback((id: string) => setActiveCrashId(id), []);
+  const closeCrash = useCallback(() => setActiveCrashId(null), []);
+
+  const startCrash = useCallback(async (callNumber: string): Promise<GuardResult> => {
+    try {
+      const { crash: created } = await api.createCrash(callNumber);
+      setCrashes((prev) => [...prev, created]);
+      setActiveCrashId(created.id);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not start it.' };
+    }
+  }, []);
+
+  const updateCrash = useCallback(
+    (patch: Partial<CrashReport>) => {
+      if (!activeCrashId) return;
+      setCrashes((prev) =>
+        prev.map((c) =>
+          c.id === activeCrashId ? { ...c, ...patch, updatedAt: new Date().toISOString() } : c,
+        ),
+      );
+      setSavedAt(new Date().toISOString());
+      markCrashDirty(activeCrashId);
+    },
+    [activeCrashId, markCrashDirty],
+  );
+
+  const updateUnit = useCallback(
+    (unitId: string, patch: Partial<CrashUnit>) => {
+      if (!activeCrashId) return;
+      setCrashes((prev) =>
+        prev.map((c) =>
+          c.id === activeCrashId
+            ? {
+                ...c,
+                units: c.units.map((u) => (u.id === unitId ? { ...u, ...patch } : u)),
+                updatedAt: new Date().toISOString(),
+              }
+            : c,
+        ),
+      );
+      setSavedAt(new Date().toISOString());
+      markCrashDirty(activeCrashId);
+    },
+    [activeCrashId, markCrashDirty],
+  );
+
+  const addUnit = useCallback(() => {
+    if (!activeCrashId) return;
+    setCrashes((prev) =>
+      prev.map((c) =>
+        c.id === activeCrashId
+          ? {
+              ...c,
+              units: [...c.units, createUnit({ id: newId('unit'), number: nextUnitNumber(c.units) })],
+              updatedAt: new Date().toISOString(),
+            }
+          : c,
+      ),
+    );
+    markCrashDirty(activeCrashId);
+  }, [activeCrashId, markCrashDirty]);
+
+  const removeUnit = useCallback(
+    (unitId: string) => {
+      if (!activeCrashId) return;
+      setCrashes((prev) =>
+        prev.map((c) =>
+          c.id === activeCrashId
+            ? { ...c, units: c.units.filter((u) => u.id !== unitId), updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      );
+      markCrashDirty(activeCrashId);
+    },
+    [activeCrashId, markCrashDirty],
+  );
+
+  const crashAction = useCallback(
+    async (
+      action: 'submit' | 'approve' | 'return' | 'reopen',
+      body: Record<string, unknown> = {},
+    ): Promise<GuardResult> => {
+      if (!activeCrashId) return { ok: false, reason: 'No crash report is open.' };
+      try {
+        await flushCrash(activeCrashId);
+        const result = await api.crashAction(activeCrashId, action, body);
+        setCrashes((prev) => prev.map((c) => (c.id === result.crash.id ? result.crash : c)));
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof ApiError ? error.message : 'That did not work.' };
+      }
+    },
+    [activeCrashId, flushCrash],
+  );
+
+  const submitCrash = useCallback(() => crashAction('submit'), [crashAction]);
+  const approveCrash = useCallback((note: string) => crashAction('approve', { note }), [crashAction]);
+  const returnCrash = useCallback((reason: string) => crashAction('return', { reason }), [crashAction]);
+  const reopenCrash = useCallback((reason: string) => crashAction('reopen', { reason }), [crashAction]);
+
+  /* -------------------------------------------------- inbound ----------- */
+
+  /**
+   * The returns that belong to this scene.
+   *
+   * Grouped on the dispatch call number where there is one; otherwise what
+   * this officer ran in the last twelve hours, because plenty of crashes are
+   * come across rather than dispatched to.
+   */
+  const sceneReturns = useMemo(() => {
+    if (!crash) return [];
+    const byCall = returnsForCall(returns, crash.callNumber);
+    return byCall.length > 0 ? byCall : recentReturns(returns, currentUser.id);
+  }, [crash, returns, currentUser.id]);
+
+  /**
+   * Puts a return into the open crash report.
+   *
+   * Every identity it creates lands in the Master Name Index like any other
+   * person, carrying the provenance the return came with — so the field shows
+   * "DMV return · not confirmed with this person" until an officer says
+   * otherwise. Fast, and honest about how much weight it carries.
+   */
+  const applyReturn = useCallback(
+    (returnId: string, as: 'unit' | 'driver' | 'owner' | 'occupant', unitId?: string) => {
+      const ret = returns.find((r) => r.id === returnId);
+      const current = crashesRef.current.find((c) => c.id === activeCrashId);
+      if (!ret || !current || !activeCrashId) return;
+
+      /*
+        Computed here rather than inside the `setCrashes` updater. React runs
+        that updater when it re-renders, not when it is called, so identities
+        created inside it were being discarded — the unit appeared and the
+        driver silently did not. The same trap caught the suggestion and
+        quick-fix paths; the rule is that anything the caller needs back has to
+        be worked out before the setter, not during it.
+      */
+      const draftPeople = structuredClone(people);
+      const next = structuredClone(current);
+      let touchedPeople = false;
+
+      const intoIndex = (identity: Partial<MasterPerson> | null): string => {
+        if (!identity) return '';
+        const master = createMasterPerson(identity);
+        draftPeople[master.id] = master;
+        touchedPeople = true;
+        return master.id;
+      };
+
+      if (as === 'unit') {
+        const vehicle = vehicleFromRegistration(ret);
+        if (!vehicle) return;
+        next.units.push(
+          createUnit({
+            id: newId('unit'),
+            number: nextUnitNumber(next.units),
+            ...vehicle,
+            insuranceCarrier: ret.payload.kind === 'registration' ? ret.payload.insuranceCarrier : '',
+            insurancePolicy: ret.payload.kind === 'registration' ? ret.payload.insurancePolicy : '',
+            ownerMasterId: intoIndex(ownerFromRegistration(ret)),
+          }),
+        );
+      }
+
+      if (as === 'driver' || as === 'occupant') {
+        const target = next.units.find((u) => u.id === unitId) ?? next.units[0];
+        const masterId = intoIndex(personFromLicense(ret));
+        if (!target || !masterId) return;
+        const occupant = createOccupant({
+          id: newId('occ'),
+          masterId,
+          seat: as === 'driver' ? 'driver' : 'other',
+        });
+        target.occupants.push(occupant);
+        if (as === 'driver') target.driverOccupantId = occupant.id;
+      }
+
+      if (as === 'owner') {
+        const target = next.units.find((u) => u.id === unitId) ?? next.units[0];
+        if (!target) return;
+        target.ownerMasterId = intoIndex(ownerFromRegistration(ret));
+      }
+
+      next.updatedAt = new Date().toISOString();
+      setCrashes((prev) => prev.map((c) => (c.id === activeCrashId ? next : c)));
+
+      if (touchedPeople) {
+        setPeople(draftPeople);
+        for (const id of Object.keys(draftPeople)) {
+          if (!peopleRef.current[id]) markDirty('people', id);
+        }
+      }
+      markCrashDirty(activeCrashId);
+      setSavedAt(new Date().toISOString());
+      void api
+        .markReturnApplied(returnId, activeCrashId)
+        .then(({ return: updated }) =>
+          setReturns((prev) => prev.map((r) => (r.id === updated.id ? updated : r))),
+        )
+        .catch(() => {
+          /* The report already has the data; the marker is a convenience. */
+        });
+    },
+    [returns, activeCrashId, people, markCrashDirty, markDirty],
+  );
+
+  /**
+   * Takes the time and place from the dispatch call record.
+   *
+   * Only fills what is still empty. Dispatch's address is where the caller said
+   * it was, and the officer standing at the scene may well have corrected it —
+   * overwriting that with the call record would replace a fact with a guess.
+   */
+  const applyCallDetails = useCallback(
+    (returnId: string) => {
+      const ret = returns.find((r) => r.id === returnId);
+      if (!ret || ret.payload.kind !== 'call' || !activeCrashId) return;
+      const current = crashesRef.current.find((c) => c.id === activeCrashId);
+      if (!current) return;
+
+      const call = ret.payload;
+      const keep = (existing: string, incoming: string) => existing || incoming || '';
+      const next: CrashReport = {
+        ...current,
+        occurredAt: keep(current.occurredAt, (call.receivedAt || '').slice(0, 16)),
+        reportedAt: keep(current.reportedAt, (call.receivedAt || '').slice(0, 16)),
+        onRoad: keep(current.onRoad, call.address),
+        crossStreet: keep(current.crossStreet, call.crossStreet),
+        latitude: keep(current.latitude, call.latitude),
+        longitude: keep(current.longitude, call.longitude),
+        updatedAt: new Date().toISOString(),
+      };
+      setCrashes((prev) => prev.map((c) => (c.id === activeCrashId ? next : c)));
+      markCrashDirty(activeCrashId);
+      setSavedAt(new Date().toISOString());
+    },
+    [returns, activeCrashId, markCrashDirty],
   );
 
   /* -------------------------------------------------- stops ------------- */
@@ -1904,6 +2231,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSection,
     goToIssue,
     applyQuickFix,
+    crashes,
+    crash,
+    crashProblems,
+    openCrash,
+    closeCrash,
+    startCrash,
+    updateCrash,
+    updateUnit,
+    addUnit,
+    removeUnit,
+    submitCrash,
+    approveCrash,
+    returnCrash,
+    reopenCrash,
+
+    returns,
+    sceneReturns,
+    applyReturn,
+    applyCallDetails,
+
     stops,
     logStop,
     saveStop,
