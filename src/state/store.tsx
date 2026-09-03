@@ -85,6 +85,13 @@ import {
   type CrashUnit,
 } from '@/domain/crash';
 import {
+  checkArrest,
+  createCharge as createArrestCharge,
+  type Arrest,
+  type ArrestCharge,
+  type Problem as ArrestProblem,
+} from '@/domain/arrest';
+import {
   ownerFromRegistration,
   personFromLicense,
   recentReturns,
@@ -236,6 +243,26 @@ interface StoreValue {
   approveCrash: (note: string) => Promise<GuardResult>;
   returnCrash: (reason: string) => Promise<GuardResult>;
   reopenCrash: (reason: string) => Promise<GuardResult>;
+
+  /* ---- Arrests ------------------------------------------------------ */
+  arrests: Arrest[];
+  /** The arrest currently open, if any. It takes the screen like a report. */
+  arrest: Arrest | null;
+  arrestProblems: ArrestProblem[];
+  openArrest: (id: string) => void;
+  closeArrest: () => void;
+  /** Starts one, optionally against a case and a person already on it. */
+  startArrest: (input: { caseId?: string; masterId?: string }) => Promise<GuardResult>;
+  updateArrest: (patch: Partial<Arrest>) => void;
+  addCharge: () => void;
+  updateCharge: (chargeId: string, patch: Partial<ArrestCharge>) => void;
+  removeCharge: (chargeId: string) => void;
+  submitArrest: () => Promise<GuardResult>;
+  approveArrest: (note: string) => Promise<GuardResult>;
+  returnArrest: (reason: string) => Promise<GuardResult>;
+  reopenArrest: (reason: string) => Promise<GuardResult>;
+  /** Every arrest on one case, newest first. */
+  arrestsForCase: (caseId: string) => Arrest[];
 
   /* ---- Inbound data ------------------------------------------------- */
   /** Everything CAD, the MDT and the registries have sent. */
@@ -410,7 +437,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [stops, setStops] = useState<TrafficStop[]>([]);
   const [crashes, setCrashes] = useState<CrashReport[]>([]);
   const [returns, setReturns] = useState<QueryReturn[]>([]);
+  const [arrests, setArrests] = useState<Arrest[]>([]);
   const [activeCrashId, setActiveCrashId] = useState<string | null>(null);
+  const [activeArrestId, setActiveArrestId] = useState<string | null>(null);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
   const [people, setPeople] = useState<PersonIndex>({});
   const [locations, setLocations] = useState<LocationIndex>({});
@@ -532,6 +561,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setStops(state.stops ?? []);
     setCrashes(state.crashes ?? []);
     setReturns(state.returns ?? []);
+    setArrests(state.arrests ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -1011,6 +1041,163 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const approveCrash = useCallback((note: string) => crashAction('approve', { note }), [crashAction]);
   const returnCrash = useCallback((reason: string) => crashAction('return', { reason }), [crashAction]);
   const reopenCrash = useCallback((reason: string) => crashAction('reopen', { reason }), [crashAction]);
+
+  /* -------------------------------------------------- arrests ----------- */
+
+  const arrest = useMemo(
+    () => arrests.find((a) => a.id === activeArrestId) ?? null,
+    [arrests, activeArrestId],
+  );
+
+  /*
+    Checked here as well as on the server, and by the same function. The server
+    is the one that decides whether a submission is allowed; this is so the
+    officer sees the problem while they are still typing rather than after
+    pressing the button.
+  */
+  const arrestProblems = useMemo(() => {
+    if (!arrest) return [];
+    const incident = incidentsRef.current.find((i) => i.id === arrest.caseId);
+    return checkArrest(arrest, { incidentReportedAt: incident?.reportedAt });
+  }, [arrest]);
+
+  const arrestDirty = useRef(new Set<string>());
+  const arrestTimer = useRef<number | null>(null);
+  const arrestsRef = useRef<Arrest[]>([]);
+  arrestsRef.current = arrests;
+
+  const flushArrest = useCallback(async (id: string) => {
+    if (!arrestDirty.current.has(id)) return;
+    arrestDirty.current.delete(id);
+    const doc = arrestsRef.current.find((a) => a.id === id);
+    if (!doc) return;
+    try {
+      await api.saveArrest(id, doc);
+    } catch {
+      arrestDirty.current.add(id);
+    }
+  }, []);
+
+  const markArrestDirty = useCallback(
+    (id: string) => {
+      arrestDirty.current.add(id);
+      if (arrestTimer.current !== null) window.clearTimeout(arrestTimer.current);
+      arrestTimer.current = window.setTimeout(() => void flushArrest(id), 600);
+    },
+    [flushArrest],
+  );
+
+  const openArrest = useCallback((id: string) => setActiveArrestId(id), []);
+  const closeArrest = useCallback(() => setActiveArrestId(null), []);
+
+  const startArrest = useCallback(
+    async (input: { caseId?: string; masterId?: string }): Promise<GuardResult> => {
+      try {
+        const { arrest: created } = await api.createArrest(input);
+        setArrests((prev) => [...prev, created]);
+        setActiveArrestId(created.id);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not start it.');
+      }
+    },
+    [],
+  );
+
+  /** One place every arrest edit goes through, so nothing forgets to save. */
+  const editArrest = useCallback(
+    (change: (current: Arrest) => Arrest) => {
+      if (!activeArrestId) return;
+      setArrests((prev) =>
+        prev.map((a) =>
+          a.id === activeArrestId ? { ...change(a), updatedAt: new Date().toISOString() } : a,
+        ),
+      );
+      setSavedAt(new Date().toISOString());
+      markArrestDirty(activeArrestId);
+    },
+    [activeArrestId, markArrestDirty],
+  );
+
+  const updateArrest = useCallback(
+    (patch: Partial<Arrest>) => editArrest((current) => ({ ...current, ...patch })),
+    [editArrest],
+  );
+
+  const addCharge = useCallback(
+    () =>
+      editArrest((current) => ({
+        ...current,
+        charges: [...current.charges, createArrestCharge({ id: newId('chg'), counts: '1' })],
+      })),
+    [editArrest],
+  );
+
+  const updateCharge = useCallback(
+    (chargeId: string, patch: Partial<ArrestCharge>) =>
+      editArrest((current) => ({
+        ...current,
+        charges: current.charges.map((c) => (c.id === chargeId ? { ...c, ...patch } : c)),
+      })),
+    [editArrest],
+  );
+
+  const removeCharge = useCallback(
+    (chargeId: string) =>
+      editArrest((current) => ({
+        ...current,
+        charges: current.charges.filter((c) => c.id !== chargeId),
+      })),
+    [editArrest],
+  );
+
+  const arrestAction = useCallback(
+    async (
+      action: 'submit' | 'approve' | 'return' | 'reopen',
+      body: Record<string, unknown> = {},
+    ): Promise<GuardResult> => {
+      if (!activeArrestId) return { ok: false, reason: 'No arrest is open.' };
+      try {
+        // Anything still in the debounce window goes first, or the server
+        // would review the version from six hundred milliseconds ago.
+        await flushArrest(activeArrestId);
+        const result = await api.arrestAction(activeArrestId, action, body);
+        setArrests((prev) => prev.map((a) => (a.id === result.arrest.id ? result.arrest : a)));
+        /*
+          Approving an arrest writes the arrestee onto its report, so the copy
+          of that report in this tab is now stale. Cheap to re-pull, and the
+          alternative is a case screen that disagrees with the database.
+        */
+        if (action === 'approve') void refresh();
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'That did not work.');
+      }
+    },
+    [activeArrestId, flushArrest, refresh],
+  );
+
+  const submitArrest = useCallback(() => arrestAction('submit'), [arrestAction]);
+  const approveArrest = useCallback(
+    (note: string) => arrestAction('approve', { note }),
+    [arrestAction],
+  );
+  const returnArrest = useCallback(
+    (reason: string) => arrestAction('return', { reason }),
+    [arrestAction],
+  );
+  const reopenArrest = useCallback(
+    (reason: string) => arrestAction('reopen', { reason }),
+    [arrestAction],
+  );
+
+  const arrestsForCase = useCallback(
+    (caseId: string) =>
+      arrests
+        .filter((a) => a.caseId === caseId)
+        .sort((a, b) => (a.arrestedAt < b.arrestedAt ? 1 : -1)),
+    [arrests],
+  );
 
   /* -------------------------------------------------- inbound ----------- */
 
@@ -2425,6 +2612,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     approveCrash,
     returnCrash,
     reopenCrash,
+
+    arrests,
+    arrest,
+    arrestProblems,
+    openArrest,
+    closeArrest,
+    startArrest,
+    updateArrest,
+    addCharge,
+    updateCharge,
+    removeCharge,
+    submitArrest,
+    approveArrest,
+    returnArrest,
+    reopenArrest,
+    arrestsForCase,
 
     returns,
     sceneReturns,

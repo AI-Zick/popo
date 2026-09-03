@@ -196,6 +196,26 @@ CREATE INDEX IF NOT EXISTS feedback_status ON feedback(status, at);
 -- One person's own items, for the per-day limit on submitting.
 CREATE INDEX IF NOT EXISTS feedback_submitter ON feedback(submitted_by, at);
 
+-- Arrests. Its own document rather than a role on a report: an arrest outlives
+-- the report it came from, travels to a court, and carries a disposition for
+-- years afterwards. The NIBRS arrestee segment is still derived from the
+-- incident's own people, so the submission is unchanged by this table.
+CREATE TABLE IF NOT EXISTS arrests (
+  id            TEXT PRIMARY KEY,
+  version       INTEGER NOT NULL DEFAULT 1,
+  arrest_number TEXT NOT NULL DEFAULT '',
+  case_id       TEXT NOT NULL DEFAULT '',
+  master_id     TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'draft',
+  arrested_at   TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  doc           TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS arrests_number ON arrests(arrest_number);
+CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
+-- One person's history at this agency, which is the other way it is read.
+CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
+
 -- Physical custody of a thing, from the scene to the shelf to its disposal.
 -- Distinct from the property listed on a report, which is the NIBRS view of
 -- what was taken; this is the object itself.
@@ -262,7 +282,8 @@ export interface DocTable {
     | 'crashes'
     | 'returns'
     | 'feedback'
-    | 'evidence';
+    | 'evidence'
+    | 'arrests';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -314,6 +335,16 @@ export const DOC_TABLES: Record<string, DocTable> = {
       last_name: String(doc.lastName ?? ''),
       first_name: String(doc.firstName ?? ''),
       dob: String(doc.dob ?? ''),
+    }),
+  },
+  arrests: {
+    name: 'arrests',
+    columns: (doc) => ({
+      arrest_number: String(doc.arrestNumber ?? ''),
+      case_id: String(doc.caseId ?? ''),
+      master_id: String(doc.masterId ?? ''),
+      status: String(doc.status ?? 'draft'),
+      arrested_at: String(doc.arrestedAt ?? ''),
     }),
   },
   evidence: {

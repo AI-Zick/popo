@@ -8,6 +8,7 @@ import {
   CornerUpLeft,
   FileEdit,
   FilePlus2,
+  Gavel,
   Search,
   Send,
   Settings,
@@ -17,16 +18,23 @@ import { useStore } from '@/state/store';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { OFFENSE_BY_CODE } from '@/domain/codes';
+import { describeCharges, DISPOSITION_LABEL } from '@/domain/arrest';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { Badge, Button, EmptyState } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
-import { supplementLabel, type Supplement } from '@/domain/supplement';
-import type { CrashReport } from '@/domain/crash';
+import { supplementLabel } from '@/domain/supplement';
 import type { Incident, ReportStatus } from '@/domain/types';
 import { fullAddress, locationLabel, type MasterLocation } from '@/domain/location';
 import { cn } from '@/lib/cn';
+
+const KIND_LABEL: Record<QueueItem['kind'], string> = {
+  report: 'Report',
+  supplement: 'Supplement',
+  crash: 'Crash',
+  arrest: 'Arrest',
+};
 
 const STATUS_TONE: Record<ReportStatus, 'neutral' | 'accent' | 'ok' | 'warn'> = {
   draft: 'neutral',
@@ -53,6 +61,19 @@ const FILTER_LABEL: Record<Filter, string> = {
 
 type Sort = 'updated' | 'oldest' | 'case';
 
+/** Anything that can wait on a supervisor, flattened to what the queue shows. */
+type QueueItem = {
+  id: string;
+  kind: 'report' | 'supplement' | 'crash' | 'arrest';
+  label: string;
+  changesStatus?: boolean;
+  status: ReportStatus;
+  submittedAt: string;
+  createdBy: string;
+  reportingOfficer: string;
+  open: () => void;
+};
+
 export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
   const {
     incidents,
@@ -68,6 +89,9 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
     crashes,
     openCrash,
     startCrash,
+    arrests,
+    openArrest,
+    startArrest,
     createNew,
   } = useStore();
   const [tab, setTab] = useState<'cases' | 'queue'>('cases');
@@ -82,9 +106,75 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
     on me", not "what reports are waiting on me" — and a supplement that sits
     unreviewed for a week is a case whose clearance never reached the state.
   */
-  const queue = useMemo(
-    () => buildQueue([...incidents, ...supplements, ...crashes], currentUser),
-    [incidents, supplements, crashes, currentUser],
+  /*
+    One queue, four kinds of document.
+
+    Each is folded into the same shape and tagged with what it is and how to
+    open it, so the rows below read a field instead of guessing from the shape
+    of the object — which is what they used to do, and which got one guess
+    harder every time a new document was added.
+  */
+  const queue = useMemo(() => {
+    const submitted = (history: { action: string; at: string }[]) =>
+      [...history].reverse().find((e) => e.action === 'submitted')?.at ?? '';
+
+    const entries: QueueItem[] = [
+      ...incidents.map((i) => ({
+        ...i,
+        kind: 'report' as const,
+        label: i.caseNumber,
+        open: () => openIncident(i.id),
+      })),
+      ...supplements.map((s) => ({
+        ...s,
+        kind: 'supplement' as const,
+        label: supplementLabel(s),
+        changesStatus: Boolean(s.disposition),
+        open: () => {
+          openIncident(s.caseId);
+          openSupplement(s.id);
+        },
+      })),
+      ...crashes.map((c) => ({
+        ...c,
+        kind: 'crash' as const,
+        label: c.caseNumber,
+        open: () => openCrash(c.id),
+      })),
+      ...arrests.map((a) => ({
+        ...a,
+        kind: 'arrest' as const,
+        label: a.arrestNumber,
+        // An arrest has no submitted-at column of its own; its review history
+        // is where that moment is recorded.
+        submittedAt: submitted(a.reviewHistory),
+        reportingOfficer: a.arrestingOfficerName,
+        open: () => openArrest(a.id),
+      })),
+    ];
+
+    return buildQueue(entries, currentUser);
+  }, [
+    incidents,
+    supplements,
+    crashes,
+    arrests,
+    currentUser,
+    openIncident,
+    openSupplement,
+    openCrash,
+    openArrest,
+  ]);
+
+  /*
+    A half-written arrest belongs to whoever is writing it. Once it has been
+    submitted it belongs to the shift, so everyone sees it — the same line the
+    report list draws, drawn here because an arrest draft says more about a
+    person than an unfinished burglary report does.
+  */
+  const visibleArrests = useMemo(
+    () => arrests.filter((a) => a.status !== 'draft' || a.createdBy === currentUser.id),
+    [arrests, currentUser.id],
   );
 
   const mine = (i: Incident) => i.createdBy === currentUser.id;
@@ -208,6 +298,16 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
         <Button onClick={() => void startCrash('')}>
           <Car size={15} aria-hidden />
           New crash
+        </Button>
+
+        {/*
+          Started from here when there is no report yet — a warrant service, or
+          an assist for another agency. The usual way in is the arrestee on a
+          report, which fills the case and the person in already.
+        */}
+        <Button onClick={() => void startArrest({})}>
+          <Gavel size={15} aria-hidden />
+          New arrest
         </Button>
 
         <Button variant="primary" onClick={createNew}>
@@ -334,37 +434,24 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
               />
             ) : (
               <ul className="space-y-2">
-                {queue.map((entry) => {
-                  // A supplement carries the case it hangs from; a report does
-                  // not. That is what tells the two apart in one queue.
-                  const asSupplement = entry.report as Partial<Supplement>;
-                  const isSupplement = Boolean(asSupplement.caseId);
-                  // A crash report carries units; neither of the others does.
-                  const isCrash = Array.isArray((entry.report as Partial<CrashReport>).units);
-
-                  return (
+                {queue.map((entry) => (
                   <li key={entry.report.id}>
                     <button
                       type="button"
-                      onClick={() =>
-                        isCrash
-                          ? openCrash(entry.report.id)
-                          : isSupplement
-                            ? (openIncident(asSupplement.caseId!), openSupplement(entry.report.id))
-                            : openIncident(entry.report.id)
-                      }
+                      onClick={entry.report.open}
                       className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-[13.5px] font-semibold text-ink">
-                            {isSupplement
-                              ? supplementLabel(entry.report as Supplement)
-                              : entry.report.caseNumber}
+                            {entry.report.label}
                           </span>
-                          {isCrash && <Badge tone="accent">Crash</Badge>}
-                          {isSupplement && <Badge tone="accent">Supplement</Badge>}
-                          {asSupplement.disposition && <Badge tone="warn">Changes case status</Badge>}
+                          {entry.report.kind !== 'report' && (
+                            <Badge tone={entry.report.kind === 'arrest' ? 'warn' : 'accent'}>
+                              {KIND_LABEL[entry.report.kind]}
+                            </Badge>
+                          )}
+                          {entry.report.changesStatus && <Badge tone="warn">Changes case status</Badge>}
                           {entry.overdue && <Badge tone="danger">Overdue</Badge>}
                           {!entry.reviewable && <Badge tone="neutral">Your own report</Badge>}
                         </div>
@@ -376,8 +463,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                       <ArrowRight size={15} className="shrink-0 text-faint" aria-hidden />
                     </button>
                   </li>
-                  );
-                })}
+                ))}
               </ul>
             )
           ) : rows.length === 0 ? (
@@ -455,6 +541,53 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                         </div>
                         <span className="shrink-0 text-[12px] text-faint">
                           {relativeTime(c.updatedAt)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+
+          {/*
+            Arrests are their own document with their own numbering, so like
+            crash reports they get their own list. What a supervisor scans for
+            here is the charge and where the person went.
+          */}
+          {tab === 'cases' && visibleArrests.length > 0 && (
+            <div className="mt-6">
+              <p className="mb-2 flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wider text-faint">
+                <Gavel size={13} aria-hidden />
+                Arrests ({visibleArrests.length})
+              </p>
+              <ul className="space-y-2">
+                {visibleArrests
+                  .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                  .map((a) => (
+                    <li key={a.id}>
+                      <button
+                        type="button"
+                        onClick={() => openArrest(a.id)}
+                        className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-left transition hover:border-line-strong"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-[13.5px] font-semibold text-ink">
+                              {a.arrestNumber}
+                            </span>
+                            <Badge tone={STATUS_TONE[a.status]}>{STATUS_LABEL[a.status]}</Badge>
+                            {a.juvenile && <Badge tone="accent">Juvenile</Badge>}
+                            {a.caseNumber && (
+                              <span className="font-mono text-[12px] text-faint">{a.caseNumber}</span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                            {a.personName || 'Nobody chosen yet'} · {describeCharges(a)}
+                            {a.disposition ? ` · ${DISPOSITION_LABEL[a.disposition]}` : ''}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[12px] text-faint">
+                          {relativeTime(a.updatedAt)}
                         </span>
                       </button>
                     </li>

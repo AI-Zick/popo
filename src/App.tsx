@@ -11,22 +11,26 @@ import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 
 /*
-  Split off the two screens nobody lands on.
+  Split off the screens nobody lands on.
 
   An officer signs in and sees the dashboard, then a report — so the dashboard,
   the incident editor, the supplement editor and search are worth loading up
   front, and paying for them is the price of the app being instant afterwards.
 
-  Setup and the crash editor are not that. Setup is a records clerk's screen and
-  an officer may never open it in a career; the crash editor drags in a vector
-  diagram canvas that a burglary report has no use for. Both are one click
-  behind an explicit action, which is exactly the moment a fetch is free.
+  Setup, the crash editor and the arrest editor are not that. Setup is a records
+  clerk's screen and an officer may never open it in a career; the crash editor
+  drags in a vector diagram canvas that a burglary report has no use for; most
+  shifts end without an arrest. Each is one click behind an explicit action,
+  which is exactly the moment a fetch is free.
 */
 const AgencySetup = lazy(() =>
   import('@/features/setup/AgencySetup').then((m) => ({ default: m.AgencySetup })),
 );
 const CrashEditor = lazy(() =>
   import('@/features/crash/CrashEditor').then((m) => ({ default: m.CrashEditor })),
+);
+const ArrestEditor = lazy(() =>
+  import('@/features/arrest/ArrestEditor').then((m) => ({ default: m.ArrestEditor })),
 );
 
 /**
@@ -46,8 +50,16 @@ function ScreenLoading() {
 }
 
 export default function App() {
-  const { incident, supplement, crash, isAuthenticated, mustChangePassword, loading, connectionError } =
-    useStore();
+  const {
+    incident,
+    supplement,
+    crash,
+    arrest,
+    isAuthenticated,
+    mustChangePassword,
+    loading,
+    connectionError,
+  } = useStore();
   const [setupOpen, setSetupOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -103,6 +115,12 @@ export default function App() {
       {setupOpen && !incident ? (
         <Suspense fallback={<ScreenLoading />}>
           <AgencySetup onClose={() => setSetupOpen(false)} />
+        </Suspense>
+      ) : arrest ? (
+        // Same reasoning as a crash report, and more so: an arrest outlives the
+        // report it came from and is answered for on its own.
+        <Suspense fallback={<ScreenLoading />}>
+          <ArrestEditor />
         </Suspense>
       ) : crash ? (
         // A crash report is its own document, so it takes the screen the way

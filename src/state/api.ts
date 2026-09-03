@@ -10,6 +10,7 @@ import type { Incident } from '@/domain/types';
 import type { Supplement } from '@/domain/supplement';
 import type { TrafficStop } from '@/domain/activity';
 import type { CrashReport } from '@/domain/crash';
+import type { Arrest, Problem as ArrestProblem } from '@/domain/arrest';
 import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
@@ -197,6 +198,28 @@ export const api = {
     return request('/api/evidence/meta/witnesses');
   },
 
+  /* ---- Arrests ------------------------------------------------------ */
+
+  createArrest(input: {
+    caseId?: string;
+    masterId?: string;
+    arrestedAt?: string;
+  }): Promise<{ arrest: Arrest }> {
+    return request('/api/arrests', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  saveArrest(id: string, patch: Partial<Arrest>): Promise<{ arrest: Arrest; problems: ArrestProblem[] }> {
+    return request(`/api/arrests/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  arrestAction(
+    id: string,
+    action: 'submit' | 'approve' | 'return' | 'reopen',
+    body: Record<string, unknown> = {},
+  ): Promise<{ arrest: Arrest; problems: ArrestProblem[] }> {
+    return request(`/api/arrests/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
   /* ---- Feedback ----------------------------------------------------- */
 
   feedback(): Promise<{ feedback: Feedback[]; forwarding: boolean }> {
@@ -306,6 +329,7 @@ export const api = {
     stops: TrafficStop[];
     crashes: CrashReport[];
     returns: QueryReturn[];
+    arrests: Arrest[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;

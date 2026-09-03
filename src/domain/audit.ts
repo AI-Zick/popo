@@ -51,6 +51,11 @@ export type AuditAction =
   | 'crash.approved'
   | 'crash.returned'
   | 'crash.reopened'
+  | 'arrest.created'
+  | 'arrest.submitted'
+  | 'arrest.approved'
+  | 'arrest.returned'
+  | 'arrest.reopened'
   | 'evidence.booked'
   | 'evidence.released'
   | 'evidence.destroyed'
@@ -96,6 +101,11 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'crash.approved': 'Crash report approved',
   'crash.returned': 'Crash report returned',
   'crash.reopened': 'Crash report reopened',
+  'arrest.created': 'Arrest recorded',
+  'arrest.submitted': 'Arrest submitted',
+  'arrest.approved': 'Arrest approved',
+  'arrest.returned': 'Arrest returned',
+  'arrest.reopened': 'Arrest reopened',
   'evidence.booked': 'Evidence booked in',
   'evidence.released': 'Evidence released',
   'evidence.destroyed': 'Evidence destroyed',

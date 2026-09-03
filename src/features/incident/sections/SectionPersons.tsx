@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarClock, History, ShieldAlert, Users } from 'lucide-react';
+import { ArrowRight, CalendarCheck, CalendarClock, Gavel, History, ShieldAlert, Users } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
 import { createCharge } from '@/domain/factory';
@@ -11,6 +11,8 @@ import {
   type PersonRole,
   type ProvenancedField,
 } from '@/domain/person';
+import { STATUS_LABEL } from '@/domain/review';
+import { describeCharges } from '@/domain/arrest';
 import { ageAt, formatDate } from '@/lib/format';
 import { freshness } from '@/domain/freshness';
 import {
@@ -420,6 +422,7 @@ function PersonCard({ person, index }: { person: Person; index: number }) {
             />
           </FieldGrid>
           <ChargeEditor person={person} onChange={setLink} />
+          <ArrestDocumentLink person={person} />
         </div>
       )}
 
@@ -433,6 +436,64 @@ function PersonCard({ person, index }: { person: Person; index: number }) {
         />
       </div>
     </RecordCard>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * The bridge between the arrest on the report and the arrest document.
+ *
+ * The fields above are the NIBRS view — what the state submission counts. The
+ * document is the rest of it: probable cause, booking, bond, and the court
+ * outcome that arrives two years later. Approving the document writes the
+ * arrestee back onto these fields, so the two never drift.
+ */
+function ArrestDocumentLink({ person }: { person: Person }) {
+  const { incident, arrestsForCase, openArrest, startArrest } = useStore();
+  if (!incident) return null;
+
+  const existing = arrestsForCase(incident.id).find((a) => a.masterId === person.masterId);
+
+  if (!existing) {
+    return (
+      <div className="mt-4 flex items-center gap-3 border-t border-warn/25 pt-3">
+        <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+          The full arrest — probable cause, booking, bond and what the court does with it — is its
+          own document.
+        </p>
+        <Button
+          onClick={() => void startArrest({ caseId: incident.id, masterId: person.masterId })}
+        >
+          <Gavel size={15} aria-hidden />
+          Write the arrest
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => openArrest(existing.id)}
+      className="mt-4 flex w-full items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2.5 text-left transition hover:border-line-strong"
+    >
+      <Gavel size={15} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-[13px] font-semibold text-ink">
+            {existing.arrestNumber}
+          </span>
+          <Badge tone={existing.status === 'approved' ? 'ok' : 'neutral'}>
+            {STATUS_LABEL[existing.status]}
+          </Badge>
+        </span>
+        <span className="mt-0.5 block truncate text-[12.5px] text-muted">
+          {describeCharges(existing)}
+        </span>
+      </span>
+      <ArrowRight size={15} className="shrink-0 text-faint" aria-hidden />
+    </button>
   );
 }
 
