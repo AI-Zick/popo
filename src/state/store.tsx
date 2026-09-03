@@ -363,6 +363,22 @@ const StoreContext = createContext<StoreValue | null>(null);
 const EMPTY_VALIDATION = runRules(createIncident(), []);
 const NO_PERSONS: Person[] = [];
 
+/**
+ * Why a call failed, in words worth showing somebody.
+ *
+ * The server's own message when there is one, because it knows what went wrong
+ * — "that report has been approved and cannot be edited" beats anything a
+ * catch block could invent. The fallback is for the cases the server never
+ * reached at all: a dropped connection, a dead API.
+ */
+function reasonFor(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? error.message : fallback;
+}
+
+function failed(error: unknown, fallback: string): GuardResult {
+  return { ok: false, reason: reasonFor(error, fallback) };
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
@@ -528,9 +544,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setConnectionError(null);
       } catch (error) {
         if (!cancelled) {
-          setConnectionError(
-            error instanceof ApiError ? error.message : 'Could not reach the server.',
-          );
+          setConnectionError(reasonFor(error, 'Could not reach the server.'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -696,7 +710,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         void api.auditLog().then(({ entries }) => setAuditLog(entries)).catch(() => undefined);
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Upload failed.' };
+        return failed(error, 'Upload failed.');
       }
     },
     [activeId],
@@ -711,10 +725,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         void api.auditLog().then(({ entries }) => setAuditLog(entries)).catch(() => undefined);
         return { ok: true };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'Could not withdraw it.',
-        };
+        return failed(error, 'Could not withdraw it.');
       }
     },
     [],
@@ -879,7 +890,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setActiveCrashId(created.id);
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not start it.' };
+      return failed(error, 'Could not start it.');
     }
   }, []);
 
@@ -960,7 +971,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCrashes((prev) => prev.map((c) => (c.id === result.crash.id ? result.crash : c)));
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'That did not work.' };
+        return failed(error, 'That did not work.');
       }
     },
     [activeCrashId, flushCrash],
@@ -1119,10 +1130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setFeedback((prev) => [...prev, created]);
         return { ok: true, redacted };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'Could not send it.',
-        };
+        return failed(error, 'Could not send it.');
       }
     },
     [],
@@ -1134,7 +1142,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setFeedback((prev) => prev.map((f) => (f.id === id ? updated : f)));
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not do that.' };
+      return failed(error, 'Could not do that.');
     }
   }, []);
 
@@ -1148,10 +1156,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setFeedback((prev) => prev.map((f) => (f.id === id ? updated : f)));
         return { ok: true };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'Could not save the answer.',
-        };
+        return failed(error, 'Could not save the answer.');
       }
     },
     [],
@@ -1165,7 +1170,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ? { ok: true }
         : { ok: false, reason: 'The vendor address did not answer. It is still saved here.' };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not send it.' };
+      return failed(error, 'Could not send it.');
     }
   }, []);
 
@@ -1177,7 +1182,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setStops((prev) => [...prev, created]);
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not log it.' };
+      return failed(error, 'Could not log it.');
     }
   }, []);
 
@@ -1188,7 +1193,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setStops((prev) => prev.map((s) => (s.id === id ? stop : s)));
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not save it.' };
+        return failed(error, 'Could not save it.');
       }
     },
     [],
@@ -1200,7 +1205,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setStops((prev) => prev.filter((s) => s.id !== id));
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not remove it.' };
+      return failed(error, 'Could not remove it.');
     }
   }, []);
 
@@ -1250,7 +1255,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setActiveSupplementId(created.id);
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not start it.' };
+      return failed(error, 'Could not start it.');
     }
   }, [activeId]);
 
@@ -1292,10 +1297,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return { ok: true };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'That did not work.',
-        };
+        return failed(error, 'That did not work.');
       }
     },
     [activeSupplementId, flushSupplement],
@@ -1386,7 +1388,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       setExtraction((prev) => ({
         ...prev,
-        error: error instanceof ApiError ? error.message : 'Could not read the narrative.',
+        error: reasonFor(error, 'Could not read the narrative.'),
       }));
     } finally {
       setExtraction((prev) => ({ ...prev, busy: false }));
@@ -1902,7 +1904,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         // The server refuses over-reaching requests outright rather than
         // quietly creating something lesser, so its reason is the useful one.
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not create the account.' };
+        return failed(error, 'Could not create the account.');
       }
     },
     [],
@@ -1941,7 +1943,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setSavedAt(new Date().toISOString());
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not deactivate.' };
+      return failed(error, 'Could not deactivate.');
     }
   }, [refresh]);
 
@@ -1951,7 +1953,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await refresh();
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not reactivate.' };
+      return failed(error, 'Could not reactivate.');
     }
   }, [refresh]);
 
@@ -2062,10 +2064,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setConnectionError(null);
         return { ok: true, mustChangePassword: me.mustChangePassword };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'Could not sign in.',
-        };
+        return failed(error, 'Could not sign in.');
       }
     },
     [refresh],
@@ -2091,10 +2090,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setIdentity((prev) => (prev ? { ...prev, mustChangePassword: false } : prev));
         return { ok: true };
       } catch (error) {
-        return {
-          ok: false,
-          reason: error instanceof ApiError ? error.message : 'Could not change the password.',
-        };
+        return failed(error, 'Could not change the password.');
       }
     },
     [],
@@ -2202,7 +2198,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await adoptReport();
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not submit.' };
+      return failed(error, 'Could not submit.');
     }
   }, [incident, validation, goToIssue, adoptReport]);
 
@@ -2214,7 +2210,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await adoptReport();
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not approve.' };
+        return failed(error, 'Could not approve.');
       }
     },
     [incident, adoptReport],
@@ -2231,7 +2227,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await adoptReport();
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not return it.' };
+        return failed(error, 'Could not return it.');
       }
     },
     [incident, adoptReport],
@@ -2245,7 +2241,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await adoptReport();
         return { ok: true };
       } catch (error) {
-        return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not reopen.' };
+        return failed(error, 'Could not reopen.');
       }
     },
     [incident, adoptReport],

@@ -234,6 +234,23 @@ function sectionFrom(
   };
 }
 
+/**
+ * One column of a section: what it is called, and how to count it.
+ *
+ * Declared once, which is the point. Every section used to state its columns
+ * twice — a list of headings, then the same keys and labels again beside each
+ * value — so a label changed in one place and not the other produced a table
+ * whose heading did not match its numbers, and nothing would have said so.
+ * The heading row and the numbers are now read from the same list.
+ */
+interface Column<Of> {
+  key: string;
+  label: string;
+  /** Rendered as money rather than a count. */
+  currency?: boolean;
+  count: (of: Of) => number;
+}
+
 export function buildActivityReport(input: ActivityInput): ActivityReport {
   const { range, officerIds, sections: wanted } = input;
 
@@ -251,301 +268,219 @@ export function buildActivityReport(input: ActivityInput): ActivityReport {
 
   const sections: ReportSection[] = [];
 
-  const forEachOfficer = (build: (officerId: string) => Metric[]): OfficerRow[] =>
-    officers.map((o) => ({
-      officerId: o.id,
-      officerName: o.name,
-      badge: o.badge,
-      metrics: build(o.id),
-    }));
+  /**
+   * Builds one section from its columns.
+   *
+   * `gather` is run once per officer and hands the columns whatever they need
+   * to count — usually the officer's own rows, occasionally something prepared,
+   * so that a section with five columns over the same list does not walk it
+   * five times.
+   */
+  function build<Of>(
+    key: SectionKey,
+    columns: Column<Of>[],
+    gather: (officerId: string) => Of,
+  ): void {
+    if (!wanted.includes(key)) return;
+
+    const rows: OfficerRow[] = officers.map((officer) => {
+      const of = gather(officer.id);
+      return {
+        officerId: officer.id,
+        officerName: officer.name,
+        badge: officer.badge,
+        metrics: columns.map((column) => {
+          // Built field by field rather than spread, so `currency` lands after
+          // `value` exactly as a hand-written metric did.
+          const metric: Metric = { key: column.key, label: column.label, value: column.count(of) };
+          if (column.currency) metric.currency = true;
+          return metric;
+        }),
+      };
+    });
+
+    sections.push(sectionFrom(key, columns.map(({ count, ...column }) => column), rows));
+  }
 
   /* ---- Traffic stops ---------------------------------------------- */
-  if (wanted.includes('stops')) {
-    const columns = [
-      { key: 'total', label: 'Stops' },
-      { key: 'speed', label: 'Speed' },
-      { key: 'moving', label: 'Moving' },
-      { key: 'equipment', label: 'Equipment' },
-      { key: 'registration', label: 'Registration' },
-      { key: 'other', label: 'Other' },
-      { key: 'arrest', label: 'Led to arrest' },
-    ];
-    sections.push(
-      sectionFrom(
-        'stops',
-        columns,
-        forEachOfficer((id) => {
-          const mine = stops.filter((s) => s.officerId === id);
-          const byReason = (r: string) => mine.filter((s) => s.reason === r).length;
-          return [
-            { key: 'total', label: 'Stops', value: mine.length },
-            { key: 'speed', label: 'Speed', value: byReason('speed') },
-            { key: 'moving', label: 'Moving', value: byReason('moving') },
-            { key: 'equipment', label: 'Equipment', value: byReason('equipment') },
-            { key: 'registration', label: 'Registration', value: byReason('registration') },
-            {
-              key: 'other',
-              label: 'Other',
-              value: mine.filter((s) => ['suspicion', 'bolo', 'other'].includes(s.reason)).length,
-            },
-            {
-              key: 'arrest',
-              label: 'Led to arrest',
-              value: mine.filter((s) => s.outcome === 'arrest').length,
-            },
-          ];
-        }),
-      ),
-    );
-  }
+  const reason = (r: string) => (mine: TrafficStop[]) => mine.filter((s) => s.reason === r).length;
+
+  build<TrafficStop[]>(
+    'stops',
+    [
+      { key: 'total', label: 'Stops', count: (mine) => mine.length },
+      { key: 'speed', label: 'Speed', count: reason('speed') },
+      { key: 'moving', label: 'Moving', count: reason('moving') },
+      { key: 'equipment', label: 'Equipment', count: reason('equipment') },
+      { key: 'registration', label: 'Registration', count: reason('registration') },
+      {
+        key: 'other',
+        label: 'Other',
+        count: (mine) => mine.filter((s) => ['suspicion', 'bolo', 'other'].includes(s.reason)).length,
+      },
+      {
+        key: 'arrest',
+        label: 'Led to arrest',
+        count: (mine) => mine.filter((s) => s.outcome === 'arrest').length,
+      },
+    ],
+    (id) => stops.filter((s) => s.officerId === id),
+  );
 
   /* ---- Citations --------------------------------------------------- */
-  if (wanted.includes('citations')) {
-    const columns = [
-      { key: 'citations', label: 'Citations' },
-      { key: 'warnings', label: 'Written warnings' },
-      { key: 'verbal', label: 'Verbal warnings' },
-      { key: 'noAction', label: 'No action' },
-    ];
-    sections.push(
-      sectionFrom(
-        'citations',
-        columns,
-        forEachOfficer((id) => {
-          const mine = stops.filter((s) => s.officerId === id);
-          return [
-            {
-              key: 'citations',
-              label: 'Citations',
-              value: mine.reduce((n, s) => n + citationCount(s), 0),
-            },
-            {
-              key: 'warnings',
-              label: 'Written warnings',
-              value: mine.reduce((n, s) => n + warningCount(s), 0),
-            },
-            {
-              key: 'verbal',
-              label: 'Verbal warnings',
-              // A warning outcome with nothing written down is a verbal one.
-              value: mine.filter((s) => s.outcome === 'warning' && s.citations.length === 0).length,
-            },
-            {
-              key: 'noAction',
-              label: 'No action',
-              value: mine.filter((s) => s.outcome === 'no_action').length,
-            },
-          ];
-        }),
-      ),
-    );
-  }
+  build<TrafficStop[]>(
+    'citations',
+    [
+      {
+        key: 'citations',
+        label: 'Citations',
+        count: (mine) => mine.reduce((n, s) => n + citationCount(s), 0),
+      },
+      {
+        key: 'warnings',
+        label: 'Written warnings',
+        count: (mine) => mine.reduce((n, s) => n + warningCount(s), 0),
+      },
+      {
+        key: 'verbal',
+        label: 'Verbal warnings',
+        // A warning outcome with nothing written down is a verbal one.
+        count: (mine) => mine.filter((s) => s.outcome === 'warning' && s.citations.length === 0).length,
+      },
+      {
+        key: 'noAction',
+        label: 'No action',
+        count: (mine) => mine.filter((s) => s.outcome === 'no_action').length,
+      },
+    ],
+    (id) => stops.filter((s) => s.officerId === id),
+  );
 
   /* ---- Reports ------------------------------------------------------ */
-  if (wanted.includes('reports')) {
-    const columns = [
-      { key: 'total', label: 'Reports' },
-      { key: 'approved', label: 'Approved' },
-      { key: 'pending', label: 'In review' },
-      { key: 'returned', label: 'Returned' },
-      { key: 'draft', label: 'Draft' },
-    ];
-    sections.push(
-      sectionFrom(
-        'reports',
-        columns,
-        forEachOfficer((id) => {
-          const mine = incidents.filter((i) => i.createdBy === id);
-          const byStatus = (s: string) => mine.filter((i) => i.status === s).length;
-          return [
-            { key: 'total', label: 'Reports', value: mine.length },
-            { key: 'approved', label: 'Approved', value: byStatus('approved') },
-            { key: 'pending', label: 'In review', value: byStatus('pending_review') },
-            { key: 'returned', label: 'Returned', value: byStatus('returned') },
-            { key: 'draft', label: 'Draft', value: byStatus('draft') },
-          ];
-        }),
-      ),
-    );
-  }
+  const status = (s: string) => (mine: Incident[]) => mine.filter((i) => i.status === s).length;
+
+  build<Incident[]>(
+    'reports',
+    [
+      { key: 'total', label: 'Reports', count: (mine) => mine.length },
+      { key: 'approved', label: 'Approved', count: status('approved') },
+      { key: 'pending', label: 'In review', count: status('pending_review') },
+      { key: 'returned', label: 'Returned', count: status('returned') },
+      { key: 'draft', label: 'Draft', count: status('draft') },
+    ],
+    (id) => incidents.filter((i) => i.createdBy === id),
+  );
 
   /* ---- Supplements -------------------------------------------------- */
-  if (wanted.includes('supplements')) {
-    const columns = [
-      { key: 'total', label: 'Supplements' },
-      { key: 'assisting', label: 'On another officer’s report' },
-      { key: 'approved', label: 'Approved' },
-    ];
-    sections.push(
-      sectionFrom(
-        'supplements',
-        columns,
-        forEachOfficer((id) => {
-          const mine = supplements.filter((s) => s.createdBy === id);
-          return [
-            { key: 'total', label: 'Supplements', value: mine.length },
-            {
-              key: 'assisting',
-              label: 'On another officer’s report',
-              value: mine.filter((s) => {
-                const author = authorOf.get(s.caseId);
-                return Boolean(author) && author !== id;
-              }).length,
-            },
-            {
-              key: 'approved',
-              label: 'Approved',
-              value: mine.filter((s) => s.status === 'approved').length,
-            },
-          ];
-        }),
-      ),
-    );
-  }
+  build<{ mine: Supplement[]; officerId: string }>(
+    'supplements',
+    [
+      { key: 'total', label: 'Supplements', count: ({ mine }) => mine.length },
+      {
+        key: 'assisting',
+        label: 'On another officer\u2019s report',
+        count: ({ mine, officerId }) =>
+          mine.filter((s) => {
+            const author = authorOf.get(s.caseId);
+            return Boolean(author) && author !== officerId;
+          }).length,
+      },
+      {
+        key: 'approved',
+        label: 'Approved',
+        count: ({ mine }) => mine.filter((s) => s.status === 'approved').length,
+      },
+    ],
+    (officerId) => ({ officerId, mine: supplements.filter((s) => s.createdBy === officerId) }),
+  );
 
   /* ---- Arrests ------------------------------------------------------ */
-  if (wanted.includes('arrests')) {
-    const columns = [
-      { key: 'total', label: 'Arrests' },
-      { key: 'onView', label: 'On view' },
-      { key: 'warrant', label: 'Warrant / custody' },
-      { key: 'summons', label: 'Summons' },
-      { key: 'juvenile', label: 'On juvenile cases' },
-    ];
+  /*
+    Attribution: the arresting officer where one is recorded, otherwise the
+    report's author. Falling back rather than dropping the arrest keeps the
+    agency total right on older records; the section's basis line says so.
+  */
+  type Arrest = { person: Incident['persons'][number]; incident: Incident };
+  const arrestType = (t: string) => (mine: Arrest[]) =>
+    mine.filter((a) => a.person.arrestType === t).length;
 
-    /*
-      Attribution: the arresting officer where one is recorded, otherwise the
-      report's author. Falling back rather than dropping the arrest keeps the
-      agency total right on older records; the section's basis line says so.
-    */
-    const arrestsFor = (officerId: string) =>
+  build<Arrest[]>(
+    'arrests',
+    [
+      { key: 'total', label: 'Arrests', count: (mine) => mine.length },
+      { key: 'onView', label: 'On view', count: arrestType('O') },
+      { key: 'warrant', label: 'Warrant / custody', count: arrestType('T') },
+      { key: 'summons', label: 'Summons', count: arrestType('S') },
+      {
+        key: 'juvenile',
+        label: 'On juvenile cases',
+        count: (mine) => mine.filter((a) => a.incident.involvesJuvenile).length,
+      },
+    ],
+    (officerId) =>
       incidents.flatMap((incident) =>
         incident.persons
           .filter((p) => p.role === 'arrestee' && p.arrestDate)
           .filter((p) => (p.arrestingOfficerId || incident.createdBy) === officerId)
-          .map((p) => ({ person: p, incident })),
-      );
-
-    sections.push(
-      sectionFrom(
-        'arrests',
-        columns,
-        forEachOfficer((id) => {
-          const mine = arrestsFor(id);
-          const byType = (t: string) => mine.filter((a) => a.person.arrestType === t).length;
-          return [
-            { key: 'total', label: 'Arrests', value: mine.length },
-            { key: 'onView', label: 'On view', value: byType('O') },
-            { key: 'warrant', label: 'Warrant / custody', value: byType('T') },
-            { key: 'summons', label: 'Summons', value: byType('S') },
-            {
-              key: 'juvenile',
-              label: 'On juvenile cases',
-              value: mine.filter((a) => a.incident.involvesJuvenile).length,
-            },
-          ];
-        }),
+          .map((person) => ({ person, incident })),
       ),
-    );
-  }
+  );
 
   /* ---- Offenses ----------------------------------------------------- */
-  if (wanted.includes('offenses')) {
-    const columns = [
-      { key: 'total', label: 'Offenses' },
-      { key: 'person', label: 'Against persons' },
-      { key: 'property', label: 'Against property' },
-      { key: 'society', label: 'Against society' },
-      { key: 'domestic', label: 'Domestic-flagged' },
-    ];
-    sections.push(
-      sectionFrom(
-        'offenses',
-        columns,
-        forEachOfficer((id) => {
-          const mine = incidents.filter((i) => i.createdBy === id);
-          const offenses = mine.flatMap((i) => i.offenses);
-          const byCategory = (c: string) =>
-            offenses.filter((o) => OFFENSE_BY_CODE.get(o.code)?.category === c).length;
-          return [
-            { key: 'total', label: 'Offenses', value: offenses.length },
-            { key: 'person', label: 'Against persons', value: byCategory('person') },
-            { key: 'property', label: 'Against property', value: byCategory('property') },
-            { key: 'society', label: 'Against society', value: byCategory('society') },
-            {
-              key: 'domestic',
-              label: 'Domestic-flagged',
-              value: mine.filter((i) => i.isDomestic).length,
-            },
-          ];
-        }),
-      ),
-    );
-  }
+  type Offenses = { reports: Incident[]; offenses: Incident['offenses'] };
+  const category = (c: string) => ({ offenses }: Offenses) =>
+    offenses.filter((o) => OFFENSE_BY_CODE.get(o.code)?.category === c).length;
+
+  build<Offenses>(
+    'offenses',
+    [
+      { key: 'total', label: 'Offenses', count: ({ offenses }) => offenses.length },
+      { key: 'person', label: 'Against persons', count: category('person') },
+      { key: 'property', label: 'Against property', count: category('property') },
+      { key: 'society', label: 'Against society', count: category('society') },
+      {
+        key: 'domestic',
+        label: 'Domestic-flagged',
+        count: ({ reports }) => reports.filter((i) => i.isDomestic).length,
+      },
+    ],
+    (id) => {
+      // Flattened once per officer rather than once per column.
+      const reports = incidents.filter((i) => i.createdBy === id);
+      return { reports, offenses: reports.flatMap((i) => i.offenses) };
+    },
+  );
 
   /* ---- Property ----------------------------------------------------- */
-  if (wanted.includes('property')) {
-    const columns = [
-      { key: 'stolen', label: 'Value stolen', currency: true },
-      { key: 'recovered', label: 'Value recovered', currency: true },
-      { key: 'items', label: 'Items recorded' },
-    ];
-    const money = (v: string) => Math.round(Number(String(v).replace(/[^0-9.]/g, '')) || 0);
-    sections.push(
-      sectionFrom(
-        'property',
-        columns,
-        forEachOfficer((id) => {
-          const items = incidents.filter((i) => i.createdBy === id).flatMap((i) => i.property);
-          return [
-            {
-              key: 'stolen',
-              label: 'Value stolen',
-              value: items.filter((p) => p.lossType === 'stolen').reduce((n, p) => n + money(p.value), 0),
-              currency: true,
-            },
-            {
-              key: 'recovered',
-              label: 'Value recovered',
-              value: items
-                .filter((p) => p.lossType === 'recovered')
-                .reduce((n, p) => n + money(p.value), 0),
-              currency: true,
-            },
-            { key: 'items', label: 'Items recorded', value: items.length },
-          ];
-        }),
-      ),
-    );
-  }
+  const money = (v: string) => Math.round(Number(String(v).replace(/[^0-9.]/g, '')) || 0);
+  const valueOf = (lossType: string) => (items: Incident['property']) =>
+    items.filter((p) => p.lossType === lossType).reduce((n, p) => n + money(p.value), 0);
+
+  build<Incident['property']>(
+    'property',
+    [
+      { key: 'stolen', label: 'Value stolen', currency: true, count: valueOf('stolen') },
+      { key: 'recovered', label: 'Value recovered', currency: true, count: valueOf('recovered') },
+      { key: 'items', label: 'Items recorded', count: (items) => items.length },
+    ],
+    (id) => incidents.filter((i) => i.createdBy === id).flatMap((i) => i.property),
+  );
 
   /* ---- Clearance ---------------------------------------------------- */
-  if (wanted.includes('clearance')) {
-    const columns = [
-      { key: 'open', label: 'Open' },
-      { key: 'arrest', label: 'Cleared by arrest' },
-      { key: 'exceptional', label: 'Cleared exceptionally' },
-      { key: 'unfounded', label: 'Unfounded' },
-      { key: 'inactive', label: 'Inactive' },
-    ];
-    sections.push(
-      sectionFrom(
-        'clearance',
-        columns,
-        forEachOfficer((id) => {
-          const mine = incidents.filter((i) => i.createdBy === id);
-          const by = (c: string) => mine.filter((i) => i.clearanceStatus === c).length;
-          return [
-            { key: 'open', label: 'Open', value: by('open') },
-            { key: 'arrest', label: 'Cleared by arrest', value: by('cleared_arrest') },
-            { key: 'exceptional', label: 'Cleared exceptionally', value: by('cleared_exceptional') },
-            { key: 'unfounded', label: 'Unfounded', value: by('unfounded') },
-            { key: 'inactive', label: 'Inactive', value: by('inactive') },
-          ];
-        }),
-      ),
-    );
-  }
+  const clearance = (c: string) => (mine: Incident[]) =>
+    mine.filter((i) => i.clearanceStatus === c).length;
+
+  build<Incident[]>(
+    'clearance',
+    [
+      { key: 'open', label: 'Open', count: clearance('open') },
+      { key: 'arrest', label: 'Cleared by arrest', count: clearance('cleared_arrest') },
+      { key: 'exceptional', label: 'Cleared exceptionally', count: clearance('cleared_exceptional') },
+      { key: 'unfounded', label: 'Unfounded', count: clearance('unfounded') },
+      { key: 'inactive', label: 'Inactive', count: clearance('inactive') },
+    ],
+    (id) => incidents.filter((i) => i.createdBy === id),
+  );
 
   const empty = sections.every((s) => s.totals.every((t) => t.value === 0));
 
