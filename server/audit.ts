@@ -38,6 +38,9 @@ export function readAuditLog(db: DatabaseSync, limit = 1000): AuditEntry[] {
     detail: row.detail,
     prevHash: row.prev_hash,
     hash: row.hash,
+    // Absent on every ordinary entry, so `isRedacted` stays false rather than
+    // reading an empty string as a redaction.
+    ...(row.redacted_by ? { redactedBy: row.redacted_by, redactedAt: row.redacted_at } : {}),
   }));
 }
 

@@ -16,6 +16,7 @@ import { FeedbackQueue } from '@/features/feedback/FeedbackQueue';
 import { PropertyRoom } from '@/features/evidence/PropertyRoom';
 import { FleetView } from '@/features/fleet/FleetView';
 import { ChecklistEditor } from '@/features/fleet/ChecklistEditor';
+import { RetentionView } from '@/features/retention/RetentionView';
 import { cn } from '@/lib/cn';
 
 /**
@@ -33,6 +34,7 @@ type Tab =
   | 'import'
   | 'evidence'
   | 'fleet'
+  | 'retention'
   | 'feedback';
 
 const SCREEN_NAME: Record<Tab, string> = {
@@ -45,6 +47,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   import: 'Import records',
   evidence: 'Property room',
   fleet: 'Fleet',
+  retention: 'Retention',
   feedback: 'Feedback',
 };
 
@@ -54,6 +57,8 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
   const mayConfigure = can('agency.configure');
   const mayManageUsers = can('users.manage');
   const mayViewAudit = can('audit.view');
+  // Sealing, court orders and the retention schedule are the records job.
+  const mayHandleRecords = can('records.seal');
   // Records staff run the state submission; so does anyone who reviews reports.
   const mayExport = can('agency.configure') || can('reports.approve');
   // Everyone can reach the activity screens: an officer logging their own
@@ -100,6 +105,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Import records
             </TabButton>
           )}
+          {mayHandleRecords && (
+            <TabButton active={tab === 'retention'} onClick={() => setTab('retention')}>
+              Retention
+            </TabButton>
+          )}
           {/*
             Open to every officer: seizing property and signing it in or out is
             police work. What a clerk may do beyond that is gated inside.
@@ -142,7 +152,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             'mx-auto space-y-4 px-6 py-6',
             // The import review shows whole rows from the old system side by
             // side. Three columns of that in 768px is unreadable.
-            tab === 'import' || tab === 'feedback' || tab === 'evidence' || tab === 'fleet'
+            tab === 'import' ||
+            tab === 'feedback' ||
+            tab === 'evidence' ||
+            tab === 'fleet' ||
+            tab === 'retention'
               ? 'max-w-5xl'
               : 'max-w-3xl',
           )}
@@ -154,6 +168,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'activity' && <ActivityReportView />}
           {tab === 'import' && mayConfigure && <ImportWizard />}
           {tab === 'evidence' && <PropertyRoom />}
+          {tab === 'retention' && mayHandleRecords && <RetentionView />}
           {tab === 'fleet' && (
             <>
               <FleetView />

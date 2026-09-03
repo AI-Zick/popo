@@ -4,6 +4,7 @@ import { useStore } from '@/state/store';
 import {
   ACTION_LABEL,
   filterLog,
+  isRedacted,
   SECURITY_ACTIONS,
   type AuditAction,
   type ChainStatus,
@@ -94,10 +95,24 @@ export function AuditLog() {
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink">
                   <span className="font-medium">{entry.actorName || 'Unknown'}</span>
                   <span className="text-muted">{ACTION_LABEL[entry.action]}</span>
-                  {entry.target && <Badge tone="neutral">{entry.target}</Badge>}
+                  {/*
+                    A destroyed entry says so and names the order that did it,
+                    so an auditor can check the claim against a real court
+                    order rather than taking the word "redacted" for it.
+                  */}
+                  {isRedacted(entry) ? (
+                    <Badge tone="warn">Destroyed under {entry.redactedBy}</Badge>
+                  ) : (
+                    entry.target && <Badge tone="neutral">{entry.target}</Badge>
+                  )}
                 </p>
-                {entry.detail && (
+                {entry.detail && !isRedacted(entry) && (
                   <p className="mt-0.5 text-[12px] text-muted">{entry.detail}</p>
+                )}
+                {isRedacted(entry) && (
+                  <p className="mt-0.5 text-[12px] leading-relaxed text-faint">
+                    Its place in the chain is still proved; what it was about is gone.
+                  </p>
                 )}
               </div>
               <div className="shrink-0 text-right">
@@ -122,6 +137,7 @@ export function AuditLog() {
 
 function ChainBanner({ status }: { status: ChainStatus }) {
   if (status.intact) {
+    const destroyed = status.redacted.length;
     return (
       <div className="flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok-soft px-3 py-2.5">
         <ShieldCheck size={15} className="mt-0.5 shrink-0 text-ok" aria-hidden />
@@ -129,9 +145,28 @@ function ChainBanner({ status }: { status: ChainStatus }) {
           <p className="text-[13px] font-medium text-ink">
             Chain intact across {status.checked} {status.checked === 1 ? 'entry' : 'entries'}
           </p>
+          {/*
+            The claim has to shrink to what is true once a court has ordered
+            something destroyed. The log can still prove nothing was inserted,
+            removed or reordered; it can no longer prove what the destroyed
+            entries said, and saying otherwise would be the one dishonest
+            sentence on this screen.
+          */}
           <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
-            Every hash recomputes and every link matches. Nothing has been altered or removed since
-            it was written.
+            {destroyed === 0 ? (
+              <>
+                Every hash recomputes and every link matches. Nothing has been altered or removed
+                since it was written.
+              </>
+            ) : (
+              <>
+                Every link matches, so nothing has been inserted, removed or reordered.{' '}
+                {destroyed} {destroyed === 1 ? 'entry has' : 'entries have'} had{' '}
+                {destroyed === 1 ? 'its' : 'their'} contents destroyed under a court order and
+                cannot be checked against {destroyed === 1 ? 'its' : 'their'} hash — each says
+                which order below.
+              </>
+            )}
           </p>
         </div>
         <CheckCircle2 size={15} className="ml-auto mt-0.5 shrink-0 text-ok" aria-hidden />

@@ -24,6 +24,9 @@ import {
 import {
   appendEntry,
   filterLog,
+  isRedacted,
+  REDACTED,
+  redactEntry,
   sealEntry,
   verifyChain,
   type AuditEntry,
@@ -251,6 +254,78 @@ describe('audit log', () => {
     const log = await buildLog();
     const status = await verifyChain([log[1], log[0], log[2]]);
     expect(status.intact).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Court-ordered destruction                                           */
+/* ------------------------------------------------------------------ */
+
+describe('an entry destroyed under a court order', () => {
+  it('loses what it was about', async () => {
+    const log = await buildLog();
+    const gone = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+    expect(gone.target).toBe(REDACTED);
+    expect(gone.detail).toBe(REDACTED);
+    expect(JSON.stringify(gone)).not.toContain('Marion Street');
+  });
+
+  it('keeps the officer, the time and the action', async () => {
+    // An audit log that forgets who did things stops being an audit log. The
+    // officer is agency personnel, not the subject of the order.
+    const log = await buildLog();
+    const gone = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+    expect(gone.actorName).toBe(log[1].actorName);
+    expect(gone.action).toBe(log[1].action);
+    expect(gone.at).toBe(log[1].at);
+  });
+
+  it('names the order that destroyed it', async () => {
+    const log = await buildLog();
+    const gone = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+    expect(gone.redactedBy).toBe('X-000001');
+    expect(isRedacted(gone)).toBe(true);
+    expect(isRedacted(log[1])).toBe(false);
+  });
+
+  it('leaves the chain verifiable, and says which entries went', async () => {
+    const log = await buildLog();
+    const redacted = [...log];
+    redacted[1] = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+
+    const status = await verifyChain(redacted);
+    expect(status.intact).toBe(true);
+    expect(status.redacted).toEqual([1]);
+  });
+
+  it('still catches an ordinary entry being altered next to a redacted one', async () => {
+    /*
+      The point of the whole design. Redaction must not become a way to edit
+      the log — an entry that has not been redacted is checked exactly as
+      strictly as before.
+    */
+    const log = await buildLog();
+    const tampered = [...log];
+    tampered[1] = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+    tampered[2] = { ...tampered[2], detail: 'Routine cleanup' };
+
+    const status = await verifyChain(tampered);
+    expect(status.intact).toBe(false);
+    expect(status.brokenAt).toBe(2);
+  });
+
+  it('still catches a redacted entry being removed outright', async () => {
+    // Destroying the content is lawful; destroying the link is not.
+    const log = await buildLog();
+    const redacted = redactEntry(log[1], 'X-000001', '2026-09-03T12:00:00.000Z');
+    const status = await verifyChain([log[0], log[2]]);
+    expect(status.intact).toBe(false);
+    expect(redacted.hash).toBe(log[1].hash);
+  });
+
+  it('reports nothing redacted on an ordinary log', async () => {
+    const status = await verifyChain(await buildLog());
+    expect(status.redacted).toEqual([]);
   });
 
   it('produces the hashes it always has', async () => {

@@ -18,6 +18,11 @@ import { dirname } from 'node:path';
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
+-- Deleted content is overwritten with zeros instead of being left in a free
+-- page for a hex editor to find. It costs a little on every write and it is
+-- the difference between a court-ordered destruction that happened and one
+-- that only happened as far as the query planner is concerned.
+PRAGMA secure_delete = ON;
 
 CREATE TABLE IF NOT EXISTS agency (
   id          TEXT PRIMARY KEY,
@@ -70,7 +75,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
   target     TEXT NOT NULL DEFAULT '',
   detail     TEXT NOT NULL DEFAULT '',
   prev_hash  TEXT NOT NULL DEFAULT '',
-  hash       TEXT NOT NULL
+  hash       TEXT NOT NULL,
+  -- Set when a court order destroyed this entry's content. The hash above is
+  -- deliberately left as it was sealed, so the chain still links either side
+  -- of the hole. See the note on verifyLinks in domain/chain.
+  redacted_by TEXT NOT NULL DEFAULT '',
+  redacted_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at);
 
@@ -216,6 +226,35 @@ CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
 -- One person's history at this agency, which is the other way it is read.
 CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
 
+-- Court orders to seal or destroy records, and the certificates left behind.
+-- Not a document in the review sense: an order is proposed by one person and
+-- carried out by another, and once carried out it keeps only what a court
+-- needs to see that it was obeyed.
+CREATE TABLE IF NOT EXISTS disposal_orders (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  reference  TEXT NOT NULL DEFAULT '',
+  subject_id TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'draft',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS disposal_reference ON disposal_orders(reference);
+-- Orders about one case, and the queue waiting on a second person.
+CREATE INDEX IF NOT EXISTS disposal_subject ON disposal_orders(subject_id);
+CREATE INDEX IF NOT EXISTS disposal_status ON disposal_orders(status);
+
+-- Which records are sealed, and under which order. Its own table rather than a
+-- flag on each document: a sealed record must stay hidden even if the document
+-- itself is rewritten by an import or a migration.
+CREATE TABLE IF NOT EXISTS seals (
+  subject_id TEXT PRIMARY KEY,
+  scope      TEXT NOT NULL DEFAULT 'case',
+  order_ref  TEXT NOT NULL DEFAULT '',
+  sealed_at  TEXT NOT NULL,
+  sealed_by  TEXT NOT NULL DEFAULT ''
+);
+
 -- The fleet. A cruiser is not a document — nothing is submitted or approved —
 -- so these tables are plain records with their own small rules.
 CREATE TABLE IF NOT EXISTS cruisers (
@@ -336,10 +375,33 @@ CREATE TABLE IF NOT EXISTS edit_locks (
 
 export type Row = Record<string, unknown>;
 
+/**
+ * Columns added to a table that already exists somewhere.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does nothing to a database created by an
+ * earlier build, so a new column on an old table needs saying twice: once in
+ * the schema above for a fresh install, and once here for everybody else.
+ * Keep both in step — a column only in the schema is a column that is missing
+ * from every database that already exists.
+ */
+const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
+  ['audit_log', 'redacted_by', "TEXT NOT NULL DEFAULT ''"],
+  ['audit_log', 'redacted_at', "TEXT NOT NULL DEFAULT ''"],
+];
+
+function addMissingColumns(db: DatabaseSync): void {
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (columns.length === 0 || columns.some((c) => c.name === column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
+  addMissingColumns(db);
   return db;
 }
 
@@ -363,7 +425,8 @@ export interface DocTable {
     | 'person_photos'
     | 'cruisers'
     | 'cruiser_checks'
-    | 'maintenance_requests';
+    | 'maintenance_requests'
+    | 'disposal_orders';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -425,6 +488,14 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       status: String(doc.status ?? 'draft'),
       arrested_at: String(doc.arrestedAt ?? ''),
+    }),
+  },
+  disposalOrders: {
+    name: 'disposal_orders',
+    columns: (doc) => ({
+      reference: String(doc.reference ?? ''),
+      subject_id: String(doc.subjectId ?? ''),
+      status: String(doc.status ?? 'draft'),
     }),
   },
   cruisers: {

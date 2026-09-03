@@ -29,6 +29,7 @@ import { registerArrestRoutes } from './arrests';
 import { registerTaskRoutes } from './tasks';
 import { registerPhotoRoutes } from './photos';
 import { registerFleetRoutes } from './fleet';
+import { registerRetentionRoutes, listSeals } from './retention';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -190,6 +191,38 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const caseTasks = readDocsWithVersions(db, DOC_TABLES.caseTasks);
     const photos = readDocsWithVersions(db, DOC_TABLES.personPhotos);
 
+    /*
+      Sealed records.
+
+      A court has ordered these out of ordinary sight, so they are dropped from
+      this payload — for everybody, including the records staff entitled to see
+      them. Not greyed out, not marked "sealed", simply absent: a placeholder
+      saying a sealed record exists tells the reader most of what the seal was
+      meant to withhold.
+
+      Somebody entitled to look fetches one through its own endpoint, which
+      writes an access event. That is the point of doing it this way rather
+      than sending them here and asking the client to be discreet — "who read
+      this after it was sealed" is the question sealing exists to answer, and
+      an answer that depends on the client choosing to report itself is not
+      one.
+
+      Everything hanging off a sealed case goes with it. A case can be hidden
+      while its supplements and arrests are not, and that is not a seal.
+    */
+    const seals = listSeals(db);
+    const sealed = new Set(seals.map((seal) => seal.subjectId));
+    const maySeeSealed = can(req.user!, 'records.seal');
+    const hidden = (subjectId: unknown, caseId: unknown = '') =>
+      sealed.has(String(subjectId)) || sealed.has(String(caseId));
+
+    const visibleIncidents = incidents.filter((i) => !hidden(i.doc.id));
+    const visibleSupplements = supplements.filter((s) => !hidden(s.doc.id, s.doc.caseId));
+    const visibleCrashes = crashes.filter((c) => !hidden(c.doc.id));
+    const visibleArrests = arrests.filter((a) => !hidden(a.doc.id, a.doc.caseId));
+    const visibleTasks = caseTasks.filter((t) => !hidden(t.doc.id, t.doc.caseId));
+    const visiblePhotos = photos.filter((p) => !hidden(p.doc.masterId));
+
     // Versions travel with the data so the client can send back what it saw.
     const versions: Record<string, number> = {};
     for (const { doc, version } of [...incidents, ...people, ...locations]) {
@@ -197,14 +230,21 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     }
 
     res.json({
-      incidents: incidents.map((i) => i.doc),
-      supplements: supplements.map((s) => s.doc),
+      incidents: visibleIncidents.map((i) => i.doc),
+      supplements: visibleSupplements.map((s) => s.doc),
       stops: stops.map((s) => s.doc),
-      crashes: crashes.map((c) => c.doc),
+      crashes: visibleCrashes.map((c) => c.doc),
       returns: returns.map((r) => r.doc),
-      arrests: arrests.map((a) => a.doc),
-      caseTasks: caseTasks.map((t) => t.doc),
-      photos: photos.map((p) => p.doc),
+      arrests: visibleArrests.map((a) => a.doc),
+      caseTasks: visibleTasks.map((t) => t.doc),
+      photos: visiblePhotos.map((p) => p.doc),
+      /*
+        The list of what is sealed — not the records themselves. Only somebody
+        entitled to look gets it, because they cannot ask for a record they do
+        not know exists. For everyone else it is empty, and the records are
+        absent from the payload above with nothing to say they ever were.
+      */
+      seals: maySeeSealed ? seals : [],
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
       versions,
@@ -429,6 +469,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerTaskRoutes(app, db);
   registerPhotoRoutes(app, db, config.dataDir);
   registerFleetRoutes(app, db);
+  registerRetentionRoutes(app, db, config.dataDir);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

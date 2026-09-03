@@ -67,7 +67,29 @@ export type Permission =
    * internal affairs or records reviewer needs this without the ability to
    * hand out permissions.
    */
-  | 'audit.view';
+  | 'audit.view'
+  /**
+   * Seal a record, and record a court order about one.
+   *
+   * Sealing hides a record from ordinary use and is reversible, so it sits
+   * with the records job rather than with destruction.
+   */
+  | 'records.seal'
+  /**
+   * Carry out a destruction order.
+   *
+   * The one irreversible operation in this system. What protects it is not
+   * the scarcity of this permission — it is the court order, the preview of
+   * exactly what will go, and the second person: whoever proposes an order
+   * cannot be the one who carries it out. That is the same shape as a
+   * two-signature drug destruction, where both officers hold the authority
+   * and neither can act alone.
+   *
+   * Held by administrators, so an agency with one administrator cannot
+   * destroy anything until it has two. An agency wanting it narrower revokes
+   * it from the administrators and grants it to named people.
+   */
+  | 'records.expunge';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -80,6 +102,8 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'agency.provision': 'Provision new agencies',
   'evidence.manage': 'Run the property room',
   'audit.view': 'Read the audit log',
+  'records.seal': 'Seal records and record court orders',
+  'records.expunge': 'Carry out destruction orders',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -100,6 +124,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRetracted',
     'evidence.manage',
     'audit.view',
+    'records.seal',
   ],
   admin: [
     'notes.add',
@@ -111,7 +136,14 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'users.manage',
     'evidence.manage',
     'audit.view',
+    'records.seal',
+    'records.expunge',
   ],
+  /*
+    Deliberately without `records.expunge`. The vendor stands up agencies and
+    fixes their software; a supplier able to destroy a customer's records on
+    their own system is not a support arrangement, it is a liability.
+  */
   vendor: [
     'notes.add',
     'notes.viewRestricted',
@@ -123,6 +155,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'agency.provision',
     'evidence.manage',
     'audit.view',
+    'records.seal',
   ],
 };
 

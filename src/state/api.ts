@@ -13,6 +13,7 @@ import type { CrashReport } from '@/domain/crash';
 import type { Arrest, Problem as ArrestProblem } from '@/domain/arrest';
 import type { CaseTask } from '@/domain/caseTask';
 import type { PersonPhoto } from '@/domain/photo';
+import type { Certificate, DisposalOrder, ManifestLine, Problem as OrderProblem } from '@/domain/retention';
 import type {
   Cruiser,
   CruiserCheck,
@@ -339,6 +340,62 @@ export const api = {
     });
   },
 
+  /* ---- Retention, sealing and destruction ----------------------------- */
+
+  retention(): Promise<{
+    orders: DisposalOrder[];
+    seals: { subjectId: string; scope: string; orderRef: string; sealedAt: string; sealedBy: string }[];
+  }> {
+    return request('/api/retention');
+  },
+
+  createOrder(input: {
+    kind: string;
+    scope: string;
+    subjectId: string;
+    court: string;
+    docket: string;
+    orderedOn: string;
+    instruction: string;
+  }): Promise<{ order: DisposalOrder; problems: OrderProblem[] }> {
+    return request('/api/retention/orders', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  previewOrder(
+    id: string,
+  ): Promise<{
+    lines: ManifestLine[];
+    auditEntries: number;
+    gaps: string[];
+    problems: OrderProblem[];
+  }> {
+    return request(`/api/retention/orders/${id}/preview`);
+  },
+
+  proposeOrder(id: string): Promise<{ order: DisposalOrder; problems?: OrderProblem[] }> {
+    return request(`/api/retention/orders/${id}/propose`, { method: 'POST' });
+  },
+
+  executeOrder(id: string): Promise<{ order: DisposalOrder; certificate: Certificate | null }> {
+    return request(`/api/retention/orders/${id}/execute`, { method: 'POST' });
+  },
+
+  withdrawOrder(id: string, reason: string): Promise<{ order: DisposalOrder }> {
+    return request(`/api/retention/orders/${id}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  openSealed(
+    subjectId: string,
+    reason: string,
+  ): Promise<{ incident: unknown; person: unknown; supplements: unknown[]; arrests: unknown[] }> {
+    return request(
+      `/api/retention/sealed/${subjectId}?reason=${encodeURIComponent(reason)}`,
+    );
+  },
+
   /* ---- Feedback ----------------------------------------------------- */
 
   feedback(): Promise<{ feedback: Feedback[]; forwarding: boolean }> {
@@ -451,6 +508,7 @@ export const api = {
     arrests: Arrest[];
     caseTasks: CaseTask[];
     photos: PersonPhoto[];
+    seals: { subjectId: string; scope: string; orderRef: string; sealedAt: string; sealedBy: string }[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;

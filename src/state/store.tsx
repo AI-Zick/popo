@@ -85,6 +85,16 @@ import {
   type CrashUnit,
 } from '@/domain/crash';
 import {
+  certificates,
+  ordersWaiting,
+  retentionDue,
+  ruleFor,
+  type Certificate,
+  type DisposalOrder,
+  type ManifestLine,
+  type RecordKind,
+} from '@/domain/retention';
+import {
   requestQueue,
   type Cruiser,
   type CruiserCheck,
@@ -339,6 +349,33 @@ interface StoreValue {
     input: { status: string; note?: string; assignedTo?: string },
   ) => Promise<GuardResult & { backOnRoad?: boolean }>;
 
+  /* ---- Retention and court orders -------------------------------------- */
+  orders: DisposalOrder[];
+  /** Proposed and waiting on a second person, oldest first. */
+  ordersWaiting: DisposalOrder[];
+  /** Every certificate of destruction, newest first. */
+  certificates: Certificate[];
+  /** What is sealed. Empty unless this user may see through a seal. */
+  seals: { subjectId: string; scope: string; orderRef: string; sealedAt: string; sealedBy: string }[];
+  refreshRetention: () => Promise<void>;
+  createOrder: (input: {
+    kind: string;
+    scope: string;
+    subjectId: string;
+    court: string;
+    docket: string;
+    orderedOn: string;
+    instruction: string;
+  }) => Promise<GuardResult & { id?: string }>;
+  previewOrder: (
+    id: string,
+  ) => Promise<{ lines: ManifestLine[]; auditEntries: number; gaps: string[] } | null>;
+  proposeOrder: (id: string) => Promise<GuardResult>;
+  executeOrder: (id: string) => Promise<GuardResult & { certificate?: Certificate | null }>;
+  withdrawOrder: (id: string, reason: string) => Promise<GuardResult>;
+  /** How long a kind of record is kept, and when this one is due. */
+  retentionFor: (kind: RecordKind, anchor: string) => ReturnType<typeof retentionDue>;
+
   /* ---- Inbound data ------------------------------------------------- */
   /** Everything CAD, the MDT and the registries have sent. */
   returns: QueryReturn[];
@@ -515,6 +552,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [arrests, setArrests] = useState<Arrest[]>([]);
   const [caseTasks, setCaseTasks] = useState<CaseTask[]>([]);
   const [photos, setPhotos] = useState<PersonPhoto[]>([]);
+  const [orders, setOrders] = useState<DisposalOrder[]>([]);
+  const [seals, setSeals] = useState<
+    { subjectId: string; scope: string; orderRef: string; sealedAt: string; sealedBy: string }[]
+  >([]);
   const [cruisers, setCruisers] = useState<Cruiser[]>([]);
   const [cruiserChecks, setCruiserChecks] = useState<CruiserCheck[]>([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
@@ -644,6 +685,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setArrests(state.arrests ?? []);
     setCaseTasks(state.caseTasks ?? []);
     setPhotos(state.photos ?? []);
+    setSeals(state.seals ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -1345,6 +1387,108 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return failed(error, 'Could not remove it.');
     }
   }, []);
+
+  /* -------------------------------------------------- court orders ------ */
+
+  /*
+    Fetched on its own and only by somebody entitled to it. A patrol officer's
+    client never asks, and the server would refuse if it did.
+  */
+  const refreshRetention = useCallback(async () => {
+    try {
+      const state = await api.retention();
+      setOrders(state.orders ?? []);
+      setSeals(state.seals ?? []);
+    } catch {
+      /* Leave what is already loaded. */
+    }
+  }, []);
+
+  const waiting = useMemo(() => ordersWaiting(orders), [orders]);
+  const allCertificates = useMemo(() => certificates(orders), [orders]);
+
+  const createOrder = useCallback(
+    async (input: {
+      kind: string;
+      scope: string;
+      subjectId: string;
+      court: string;
+      docket: string;
+      orderedOn: string;
+      instruction: string;
+    }) => {
+      try {
+        const { order } = await api.createOrder(input);
+        setOrders((prev) => [...prev, order]);
+        return { ok: true as const, id: order.id };
+      } catch (error) {
+        return failed(error, 'Could not record it.');
+      }
+    },
+    [],
+  );
+
+  const previewOrder = useCallback(async (id: string) => {
+    try {
+      const result = await api.previewOrder(id);
+      return { lines: result.lines, auditEntries: result.auditEntries, gaps: result.gaps ?? [] };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const replaceOrder = useCallback((order: DisposalOrder) => {
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? order : o)));
+  }, []);
+
+  const proposeOrder = useCallback(
+    async (id: string): Promise<GuardResult> => {
+      try {
+        replaceOrder((await api.proposeOrder(id)).order);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'That was not proposed.');
+      }
+    },
+    [replaceOrder],
+  );
+
+  const executeOrder = useCallback(
+    async (id: string) => {
+      try {
+        const result = await api.executeOrder(id);
+        replaceOrder(result.order);
+        /*
+          Records may have just been destroyed or hidden, so everything this
+          client is holding is now wrong. Cheaper to re-read than to work out
+          which parts went.
+        */
+        await refresh();
+        await refreshRetention();
+        return { ok: true as const, certificate: result.certificate };
+      } catch (error) {
+        return failed(error, 'That did not work.');
+      }
+    },
+    [replaceOrder, refresh, refreshRetention],
+  );
+
+  const withdrawOrder = useCallback(
+    async (id: string, reason: string): Promise<GuardResult> => {
+      try {
+        replaceOrder((await api.withdrawOrder(id, reason)).order);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'That did not work.');
+      }
+    },
+    [replaceOrder],
+  );
+
+  const retentionFor = useCallback(
+    (kind: RecordKind, anchor: string) => retentionDue(ruleFor(agency.retention ?? [], kind), anchor),
+    [agency.retention],
+  );
 
   /* -------------------------------------------------- the fleet --------- */
 
@@ -2930,6 +3074,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     returnArrest,
     reopenArrest,
     arrestsForCase,
+
+    orders,
+    ordersWaiting: waiting,
+    certificates: allCertificates,
+    seals,
+    refreshRetention,
+    createOrder,
+    previewOrder,
+    proposeOrder,
+    executeOrder,
+    withdrawOrder,
+    retentionFor,
 
     cruisers,
     cruiserChecks,

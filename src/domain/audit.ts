@@ -33,6 +33,11 @@ export type AuditAction =
   | 'note.retracted'
   | 'note.restored'
   | 'note.restrictedViewed'
+  | 'records.orderProposed'
+  | 'records.orderWithdrawn'
+  | 'records.sealed'
+  | 'records.expunged'
+  | 'records.sealedViewed'
   | 'fleet.checked'
   | 'fleet.requested'
   | 'fleet.requestUpdated'
@@ -90,6 +95,11 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'note.retracted': 'Note withdrawn',
   'note.restored': 'Note restored',
   'note.restrictedViewed': 'Restricted note viewed',
+  'records.orderProposed': 'Court order proposed',
+  'records.orderWithdrawn': 'Court order withdrawn',
+  'records.sealed': 'Record sealed or unsealed',
+  'records.expunged': 'Records destroyed under court order',
+  'records.sealedViewed': 'Sealed record opened',
   'fleet.checked': 'Cruiser checked',
   'fleet.requested': 'Cruiser maintenance reported',
   'fleet.requestUpdated': 'Maintenance request moved on',
@@ -140,6 +150,11 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'auth.lockout',
   'note.retracted',
   'photo.removed',
+  // Destroying records, and looking at ones a court has sealed. The two
+  // things an audit of this system is most likely to be about.
+  'records.expunged',
+  'records.sealed',
+  'records.sealedViewed',
   'note.restrictedViewed',
   'attachment.viewed',
   'attachment.retracted',
@@ -183,6 +198,44 @@ export interface AuditEntry {
   /** Hash of the preceding entry — empty for the first. */
   prevHash: string;
   hash: string;
+
+  /**
+   * The court order that destroyed this entry's content, when one has.
+   *
+   * Empty on every ordinary entry. When set, `target` and `detail` have been
+   * replaced by {@link REDACTED} and the original words are gone — the entry
+   * keeps its place, its time, its action and the officer who took it, and
+   * loses what it was about.
+   */
+  redactedBy?: string;
+  redactedAt?: string;
+}
+
+/** What stands where a destroyed entry's content used to be. */
+export const REDACTED = '[destroyed under court order]';
+
+export const isRedacted = (entry: AuditEntry): boolean => Boolean(entry.redactedBy);
+
+/**
+ * Takes the content out of an entry, leaving the entry.
+ *
+ * The hash is untouched on purpose. It is what the next entry's `prevHash`
+ * points at, so leaving it alone keeps the chain provably unbroken either side
+ * of the hole — see the note on `verifyLinks`. What is lost is the ability to
+ * prove what this entry said, which is exactly what the court ordered.
+ *
+ * The officer's name stays. They are agency personnel doing their job, not the
+ * subject of the order, and an audit log that forgets who did things stops
+ * being an audit log.
+ */
+export function redactEntry(entry: AuditEntry, orderReference: string, at: string): AuditEntry {
+  return {
+    ...entry,
+    target: REDACTED,
+    detail: REDACTED,
+    redactedBy: orderReference,
+    redactedAt: at,
+  };
 }
 
 export type AuditDraft = Omit<AuditEntry, 'id' | 'at' | 'prevHash' | 'hash'>;
@@ -225,9 +278,15 @@ export async function appendEntry(
   return [...log, sealed];
 }
 
-/** Recomputes every hash and every link. */
+/**
+ * Recomputes every hash and every link.
+ *
+ * Entries destroyed under a court order are counted, not failed. See the note
+ * on `verifyLinks`: their links are still checked, so the log still proves
+ * nothing was inserted, removed or reordered.
+ */
 export function verifyChain(log: AuditEntry[]): Promise<ChainStatus> {
-  return verifyLinks(log, AUDIT_FINGERPRINT);
+  return verifyLinks(log, AUDIT_FINGERPRINT, isRedacted);
 }
 
 /** Most recent first, optionally narrowed. */

@@ -70,14 +70,47 @@ export interface ChainStatus {
   brokenAt: number | null;
   reason: string | null;
   checked: number;
+  /**
+   * Entries whose content was destroyed under a court order.
+   *
+   * Their links still verify, so the chain still proves nothing was inserted
+   * or removed. Their content cannot be checked, because it is gone — which
+   * is the point of the order, and is reported rather than hidden.
+   */
+  redacted: number[];
 }
 
-/** Recomputes every hash and every link. */
+/**
+ * Recomputes every hash and every link.
+ *
+ * ## Lawful redaction
+ *
+ * A hash chain and a court expungement order want opposite things. The chain
+ * exists to make quiet edits impossible; the order says destroy. Refusing the
+ * order is not available, and silently breaking the chain would leave an
+ * agency unable to prove anything about the log ever again — one lawful
+ * destruction and every future verification reads "altered".
+ *
+ * So a redacted entry keeps the hash it was sealed with, which is what the
+ * next entry's `prevHash` points at, and loses only its content. Verification
+ * skips the content check for that entry and names it in `redacted`.
+ *
+ * What that costs, stated plainly: the log can no longer prove what a redacted
+ * entry said. What it keeps: proof that nothing was inserted, removed or
+ * reordered, and an exact list of what was destroyed — which is a far better
+ * answer to an auditor than a chain that simply reads "broken".
+ *
+ * `isRedacted` is passed by the caller rather than assumed, so a chain with no
+ * concept of redaction — an evidence item's custody, say — gets the strict
+ * check with no way to opt an entry out of it.
+ */
 export async function verifyLinks<T extends Linked>(
   chain: T[],
   fingerprint: Fingerprint<T>,
+  isRedacted: (entry: T) => boolean = () => false,
 ): Promise<ChainStatus> {
   let prevHash = '';
+  const redacted: number[] = [];
 
   for (let i = 0; i < chain.length; i += 1) {
     const entry = chain[i];
@@ -88,20 +121,26 @@ export async function verifyLinks<T extends Linked>(
         brokenAt: i,
         reason: 'An entry is missing, or entries have been reordered.',
         checked: chain.length,
+        redacted,
       };
     }
 
-    if ((await sha256Hex(canonical(fingerprint(entry)))) !== entry.hash) {
+    if (isRedacted(entry)) {
+      // Its content is gone by order of a court. The link is still checked
+      // above and below, so its place in the chain is still proved.
+      redacted.push(i);
+    } else if ((await sha256Hex(canonical(fingerprint(entry)))) !== entry.hash) {
       return {
         intact: false,
         brokenAt: i,
         reason: 'An entry has been altered since it was written.',
         checked: chain.length,
+        redacted,
       };
     }
 
     prevHash = entry.hash;
   }
 
-  return { intact: true, brokenAt: null, reason: null, checked: chain.length };
+  return { intact: true, brokenAt: null, reason: null, checked: chain.length, redacted };
 }

@@ -9,6 +9,7 @@
 
 import type { GeoFeatureCollection } from './geo';
 import { DEFAULT_CHECKLIST, type ChecklistItem } from './fleet';
+import { DEFAULT_SCHEDULE, type RetentionRule } from './retention';
 
 export interface AgencyProfile {
   name: string;
@@ -51,6 +52,16 @@ export interface AgencyProfile {
    */
   checklist: ChecklistItem[];
 
+  /**
+   * How long each kind of record is kept.
+   *
+   * State law, so the numbers shipped are a starting point and every one of
+   * them arrives with its authority field blank — an agency that has not
+   * filled that in has not yet decided. Nothing is destroyed on this
+   * schedule; it decides what appears in a queue for somebody to look at.
+   */
+  retention: RetentionRule[];
+
   /** False until someone has been through setup. */
   configured: boolean;
 }
@@ -70,6 +81,7 @@ export function emptyAgency(): AgencyProfile {
     boundary: null,
     zones: null,
     checklist: DEFAULT_CHECKLIST.map((item, i) => ({ ...item, id: `chk${i + 1}` })),
+    retention: DEFAULT_SCHEDULE.map((rule) => ({ ...rule })),
     configured: false,
   };
 }
