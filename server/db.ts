@@ -216,6 +216,23 @@ CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
 -- One person's history at this agency, which is the other way it is read.
 CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
 
+-- What is left to do on a case. Deliberately not part of the report document:
+-- an approved report is locked, and "still waiting on the video" is exactly the
+-- item that outlives approval.
+CREATE TABLE IF NOT EXISTS case_tasks (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  case_id     TEXT NOT NULL DEFAULT '',
+  assigned_to TEXT NOT NULL DEFAULT '',
+  done        TEXT NOT NULL DEFAULT '0',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+-- The whole list for one case, which is the only way it is read.
+CREATE INDEX IF NOT EXISTS case_tasks_case ON case_tasks(case_id, done);
+-- One officer's own open items, across every case they are on.
+CREATE INDEX IF NOT EXISTS case_tasks_assignee ON case_tasks(assigned_to, done);
+
 -- Physical custody of a thing, from the scene to the shelf to its disposal.
 -- Distinct from the property listed on a report, which is the NIBRS view of
 -- what was taken; this is the object itself.
@@ -283,7 +300,8 @@ export interface DocTable {
     | 'returns'
     | 'feedback'
     | 'evidence'
-    | 'arrests';
+    | 'arrests'
+    | 'case_tasks';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -345,6 +363,16 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       status: String(doc.status ?? 'draft'),
       arrested_at: String(doc.arrestedAt ?? ''),
+    }),
+  },
+  caseTasks: {
+    name: 'case_tasks',
+    columns: (doc) => ({
+      case_id: String(doc.caseId ?? ''),
+      assigned_to: String(doc.assignedToId ?? ''),
+      // SQLite has no boolean; the column is text so the index reads the same
+      // as every other column lifted out of a document here.
+      done: doc.done ? '1' : '0',
     }),
   },
   evidence: {

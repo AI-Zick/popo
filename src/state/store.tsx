@@ -85,6 +85,11 @@ import {
   type CrashUnit,
 } from '@/domain/crash';
 import {
+  describeTasks,
+  sortTasks,
+  type CaseTask,
+} from '@/domain/caseTask';
+import {
   checkArrest,
   createCharge as createArrestCharge,
   type Arrest,
@@ -264,6 +269,21 @@ interface StoreValue {
   /** Every arrest on one case, newest first. */
   arrestsForCase: (caseId: string) => Arrest[];
 
+  /* ---- Case to-do list ---------------------------------------------- */
+  /** Every case's items. Small enough to hold, and the dashboard counts them. */
+  caseTasks: CaseTask[];
+  /** One case's list, in reading order. */
+  tasksForCase: (caseId: string) => CaseTask[];
+  /** "3 to do · 1 overdue", or '' when there is nothing open. */
+  taskSummary: (caseId: string) => string;
+  addTask: (
+    caseId: string,
+    input: { text: string; assignedToId?: string; dueOn?: string },
+  ) => Promise<GuardResult>;
+  setTaskDone: (id: string, done: boolean) => Promise<GuardResult>;
+  editTask: (id: string, patch: Partial<CaseTask>) => Promise<GuardResult>;
+  removeTask: (id: string) => Promise<GuardResult>;
+
   /* ---- Inbound data ------------------------------------------------- */
   /** Everything CAD, the MDT and the registries have sent. */
   returns: QueryReturn[];
@@ -438,6 +458,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [crashes, setCrashes] = useState<CrashReport[]>([]);
   const [returns, setReturns] = useState<QueryReturn[]>([]);
   const [arrests, setArrests] = useState<Arrest[]>([]);
+  const [caseTasks, setCaseTasks] = useState<CaseTask[]>([]);
   const [activeCrashId, setActiveCrashId] = useState<string | null>(null);
   const [activeArrestId, setActiveArrestId] = useState<string | null>(null);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
@@ -562,6 +583,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setCrashes(state.crashes ?? []);
     setReturns(state.returns ?? []);
     setArrests(state.arrests ?? []);
+    setCaseTasks(state.caseTasks ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -1198,6 +1220,71 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .sort((a, b) => (a.arrestedAt < b.arrestedAt ? 1 : -1)),
     [arrests],
   );
+
+  /* -------------------------------------------------- to-do list -------- */
+
+  /*
+    Written through to the server rather than debounced like a report.
+
+    A to-do item is one short sentence and then a click; there is no typing
+    session to coalesce, and the officer who adds "chase the video" wants it on
+    the list before they close the laptop. The optimistic local update is what
+    makes it feel instant; the server's copy replaces it a moment later.
+  */
+
+  const tasksForCase = useCallback(
+    (caseId: string) => sortTasks(caseTasks.filter((t) => t.caseId === caseId)),
+    [caseTasks],
+  );
+
+  const taskSummary = useCallback(
+    (caseId: string) => describeTasks(caseTasks.filter((t) => t.caseId === caseId)),
+    [caseTasks],
+  );
+
+  const addTask = useCallback(
+    async (
+      caseId: string,
+      input: { text: string; assignedToId?: string; dueOn?: string },
+    ): Promise<GuardResult> => {
+      try {
+        const { task } = await api.addTask(caseId, input);
+        setCaseTasks((prev) => [...prev, task]);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not add it.');
+      }
+    },
+    [],
+  );
+
+  const editTask = useCallback(
+    async (id: string, patch: Partial<CaseTask>): Promise<GuardResult> => {
+      try {
+        const { task } = await api.updateTask(id, patch);
+        setCaseTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not save it.');
+      }
+    },
+    [],
+  );
+
+  const setTaskDone = useCallback(
+    (id: string, done: boolean) => editTask(id, { done }),
+    [editTask],
+  );
+
+  const removeTask = useCallback(async (id: string): Promise<GuardResult> => {
+    try {
+      await api.removeTask(id);
+      setCaseTasks((prev) => prev.filter((t) => t.id !== id));
+      return { ok: true };
+    } catch (error) {
+      return failed(error, 'Could not remove it.');
+    }
+  }, []);
 
   /* -------------------------------------------------- inbound ----------- */
 
@@ -2628,6 +2715,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     returnArrest,
     reopenArrest,
     arrestsForCase,
+
+    caseTasks,
+    tasksForCase,
+    taskSummary,
+    addTask,
+    setTaskDone,
+    editTask,
+    removeTask,
 
     returns,
     sceneReturns,

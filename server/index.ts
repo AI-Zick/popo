@@ -26,6 +26,7 @@ import { registerMigrationRoutes } from './migration';
 import { registerFeedbackRoutes, startFeedbackSweep } from './feedback';
 import { registerEvidenceRoutes } from './evidence';
 import { registerArrestRoutes } from './arrests';
+import { registerTaskRoutes } from './tasks';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -184,6 +185,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const crashes = readDocsWithVersions(db, DOC_TABLES.crashes);
     const returns = readDocsWithVersions(db, DOC_TABLES.returns);
     const arrests = readDocsWithVersions(db, DOC_TABLES.arrests);
+    const caseTasks = readDocsWithVersions(db, DOC_TABLES.caseTasks);
 
     // Versions travel with the data so the client can send back what it saw.
     const versions: Record<string, number> = {};
@@ -198,6 +200,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       crashes: crashes.map((c) => c.doc),
       returns: returns.map((r) => r.doc),
       arrests: arrests.map((a) => a.doc),
+      caseTasks: caseTasks.map((t) => t.doc),
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
       versions,
@@ -419,6 +422,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerMigrationRoutes(app, db);
   registerEvidenceRoutes(app, db);
   registerArrestRoutes(app, db);
+  registerTaskRoutes(app, db);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

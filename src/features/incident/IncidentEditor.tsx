@@ -27,6 +27,7 @@ import { SectionNarrative } from './sections/SectionNarrative';
 import { SectionAttachments } from './sections/SectionAttachments';
 import { SectionReview } from './sections/SectionReview';
 import { SupplementList } from '@/features/supplements/SupplementList';
+import { CaseTasks } from './CaseTasks';
 import { EditorHeader } from './EditorHeader';
 import { PrintableReport } from '@/features/print/PrintableReport';
 
@@ -57,6 +58,13 @@ const SECTION_HINT: Record<SectionId, string> = {
 export function IncidentEditor() {
   const { incident, activeSection, setSection, validation, goToIssue, reportEditable } = useStore();
   const [printing, setPrinting] = useState(false);
+  /*
+    The right-hand column shows one of two things. Both are 380px and both are
+    about this case, so they swap rather than stack — a second panel would cost
+    the form the width it needs, and a floating one would cover the field the
+    officer is reading it about.
+  */
+  const [rightPanel, setRightPanel] = useState<'check' | 'tasks'>('check');
 
   // F8 walks to the next unresolved problem, the way a spellchecker would.
   useEffect(() => {
@@ -79,7 +87,11 @@ export function IncidentEditor() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <EditorHeader onPrint={() => setPrinting(true)} />
+      <EditorHeader
+        onPrint={() => setPrinting(true)}
+        rightPanel={rightPanel}
+        onShowPanel={setRightPanel}
+      />
       {printing && <PrintableReport onClose={() => setPrinting(false)} />}
 
       <div className="flex min-h-0 flex-1">
@@ -196,7 +208,7 @@ export function IncidentEditor() {
           </div>
         </main>
 
-        <IssuePanel />
+        {rightPanel === 'tasks' ? <CaseTasks /> : <IssuePanel />}
       </div>
     </div>
   );

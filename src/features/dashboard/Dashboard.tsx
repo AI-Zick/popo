@@ -9,6 +9,7 @@ import {
   FileEdit,
   FilePlus2,
   Gavel,
+  ListTodo,
   Search,
   Send,
   Settings,
@@ -92,6 +93,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
     arrests,
     openArrest,
     startArrest,
+    taskSummary,
     createNew,
   } = useStore();
   const [tab, setTab] = useState<'cases' | 'queue'>('cases');
@@ -492,6 +494,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
                     location={locations[incident.locationId]}
                     lockedBy={lockOn(incident.id)?.userName ?? null}
                     errors={errors}
+                    outstanding={taskSummary(incident.id)}
                     onOpen={() => openIncident(incident.id)}
                   />
                 </li>
@@ -648,12 +651,15 @@ function ReportRow({
   location,
   lockedBy,
   errors,
+  outstanding,
   onOpen,
 }: {
   incident: Incident;
   location: MasterLocation | undefined;
   lockedBy: string | null;
   errors: number;
+  /** "3 to do · 1 overdue", or '' when the case has nothing open. */
+  outstanding: string;
   onOpen: () => void;
 }) {
   const offenses = incident.offenses
@@ -696,6 +702,16 @@ function ReportRow({
             Ready
           </span>
         ) : null}
+        {/*
+          Shown whatever the report's status. Approved is when the follow-ups
+          matter most — the report is filed and the video still has not arrived.
+        */}
+        {outstanding && (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-raised px-2 py-1 text-[12px] font-medium text-muted">
+            <ListTodo size={13} aria-hidden />
+            {outstanding}
+          </span>
+        )}
         <span className="text-[11.5px] text-faint">Updated {relativeTime(incident.updatedAt)}</span>
       </div>
     </button>

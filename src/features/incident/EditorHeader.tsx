@@ -1,7 +1,19 @@
-import { AlertTriangle, ChevronLeft, Cloud, CornerUpLeft, Printer, Send, UserCog } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronLeft,
+  Cloud,
+  CornerUpLeft,
+  ListTodo,
+  Printer,
+  Send,
+  ShieldCheck,
+  UserCog,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useStore } from '@/state/store';
 import { Badge, Button } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import type { ReportStatus } from '@/domain/types';
@@ -13,10 +25,29 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
   returned: { label: 'Returned', tone: 'warn' },
 };
 
-export function EditorHeader({ onPrint }: { onPrint: () => void }) {
-  const { incident, closeIncident, savedAt, validation, attemptSubmit, conflict, dismissConflict, lockOn } =
-    useStore();
+export function EditorHeader({
+  onPrint,
+  rightPanel,
+  onShowPanel,
+}: {
+  onPrint: () => void;
+  rightPanel: 'check' | 'tasks';
+  onShowPanel: (panel: 'check' | 'tasks') => void;
+}) {
+  const {
+    incident,
+    closeIncident,
+    savedAt,
+    validation,
+    attemptSubmit,
+    conflict,
+    dismissConflict,
+    lockOn,
+    taskSummary,
+  } = useStore();
   if (!incident) return null;
+
+  const outstandingWork = taskSummary(incident.id);
 
   const heldBy = lockOn(incident.id);
   const wasReturned = incident.status === 'returned' && incident.returnedReason;
@@ -88,6 +119,32 @@ export function EditorHeader({ onPrint }: { onPrint: () => void }) {
 
       <div className="flex-1" />
 
+      {/*
+        Two views of the same case, so one control rather than two buttons that
+        each open something. The count is the reason to look: an officer with
+        nothing outstanding never needs to press this.
+      */}
+      <div className="flex items-center gap-0.5 rounded-lg bg-raised p-0.5">
+        <PanelTab active={rightPanel === 'check'} onClick={() => onShowPanel('check')}>
+          <ShieldCheck size={14} aria-hidden />
+          Check
+          {validation.errors.length > 0 && (
+            <span className="rounded bg-danger px-1 text-[11px] font-bold text-white tabular">
+              {validation.errors.length}
+            </span>
+          )}
+        </PanelTab>
+        <PanelTab active={rightPanel === 'tasks'} onClick={() => onShowPanel('tasks')}>
+          <ListTodo size={14} aria-hidden />
+          To do
+          {outstandingWork && (
+            <span className="rounded bg-accent px-1 text-[11px] font-bold text-white tabular">
+              {outstandingWork.split(' ')[0]}
+            </span>
+          )}
+        </PanelTab>
+      </div>
+
       {savedAt && (
         <span className="flex items-center gap-1.5 text-[12px] text-faint">
           <Cloud size={13} aria-hidden />
@@ -115,5 +172,29 @@ export function EditorHeader({ onPrint }: { onPrint: () => void }) {
       </Button>
     </header>
     </>
+  );
+}
+
+function PanelTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition',
+        active ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink',
+      )}
+    >
+      {children}
+    </button>
   );
 }

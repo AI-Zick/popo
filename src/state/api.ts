@@ -11,6 +11,7 @@ import type { Supplement } from '@/domain/supplement';
 import type { TrafficStop } from '@/domain/activity';
 import type { CrashReport } from '@/domain/crash';
 import type { Arrest, Problem as ArrestProblem } from '@/domain/arrest';
+import type { CaseTask } from '@/domain/caseTask';
 import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
@@ -220,6 +221,23 @@ export const api = {
     return request(`/api/arrests/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) });
   },
 
+  /* ---- Case to-do list ---------------------------------------------- */
+
+  addTask(
+    caseId: string,
+    input: { text: string; assignedToId?: string; dueOn?: string },
+  ): Promise<{ task: CaseTask }> {
+    return request(`/api/cases/${caseId}/tasks`, { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  updateTask(id: string, patch: Partial<CaseTask>): Promise<{ task: CaseTask }> {
+    return request(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  removeTask(id: string): Promise<{ ok: true }> {
+    return request(`/api/tasks/${id}`, { method: 'DELETE' });
+  },
+
   /* ---- Feedback ----------------------------------------------------- */
 
   feedback(): Promise<{ feedback: Feedback[]; forwarding: boolean }> {
@@ -330,6 +348,7 @@ export const api = {
     crashes: CrashReport[];
     returns: QueryReturn[];
     arrests: Arrest[];
+    caseTasks: CaseTask[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;
