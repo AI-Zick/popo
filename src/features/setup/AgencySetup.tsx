@@ -11,6 +11,7 @@ import { AuditLog } from './AuditLog';
 import { NibrsExport } from '@/features/nibrs/NibrsExport';
 import { ActivityReportView } from '@/features/activity/ActivityReportView';
 import { StopLog } from '@/features/activity/StopLog';
+import { ImportWizard } from '@/features/migration/ImportWizard';
 import { cn } from '@/lib/cn';
 
 /**
@@ -18,7 +19,7 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs' | 'activity' | 'stops';
+type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs' | 'activity' | 'stops' | 'import';
 
 export function AgencySetup({ onClose }: { onClose: () => void }) {
   const { agency, updateAgency, can } = useStore();
@@ -67,6 +68,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               NIBRS export
             </TabButton>
           )}
+          {mayConfigure && (
+            <TabButton active={tab === 'import'} onClick={() => setTab('import')}>
+              Import records
+            </TabButton>
+          )}
           <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
             Traffic stops
           </TabButton>
@@ -77,12 +83,20 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
+        <div
+          className={cn(
+            'mx-auto space-y-4 px-6 py-6',
+            // The import review shows whole rows from the old system side by
+            // side. Three columns of that in 768px is unreadable.
+            tab === 'import' ? 'max-w-5xl' : 'max-w-3xl',
+          )}
+        >
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
           {tab === 'audit' && mayViewAudit && <AuditLog />}
           {tab === 'nibrs' && mayExport && <NibrsExport />}
           {tab === 'stops' && <StopLog />}
           {tab === 'activity' && <ActivityReportView />}
+          {tab === 'import' && mayConfigure && <ImportWizard />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>

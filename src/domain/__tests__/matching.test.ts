@@ -152,6 +152,42 @@ describe('guarding against false merges', () => {
     expect(result?.conflicts).toContain('Different SSN on file');
   });
 
+  it('shows a conflicting match rather than hiding it', () => {
+    /*
+      A conflict caps a match; it must never erase one. Name and date of birth
+      agree exactly and only the licence number differs — enough of a penalty,
+      before this was fixed, to drop the record below the visibility floor and
+      report "no match". The officer then creates a second record for someone
+      the system already knows, which is the outcome the matcher exists to
+      prevent. Show it, name the conflict, let a human look.
+    */
+    const onFile = master({
+      id: 'licence',
+      lastName: 'Whitfield',
+      firstName: 'Dana',
+      dob: '1985-03-14',
+      driverLicense: 'AL7729140',
+    });
+    const result = scoreMatch(
+      {
+        lastName: 'Whitfield',
+        firstName: 'Dana',
+        dob: '1985-03-14',
+        driverLicense: '4412887',
+      },
+      onFile,
+    );
+    expect(result).not.toBeNull();
+    expect(result?.tier).toBe('possible');
+    expect(result?.conflicts).toContain('Different driver licence on file');
+  });
+
+  it('still hides a match that is weak on its own merits', () => {
+    // The rescue above is for contradicted evidence, not absent evidence.
+    const stranger = master({ id: 'stranger', lastName: 'Okonkwo', firstName: 'Dana' });
+    expect(scoreMatch({ lastName: 'Whitfield', firstName: 'Dana' }, stranger)).toBeNull();
+  });
+
   it('never links a business to an individual', () => {
     const business = master({ id: 'biz', businessName: 'Whitfield Auto' });
     expect(scoreMatch({ lastName: 'Whitfield', firstName: 'Dana' }, business)).toBeNull();

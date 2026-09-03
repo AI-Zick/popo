@@ -22,6 +22,7 @@ import { registerExtractionRoutes } from './extract';
 import { registerSupplementRoutes } from './supplements';
 import { registerStopRoutes } from './stops';
 import { registerCrashRoutes } from './crashes';
+import { registerMigrationRoutes } from './migration';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -410,6 +411,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerSupplementRoutes(app, db);
   registerStopRoutes(app, db);
   registerCrashRoutes(app, db);
+  registerMigrationRoutes(app, db);
   registerAttachmentRoutes(app, db, config.dataDir);
 
   app.use('/api', (_req, res) => {

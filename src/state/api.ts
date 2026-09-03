@@ -128,6 +128,18 @@ export const api = {
     return request('/api/extract', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  /* ---- Migration ---------------------------------------------------- */
+
+  commitImport(
+    kind: 'people' | 'locations',
+    rows: { values: Record<string, string> }[],
+  ): Promise<{ created: number }> {
+    return request('/api/migration/commit', {
+      method: 'POST',
+      body: JSON.stringify({ kind, rows }),
+    });
+  },
+
   /* ---- Crash reports and inbound data ------------------------------ */
 
   createCrash(callNumber: string): Promise<{ crash: CrashReport; prefilled: boolean }> {

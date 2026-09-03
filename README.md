@@ -106,6 +106,12 @@ impossible to unpick once reports and charges have accumulated against it:
 - **Contradicting evidence caps the tier.** A differing SSN, or a `Jr`/`Sr`
   suffix mismatch, bars an automatic link however well the rest agrees — that
   case is usually a father and son, not a duplicate.
+- **A conflict caps a match; it never hides one.** Contradicting evidence costs
+  a candidate points, and enough of it used to push an otherwise exact match
+  below the floor at which candidates are shown at all — so a record agreeing
+  on name and date of birth but carrying an old licence number came back as *no
+  match*, and the officer created a second record for somebody the system
+  already knew. Now it is shown, with the conflict named, and a human decides.
 
 Name alone never links anything.
 
@@ -525,6 +531,62 @@ Officers can run it on themselves without any permission. Another officer's
 figures are a personnel record and need review permission — who may read whose
 activity is not a UI decision.
 
+### Moving in from a previous system
+
+The feature that decides whether an agency can actually switch. Everything else
+here is worth nothing to a department with eleven years of history in IMC if the
+only way across is to retype it.
+
+CSV, because it is the one export every legacy RMS can produce — often the only
+one an agency can get without paying their outgoing vendor for it. People and
+places both, into the same two indexes every report shares.
+
+Three rules run through it:
+
+**Nothing is written until the whole plan has been seen.** Every row is decided
+first — new, already known, needs a look, rejected — and shown with the reason,
+the file's own row numbers, and the record it matched. Then, and only then, one
+transaction. An import that half-succeeds and stops leaves a database nobody can
+describe and nobody can undo.
+
+**Duplicates are caught on the way in.** The same tiered matching that stops a
+duplicate person during a report runs over every row, against both the existing
+index *and* the rows already read from this file — a legacy export lists the
+same person once per report they ever appeared on, and matching only against the
+database imports them twenty times.
+
+The threshold is deliberately different from the interactive one. Exact full
+name plus exact date of birth merges here, where an officer linking a live case
+would be asked. Sending tens of thousands of those to review produces a queue
+nobody works through, at which point the clerk approves the lot unread and the
+review step has made things worse. But an exact name and date of birth on top of
+a *contradicting* licence number does not merge — that pair is rare, so asking
+costs nothing.
+
+Two people with the same name and nothing else to tell them apart go to a human
+either way. Not merged, and not silently created: the two mistakes are not
+symmetrical here. Interactively a spurious new person is visible and fixable in
+the moment; in an import it is silent, permanent, and found years later.
+
+Rows needing a look are answered one at a time — *New person* or *Skip* — with
+"all new" and "all skip" for a file with four hundred of them. Undecided means
+skipped, because a record left out shows up the first time somebody searches for
+it and two people merged into one does not.
+
+**Imported data says it was imported.** Every field lands with `import`
+provenance and no verification, so a nine-year-old address reads as exactly that
+rather than as something an officer confirmed yesterday — see *Provenance* below.
+
+Values that cannot be read are counted and named before the import runs, not
+discovered afterwards: a date written `13/45/1988` is left blank, because
+guessing a date of birth is not an option, and the plan says so against the row.
+A clerk who sees *forty dates of birth could not be read* goes back and fixes the
+export format, which is five minutes now and a reconciliation project later.
+
+Importing rewrites indexes every report shares, so it needs agency configuration
+rights, is capped at 50,000 rows a file, and writes one audit entry naming who
+imported what.
+
 ### The paper copy
 
 Prosecutors, defence counsel and courts work from paper. **Print** renders the
@@ -886,7 +948,7 @@ attached to.
 ## Deliberately not here yet
 
 Absent: a master vehicle index, case management beyond the case file itself,
-migration from an existing records system, and geocoding. Crash reports are not yet written to a state
+and geocoding. Crash reports are not yet written to a state
 crash file; that is the same per-state layout problem the NIBRS packs solve,
 and it should reuse them.
 

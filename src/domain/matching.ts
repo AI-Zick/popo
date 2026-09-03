@@ -212,6 +212,11 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
   const reasons: string[] = [];
   const conflicts: string[] = [];
   let score = 0;
+  /*
+    What the conflicts alone took off. Tracked separately because a conflict
+    must never be able to hide a candidate — see `finalise`.
+  */
+  let penalty = 0;
   let strongIdMatch = false;
 
   /* ---- Strong identifiers ------------------------------------------ */
@@ -224,6 +229,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     } else {
       conflicts.push('Different SSN on file');
       score -= 20;
+      penalty += 20;
     }
   }
 
@@ -241,6 +247,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     } else if (!sameNumber) {
       conflicts.push('Different driver licence on file');
       score -= 15;
+      penalty += 15;
     }
   }
 
@@ -252,6 +259,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     } else {
       conflicts.push('Different state ID on file');
       score -= 15;
+      penalty += 15;
     }
   }
 
@@ -280,7 +288,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
         score += 25;
         reasons.push('Same address');
       }
-      return finalise(master, score, reasons, conflicts, strongIdMatch);
+      return finalise(master, score, penalty, reasons, conflicts, strongIdMatch);
     }
     // One is a business and the other is not.
     return null;
@@ -303,6 +311,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
       reasons.push('Last name sounds alike');
     } else if (similarity < 0.7) {
       score -= 20;
+      penalty += 20;
       conflicts.push('Different last name');
     }
   }
@@ -339,6 +348,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
   if (has(query.suffix) && has(master.suffix)) {
     if (normalizeName(query.suffix) !== normalizeName(master.suffix)) {
       score -= 18;
+      penalty += 18;
       conflicts.push('Different name suffix — may be a relative');
     }
   }
@@ -354,6 +364,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     reasons.push('Date of birth differs by one digit');
   } else if (dob === 'different') {
     score -= 28;
+    penalty += 28;
     conflicts.push('Different date of birth');
   }
 
@@ -363,6 +374,7 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     if (query.sex === master.sex) score += 4;
     else if (query.sex !== 'U' && master.sex !== 'U') {
       score -= 14;
+      penalty += 14;
       conflicts.push('Different sex recorded');
     }
   }
@@ -398,12 +410,13 @@ export function scoreMatch(query: MatchQuery, master: MasterPerson): MatchResult
     reasons.push('Same email');
   }
 
-  return finalise(master, score, reasons, conflicts, strongIdMatch);
+  return finalise(master, score, penalty, reasons, conflicts, strongIdMatch);
 }
 
 function finalise(
   master: MasterPerson,
   rawScore: number,
+  penalty: number,
   reasons: string[],
   conflicts: string[],
   strongIdMatch: boolean,
@@ -416,6 +429,18 @@ function finalise(
   } else if (score >= STRONG_THRESHOLD) {
     tier = 'strong';
   } else if (score >= POSSIBLE_THRESHOLD) {
+    tier = 'possible';
+  } else if (conflicts.length > 0 && rawScore + penalty >= POSSIBLE_THRESHOLD) {
+    /*
+      A conflict caps a match; it must never erase one.
+
+      Without this branch, a record that agrees on name and date of birth but
+      carries a different licence number scores below the floor and disappears
+      from the results entirely — the officer sees "no match" and creates a
+      second record for a person the system already knows, which is the exact
+      outcome all of this exists to prevent. The right answer is to show it,
+      with the conflict named, and let a human look.
+    */
     tier = 'possible';
   } else {
     return null;
