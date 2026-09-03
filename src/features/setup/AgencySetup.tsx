@@ -12,6 +12,7 @@ import { NibrsExport } from '@/features/nibrs/NibrsExport';
 import { ActivityReportView } from '@/features/activity/ActivityReportView';
 import { StopLog } from '@/features/activity/StopLog';
 import { ImportWizard } from '@/features/migration/ImportWizard';
+import { FeedbackQueue } from '@/features/feedback/FeedbackQueue';
 import { cn } from '@/lib/cn';
 
 /**
@@ -19,7 +20,26 @@ import { cn } from '@/lib/cn';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab = 'jurisdiction' | 'accounts' | 'audit' | 'nibrs' | 'activity' | 'stops' | 'import';
+type Tab =
+  | 'jurisdiction'
+  | 'accounts'
+  | 'audit'
+  | 'nibrs'
+  | 'activity'
+  | 'stops'
+  | 'import'
+  | 'feedback';
+
+const SCREEN_NAME: Record<Tab, string> = {
+  jurisdiction: 'Jurisdiction',
+  accounts: 'Accounts',
+  audit: 'Audit log',
+  nibrs: 'NIBRS export',
+  activity: 'Activity report',
+  stops: 'Traffic stops',
+  import: 'Import records',
+  feedback: 'Feedback',
+};
 
 export function AgencySetup({ onClose }: { onClose: () => void }) {
   const { agency, updateAgency, can } = useStore();
@@ -79,16 +99,29 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>
             Activity report
           </TabButton>
+          {/*
+            Open to everyone, not gated on configuration rights. An officer
+            reading what their colleagues have raised, and the answers, is the
+            thing that keeps people using the channel — and answering is gated
+            separately, inside the queue.
+          */}
+          <TabButton active={tab === 'feedback'} onClick={() => setTab('feedback')}>
+            Feedback
+          </TabButton>
         </nav>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/*
+        Named for feedback, from a typed map of literals — never from anything
+        on the record. See `describeScreen` in the feedback form.
+      */}
+      <div className="min-h-0 flex-1 overflow-y-auto" data-screen={`Setup — ${SCREEN_NAME[tab]}`}>
         <div
           className={cn(
             'mx-auto space-y-4 px-6 py-6',
             // The import review shows whole rows from the old system side by
             // side. Three columns of that in 768px is unreadable.
-            tab === 'import' ? 'max-w-5xl' : 'max-w-3xl',
+            tab === 'import' || tab === 'feedback' ? 'max-w-5xl' : 'max-w-3xl',
           )}
         >
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
@@ -97,6 +130,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'stops' && <StopLog />}
           {tab === 'activity' && <ActivityReportView />}
           {tab === 'import' && mayConfigure && <ImportWizard />}
+          {tab === 'feedback' && <FeedbackQueue />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>

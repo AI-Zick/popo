@@ -60,6 +60,7 @@ import {
 import { createSession, touchSession, type Session, type SignInOutcome } from '@/domain/session';
 import { isEditable, unresolvedComments } from '@/domain/review';
 import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
+import type { Feedback, FeedbackDraft, FeedbackStatus } from '@/domain/feedback';
 import { api, ApiError, type Attachment, type Collection, type LockHolder } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -249,6 +250,27 @@ interface StoreValue {
   saveStop: (id: string, patch: Partial<TrafficStop>) => Promise<GuardResult>;
   removeStop: (id: string) => Promise<GuardResult>;
 
+  /* ---- Feedback ---------------------------------------------------- */
+  /**
+   * Everything anyone in this agency has sent the vendor.
+   *
+   * Visible to everybody on purpose: an officer about to report something sees
+   * it has already been raised and seconds it instead of writing the fourth
+   * description of one fault, and somebody who reported something sees the
+   * answer. Nothing in it is criminal justice information — the captured
+   * context is structural by construction.
+   */
+  feedback: Feedback[];
+  /** Whether this install actually posts feedback onward, or only holds it. */
+  feedbackForwarding: boolean;
+  sendFeedback: (draft: FeedbackDraft) => Promise<GuardResult & { redacted?: number }>;
+  secondFeedback: (id: string) => Promise<GuardResult>;
+  answerFeedback: (
+    id: string,
+    patch: { status?: FeedbackStatus; response?: string },
+  ) => Promise<GuardResult>;
+  forwardFeedback: (id: string) => Promise<GuardResult>;
+
   /* ---- Supplements ------------------------------------------------- */
   /** Every supplement the agency has, across all cases. */
   supplements: Supplement[];
@@ -354,6 +376,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
   const [users, setUsers] = useState<User[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [feedbackForwarding, setFeedbackForwarding] = useState(false);
 
   const [identity, setIdentity] = useState<{ user: User; mustChangePassword: boolean } | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -470,6 +494,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLocations(state.locations);
     setUsers(state.users);
     setAuditLog(state.auditLog);
+    /*
+      Fetched separately from the main state pull. Feedback is not something a
+      report screen ever needs, and a failure here — an older server without
+      the endpoint, say — must not take the whole app down with it.
+    */
+    void api
+      .feedback()
+      .then(({ feedback: items, forwarding }) => {
+        setFeedback(items);
+        setFeedbackForwarding(forwarding);
+      })
+      .catch(() => setFeedback([]));
     setLocks(state.locks ?? {});
     setAttachments(state.attachments ?? []);
     versions.current = state.versions ?? {};
@@ -1073,6 +1109,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [returns, activeCrashId, markCrashDirty],
   );
+
+  /* ------------------------------------------------- feedback ----------- */
+
+  const sendFeedback = useCallback(
+    async (draft: FeedbackDraft): Promise<GuardResult & { redacted?: number }> => {
+      try {
+        const { feedback: created, redacted } = await api.sendFeedback(draft);
+        setFeedback((prev) => [...prev, created]);
+        return { ok: true, redacted };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof ApiError ? error.message : 'Could not send it.',
+        };
+      }
+    },
+    [],
+  );
+
+  const secondFeedback = useCallback(async (id: string): Promise<GuardResult> => {
+    try {
+      const { feedback: updated } = await api.secondFeedback(id);
+      setFeedback((prev) => prev.map((f) => (f.id === id ? updated : f)));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not do that.' };
+    }
+  }, []);
+
+  const answerFeedback = useCallback(
+    async (
+      id: string,
+      patch: { status?: FeedbackStatus; response?: string },
+    ): Promise<GuardResult> => {
+      try {
+        const { feedback: updated } = await api.answerFeedback(id, patch);
+        setFeedback((prev) => prev.map((f) => (f.id === id ? updated : f)));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof ApiError ? error.message : 'Could not save the answer.',
+        };
+      }
+    },
+    [],
+  );
+
+  const forwardFeedback = useCallback(async (id: string): Promise<GuardResult> => {
+    try {
+      const { feedback: updated, ok } = await api.forwardFeedback(id);
+      setFeedback((prev) => prev.map((f) => (f.id === id ? updated : f)));
+      return ok
+        ? { ok: true }
+        : { ok: false, reason: 'The vendor address did not answer. It is still saved here.' };
+    } catch (error) {
+      return { ok: false, reason: error instanceof ApiError ? error.message : 'Could not send it.' };
+    }
+  }, []);
 
   /* -------------------------------------------------- stops ------------- */
 
@@ -2255,6 +2350,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     logStop,
     saveStop,
     removeStop,
+
+    feedback,
+    feedbackForwarding,
+    sendFeedback,
+    secondFeedback,
+    answerFeedback,
+    forwardFeedback,
 
     supplements,
     caseSupplements,

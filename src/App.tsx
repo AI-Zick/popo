@@ -5,6 +5,8 @@ import { Dashboard } from '@/features/dashboard/Dashboard';
 import { IncidentEditor } from '@/features/incident/IncidentEditor';
 import { SupplementEditor } from '@/features/supplements/SupplementEditor';
 import { CommandSearch, useSearchHotkey } from '@/features/search/CommandSearch';
+import { SendFeedback } from '@/features/feedback/SendFeedback';
+import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 
@@ -48,6 +50,7 @@ export default function App() {
     useStore();
   const [setupOpen, setSetupOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   useSearchHotkey(() => setSearchOpen(true));
 
   if (loading) {
@@ -88,6 +91,14 @@ export default function App() {
     <div className="h-full">
       {/* Reachable from every screen, because searching is not a screen. */}
       <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/*
+        Same reasoning, and more so. Feedback that has to be found is feedback
+        nobody sends: the moment worth capturing is the one where somebody is
+        annoyed, which is on whatever screen annoyed them.
+      */}
+      <FeedbackButton onClick={() => setFeedbackOpen(true)} />
+      <SendFeedback open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
       {setupOpen && !incident ? (
         <Suspense fallback={<ScreenLoading />}>

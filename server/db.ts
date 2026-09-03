@@ -180,6 +180,20 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 CREATE INDEX IF NOT EXISTS attachments_incident ON attachments(incident_id);
 
+-- Feedback and feature suggestions on their way to the vendor. Kept in the
+-- agency's own database, not the vendor's, so an agency can always see and
+-- audit everything its officers have sent outside the building.
+CREATE TABLE IF NOT EXISTS feedback (
+  id           TEXT PRIMARY KEY,
+  version      INTEGER NOT NULL DEFAULT 1,
+  status       TEXT NOT NULL DEFAULT 'new',
+  submitted_by TEXT NOT NULL DEFAULT '',
+  at           TEXT NOT NULL DEFAULT '',
+  updated_at   TEXT NOT NULL,
+  doc          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feedback_status ON feedback(status, at);
+
 -- Advisory only. A lock says "somebody is in here" so two officers do not
 -- unknowingly work the same report; it does not prevent a write, because a
 -- lock that cannot be broken becomes a lock nobody can clear at 3am when its
@@ -207,7 +221,15 @@ export function openDatabase(path: string): DatabaseSync {
 /* ------------------------------------------------------------------ */
 
 export interface DocTable {
-  name: 'incidents' | 'people' | 'locations' | 'supplements' | 'stops' | 'crashes' | 'returns';
+  name:
+    | 'incidents'
+    | 'people'
+    | 'locations'
+    | 'supplements'
+    | 'stops'
+    | 'crashes'
+    | 'returns'
+    | 'feedback';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -259,6 +281,14 @@ export const DOC_TABLES: Record<string, DocTable> = {
       last_name: String(doc.lastName ?? ''),
       first_name: String(doc.firstName ?? ''),
       dob: String(doc.dob ?? ''),
+    }),
+  },
+  feedback: {
+    name: 'feedback',
+    columns: (doc) => ({
+      status: String(doc.status ?? 'new'),
+      submitted_by: String(doc.submittedBy ?? ''),
+      at: String(doc.at ?? ''),
     }),
   },
   locations: {

@@ -48,6 +48,9 @@ export type AuditAction =
   | 'crash.approved'
   | 'crash.returned'
   | 'crash.reopened'
+  | 'feedback.sent'
+  | 'feedback.answered'
+  | 'feedback.forwarded'
   | 'inbound.received'
   | 'migration.imported'
   | 'nibrs.exported'
@@ -86,6 +89,9 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'crash.approved': 'Crash report approved',
   'crash.returned': 'Crash report returned',
   'crash.reopened': 'Crash report reopened',
+  'feedback.sent': 'Feedback sent to the vendor',
+  'feedback.answered': 'Feedback answered',
+  'feedback.forwarded': 'Feedback re-sent to the vendor',
   'inbound.received': 'Data received from dispatch or a registry',
   'migration.imported': 'Records imported from a previous system',
   'nibrs.exported': 'NIBRS file exported',
@@ -113,6 +119,10 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'supplement.returned',
   'supplement.reopened',
   'migration.imported',
+  // Text authored inside the agency leaving it is an access event, whatever
+  // the intent — the same reason a narrative sent for reading is on this list.
+  'feedback.sent',
+  'feedback.forwarded',
   'user.created',
   'user.updated',
   'user.deactivated',

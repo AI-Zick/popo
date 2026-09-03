@@ -2,9 +2,22 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  /*
+    The build an agency is running, baked in so feedback can say which one it
+    came from. A vendor re-diagnosing a fault that was fixed two releases ago is
+    the most avoidable waste in support.
+  */
+  define: {
+    __APP_VERSION__: JSON.stringify(`${pkg.version}+${new Date().toISOString().slice(0, 10)}`),
+  },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   build: {
     rollupOptions: {

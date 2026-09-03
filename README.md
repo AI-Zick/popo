@@ -531,6 +531,70 @@ Officers can run it on themselves without any permission. Another officer's
 figures are a personnel record and need review permission — who may read whose
 activity is not a UI decision.
 
+### Saying what is wrong
+
+A **Feedback** button on every screen, because feedback that has to be found is
+feedback nobody sends. The moment worth capturing is the one where somebody is
+annoyed, and that is on whatever screen annoyed them — not on a support page
+two clicks away, at a desk, four hours later.
+
+It asks what kind of thing it is, one line, anything else, and **how much it
+cost you** — the field a vendor cannot infer and the one that decides the order
+of the queue. "The report will not submit" and "the button is the wrong shade"
+are the same length in a list and nothing alike in a shift.
+
+The screen, the field they had been in, the build and the agency are captured
+rather than typed. That is the difference between "the date field is broken" and
+something reproducible without a phone call.
+
+**The part that took the most care is what it refuses to send.** A free-text box
+in a police records system is an exfiltration path: an officer explaining a
+fault will paste whatever makes it legible — a case number, a date of birth, a
+name — because that is how people explain faults, not because they are careless.
+So:
+
+- It **scans as they type** and says what it noticed, in plain words, with one
+  click to replace it all. It does not silently rewrite them; an officer who
+  finds their words altered stops using the channel, and a channel nobody uses
+  is the real failure here.
+- **A social security number is removed by the server**, whether or not the
+  browser did it, and the officer is told it happened. Everything else is a
+  matter of judgement; that one is not, and a guarantee that depends on the
+  client behaving is not a guarantee.
+- The scanner is **deliberately quiet**. Names are the obvious omission and stay
+  omitted: there is no pattern for a surname that does not also fire on half the
+  English language, and a warning that cries wolf is one people learn to click
+  past.
+
+The captured context caught a real fault in exactly this area. The first version
+read the screen name out of the page's `<h1>`, which on a report screen *is the
+case number* — so the one thing the design promised would never leave the agency
+was being attached to every note. It was found by looking at what actually
+landed in the database, not by reading the code. The screen name now comes from
+a closed set of literals the app chooses, and a test fails if a field capable of
+carrying record content is added to the context.
+
+Feedback is stored in **the agency's own database**, not the vendor's, so a
+records manager can always see and audit what has left the building, and every
+send is an audit entry. Whether it goes anywhere on its own is a deployment
+choice — see `AEGIS_FEEDBACK_URL` in `DEPLOYMENT.md`. Unset, it is exported by
+an administrator and sent on by hand, which is the right default for an agency
+with no outbound path.
+
+Two things make it a conversation rather than a suggestion box nailed shut:
+
+**Others can second it.** Somebody about to report a known fault sees it already
+raised and adds their name instead of writing the fourth description of one
+problem. Four officers on one entry moves it up the list; four separate entries
+do not.
+
+**Answers come back.** Whoever raised it sees the status and the reply next time
+they open the form, and whether it came from the vendor or from their own
+administrator, because "not going to be done" from those two is not the same
+sentence. An officer who once saw *fixed — thank you* against something they
+reported will report the next one. An officer who reports into silence never
+does.
+
 ### Moving in from a previous system
 
 The feature that decides whether an agency can actually switch. Everything else

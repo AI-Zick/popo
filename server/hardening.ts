@@ -23,6 +23,13 @@ export interface ServerConfig {
   tls: { keyPath: string; certPath: string } | null;
   /** Trust X-Forwarded-* — only true behind a reverse proxy you control. */
   trustProxy: boolean;
+  /**
+   * Where officer feedback is posted, or empty for nowhere.
+   *
+   * The only outbound path in the system, so it is off unless an agency turns
+   * it on. Empty means feedback is kept locally and exported by hand.
+   */
+  feedbackUrl: string;
 }
 
 export interface ConfigProblem {
@@ -57,6 +64,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
 
   const dataDir = env.AEGIS_DATA_DIR ?? 'data';
 
+  /*
+    Feedback forwarding. Refused over plaintext in production: this is the one
+    request that carries agency-authored text off the agency's network, and
+    sending it unencrypted would undo the point of every other control here.
+  */
+  const feedbackUrl = env.AEGIS_FEEDBACK_URL ?? '';
+  if (feedbackUrl && !feedbackUrl.startsWith('https://')) {
+    if (production) {
+      problems.push({
+        fatal: true,
+        message:
+          'Refusing to start: AEGIS_FEEDBACK_URL is not https. Feedback carries text written inside the agency to somewhere outside it, and must not cross the network in clear.',
+      });
+    } else {
+      problems.push({
+        fatal: false,
+        message: 'AEGIS_FEEDBACK_URL is not https. Allowed in development only.',
+      });
+    }
+  }
+
   return {
     config: {
       port: Number(env.PORT ?? 4000),
@@ -66,6 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
       serveClient: env.AEGIS_SERVE_CLIENT === '1' || production,
       tls,
       trustProxy: behindProxy,
+      feedbackUrl,
     },
     problems,
   };

@@ -16,6 +16,7 @@ import type { LocationIndex } from '@/domain/location';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
+import type { Feedback, FeedbackDraft } from '@/domain/feedback';
 
 export type Collection = 'incidents' | 'people' | 'locations';
 
@@ -138,6 +139,31 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ kind, rows }),
     });
+  },
+
+  /* ---- Feedback ----------------------------------------------------- */
+
+  feedback(): Promise<{ feedback: Feedback[]; forwarding: boolean }> {
+    return request('/api/feedback');
+  },
+
+  sendFeedback(draft: FeedbackDraft): Promise<{ feedback: Feedback; redacted: number }> {
+    return request('/api/feedback', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  secondFeedback(id: string): Promise<{ feedback: Feedback }> {
+    return request(`/api/feedback/${id}/second`, { method: 'POST' });
+  },
+
+  answerFeedback(
+    id: string,
+    patch: { status?: string; response?: string },
+  ): Promise<{ feedback: Feedback }> {
+    return request(`/api/feedback/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  forwardFeedback(id: string): Promise<{ feedback: Feedback; ok: boolean }> {
+    return request(`/api/feedback/${id}/forward`, { method: 'POST' });
   },
 
   /* ---- Crash reports and inbound data ------------------------------ */

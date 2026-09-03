@@ -52,6 +52,34 @@ NODE_ENV=production AEGIS_TLS_KEY=/path/key.pem AEGIS_TLS_CERT=/path/cert.pem \
 | `AEGIS_TLS_KEY` / `AEGIS_TLS_CERT` | — | Serve HTTPS directly |
 | `AEGIS_TRUST_PROXY` | — | `1` when TLS terminates upstream |
 | `AEGIS_SERVE_CLIENT` | on in production | Serve `dist/` from the API |
+| `AEGIS_FEEDBACK_URL` | — | Where officer feedback is posted. Off by default |
+
+### `AEGIS_FEEDBACK_URL`, and what crosses the wire
+
+This is the only setting that sends anything out of your network, so it is off
+until you set it, and the server refuses to start in production if it is not
+`https`.
+
+With it unset, feedback is written to your own database and goes nowhere. An
+administrator exports it from **Setup → Feedback** and sends the file on. That
+is the right default for an agency with no outbound path, and it means nothing
+leaves without somebody deciding it should.
+
+With it set, each piece of feedback is POSTed as JSON when it is written. What
+goes in that request:
+
+- what the officer typed, minus any social security number, which the server
+  removes whether or not the browser did;
+- their name, badge role, and your agency name and ORI;
+- which screen they were on, which field they had been in (`incident.reportedAt`
+  — the path, never the value), the build, and their browser.
+
+What does not: any part of a report, any person, any case number. The context
+is structural by construction and there is a test that fails if a field capable
+of carrying record content is added to it.
+
+Every send is written to the audit log as `feedback.sent`, so what has left the
+building is answerable from your own records rather than the vendor's.
 
 ## Backups
 
