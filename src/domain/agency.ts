@@ -60,12 +60,3 @@ export function emptyAgency(): AgencyProfile {
     configured: false,
   };
 }
-
-/** Where a map should open when there is nothing else to centre on. */
-export function jurisdictionLabel(agency: AgencyProfile): string {
-  return (
-    [agency.city, agency.county && `${agency.county} County`, agency.state]
-      .filter(Boolean)
-      .join(', ') || 'Jurisdiction not set'
-  );
-}

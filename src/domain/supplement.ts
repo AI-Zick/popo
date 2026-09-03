@@ -195,13 +195,6 @@ export function canSupplement(
 }
 
 /** True when the supplement is somebody other than the report's author. */
-export function isSecondaryOfficer(
-  supplement: Supplement,
-  parent: { createdBy: string },
-): boolean {
-  return Boolean(parent.createdBy) && parent.createdBy !== supplement.createdBy;
-}
-
 /**
  * Whether an approved supplement's disposition change should be written to the
  * case.

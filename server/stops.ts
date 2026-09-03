@@ -7,24 +7,13 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { DOC_TABLES, readDoc, writeDoc } from './db';
+import { DOC_TABLES, documents } from './db';
+import { newId } from './ids';
 import { requireAuth } from './auth';
 import { checkStop, createTrafficStop, type TrafficStop } from '../src/domain/activity';
 
-function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
-
-function load(db: DatabaseSync, id: string): TrafficStop | null {
-  const stored = readDoc(db, DOC_TABLES.stops, id);
-  return stored ? (stored.doc as unknown as TrafficStop) : null;
-}
-
-function save(db: DatabaseSync, doc: TrafficStop): void {
-  writeDoc(db, DOC_TABLES.stops, doc as unknown as Record<string, unknown>, null);
-}
+const stops = documents<TrafficStop>(DOC_TABLES.stops);
 
 /** Only the fields an officer owns. Authorship is not among them. */
 function merge(current: TrafficStop, patch: Partial<TrafficStop>): TrafficStop {
@@ -70,13 +59,13 @@ export function registerStopRoutes(app: Express, db: DatabaseSync): void {
       return;
     }
 
-    save(db, doc);
+    stops.save(db, doc);
     res.json({ ok: true, stop: doc });
   });
 
   app.put('/api/stops/:id', requireAuth, (req: Request, res: Response) => {
     const user = req.user!;
-    const current = load(db, req.params.id);
+    const current = stops.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such stop.' });
       return;
@@ -93,13 +82,13 @@ export function registerStopRoutes(app: Express, db: DatabaseSync): void {
       res.status(400).json({ error: problems[0], problems });
       return;
     }
-    save(db, doc);
+    stops.save(db, doc);
     res.json({ ok: true, stop: doc });
   });
 
   app.delete('/api/stops/:id', requireAuth, (req: Request, res: Response) => {
     const user = req.user!;
-    const current = load(db, req.params.id);
+    const current = stops.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such stop.' });
       return;

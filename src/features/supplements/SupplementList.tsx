@@ -4,7 +4,6 @@ import { useStore } from '@/state/store';
 import {
   SUPPLEMENT_TYPE_LABEL,
   supplementLabel,
-  type Supplement,
 } from '@/domain/supplement';
 import { STATUS_LABEL } from '@/domain/review';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
@@ -109,8 +108,4 @@ export function SupplementList() {
       </div>
     </Panel>
   );
-}
-
-export function supplementSummary(s: Supplement): string {
-  return `${supplementLabel(s)} · ${SUPPLEMENT_TYPE_LABEL[s.type]}`;
 }

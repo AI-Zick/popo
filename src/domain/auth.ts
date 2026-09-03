@@ -172,10 +172,6 @@ export function createUser(partial: Partial<User> & { id: UUID }): User {
 /* Provisioning                                                        */
 /* ------------------------------------------------------------------ */
 
-export function rankOf(role: Role): number {
-  return ROLE_RANK[role];
-}
-
 /**
  * Roles this person may hand out. Nobody may create an account with more
  * administrative authority than their own — the guard that stops an agency

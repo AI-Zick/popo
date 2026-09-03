@@ -11,42 +11,26 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { DOC_TABLES, readDoc, readDocs, writeDoc } from './db';
+import { DOC_TABLES, documents } from './db';
+import { newId } from './ids';
 import { requireAuth } from './auth';
+import { reviewEvent } from './review';
 import { recordAudit } from './audit';
 import { canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
 import { checkCrash, createCrashReport, type CrashReport } from '../src/domain/crash';
 import { createQueryReturn, type QueryReturn, type ReturnPayload } from '../src/domain/inbound';
 
-function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
-
-function event(action: ReviewEvent['action'], user: { id: string; name: string }, note = ''): ReviewEvent {
-  return { id: newId('rev'), action, actorId: user.id, actorName: user.name, at: new Date().toISOString(), note };
-}
-
-function loadCrash(db: DatabaseSync, id: string): CrashReport | null {
-  const stored = readDoc(db, DOC_TABLES.crashes, id);
-  return stored ? (stored.doc as unknown as CrashReport) : null;
-}
-
-function saveCrash(db: DatabaseSync, doc: CrashReport): void {
-  writeDoc(db, DOC_TABLES.crashes, doc as unknown as Record<string, unknown>, null);
-}
-
-function allReturns(db: DatabaseSync): QueryReturn[] {
-  return readDocs(db, DOC_TABLES.returns) as unknown as QueryReturn[];
-}
+const crashes = documents<CrashReport>(DOC_TABLES.crashes);
+const returns = documents<QueryReturn>(DOC_TABLES.returns);
 
 /** `2026-C00042` — crash reports carry their own series in most agencies. */
 function nextCrashNumber(db: DatabaseSync): string {
   const year = new Date().getFullYear();
-  const existing = readDocs(db, DOC_TABLES.crashes) as unknown as CrashReport[];
-  const used = existing
-    .map((c) => Number(String(c.caseNumber).replace(`${year}-C`, '')))
+  // The case number is a lifted column, so this needs no documents at all.
+  const used = crashes
+    .columnValues(db, 'case_number')
+    .map((number) => Number(number.replace(`${year}-C`, '')))
     .filter((n) => Number.isFinite(n));
   const next = (used.length ? Math.max(...used) : 0) + 1;
   return `${year}-C${String(next).padStart(5, '0')}`;
@@ -86,7 +70,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
         callNumber: String(item.callNumber ?? '').slice(0, 60),
         payload: item.payload,
       });
-      writeDoc(db, DOC_TABLES.returns, doc as unknown as Record<string, unknown>, null);
+      returns.save(db, doc);
       stored.push(doc);
     }
 
@@ -107,16 +91,15 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
 
   /** Marks a return as used on a document, so it is not offered twice. */
   app.post('/api/inbound/:id/applied', requireAuth, (req: Request, res: Response) => {
-    const stored = readDoc(db, DOC_TABLES.returns, req.params.id);
-    if (!stored) {
+    const doc = returns.find(db, req.params.id);
+    if (!doc) {
       res.status(404).json({ error: 'No such return.' });
       return;
     }
-    const doc = stored.doc as unknown as QueryReturn;
     const documentId = String(req.body?.documentId ?? '');
     if (documentId && !doc.appliedTo.includes(documentId)) {
       doc.appliedTo = [...doc.appliedTo, documentId];
-      writeDoc(db, DOC_TABLES.returns, doc as unknown as Record<string, unknown>, null);
+      returns.save(db, doc);
     }
     res.json({ ok: true, return: doc });
   });
@@ -132,9 +115,9 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       knows — time, place, cross street. Retyping it from the screen next to
       you is exactly the work this module exists to remove.
     */
-    const call = allReturns(db).find(
-      (r) => r.callNumber === callNumber && r.payload.kind === 'call',
-    );
+    const call = returns
+      .where(db, { call_number: callNumber })
+      .find((r) => r.payload.kind === 'call');
     const fromCall =
       call && call.payload.kind === 'call'
         ? {
@@ -157,7 +140,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       reportingBadge: user.badge ?? '',
       ...fromCall,
     });
-    saveCrash(db, doc);
+    crashes.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -171,7 +154,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
 
   app.put('/api/crashes/:id', requireAuth, (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadCrash(db, req.params.id);
+    const current = crashes.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such crash report.' });
       return;
@@ -198,13 +181,13 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
     } = patch;
 
     const doc: CrashReport = { ...current, ...editable, updatedAt: new Date().toISOString() };
-    saveCrash(db, doc);
+    crashes.save(db, doc);
     res.json({ ok: true, crash: doc });
   });
 
   app.post('/api/crashes/:id/submit', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadCrash(db, req.params.id);
+    const current = crashes.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such crash report.' });
       return;
@@ -228,10 +211,10 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       submittedAt: new Date().toISOString(),
       createdBy: current.createdBy || user.id,
       returnedReason: '',
-      reviewHistory: [...current.reviewHistory, event('submitted', user)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('submitted', user)],
       updatedAt: new Date().toISOString(),
     };
-    saveCrash(db, doc);
+    crashes.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -245,7 +228,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/crashes/:id/approve', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadCrash(db, req.params.id);
+    const current = crashes.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such crash report.' });
       return;
@@ -263,10 +246,10 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       reviewedBy: user.name,
       reviewedAt: new Date().toISOString(),
       returnedReason: '',
-      reviewHistory: [...current.reviewHistory, event('approved', user, note)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('approved', user, note)],
       updatedAt: new Date().toISOString(),
     };
-    saveCrash(db, doc);
+    crashes.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -280,7 +263,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/crashes/:id/return', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadCrash(db, req.params.id);
+    const current = crashes.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such crash report.' });
       return;
@@ -318,10 +301,10 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       reviewedAt: new Date().toISOString(),
       returnedReason: reason,
       reviewComments: [...current.reviewComments, ...comments],
-      reviewHistory: [...current.reviewHistory, event('returned', user, reason)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('returned', user, reason)],
       updatedAt: new Date().toISOString(),
     };
-    saveCrash(db, doc);
+    crashes.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -335,7 +318,7 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/crashes/:id/reopen', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadCrash(db, req.params.id);
+    const current = crashes.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such crash report.' });
       return;
@@ -355,10 +338,10 @@ export function registerCrashRoutes(app: Express, db: DatabaseSync): void {
       ...current,
       status: 'returned',
       returnedReason: reason,
-      reviewHistory: [...current.reviewHistory, event('reopened', user, reason)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('reopened', user, reason)],
       updatedAt: new Date().toISOString(),
     };
-    saveCrash(db, doc);
+    crashes.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,

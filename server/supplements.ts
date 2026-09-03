@@ -13,10 +13,11 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { DOC_TABLES, readDoc, readDocs, writeDoc } from './db';
+import { DOC_TABLES, documents } from './db';
+import { newId } from './ids';
 import { requireAuth } from './auth';
+import { reviewEvent } from './review';
 import { recordAudit } from './audit';
 import { canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
 import {
@@ -30,31 +31,8 @@ import {
 } from '../src/domain/supplement';
 import type { Incident } from '../src/domain/types';
 
-function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
-
-function event(action: ReviewEvent['action'], user: { id: string; name: string }, note = ''): ReviewEvent {
-  return { id: newId('rev'), action, actorId: user.id, actorName: user.name, at: new Date().toISOString(), note };
-}
-
-function allSupplements(db: DatabaseSync): Supplement[] {
-  return readDocs(db, DOC_TABLES.supplements) as unknown as Supplement[];
-}
-
-function loadSupplement(db: DatabaseSync, id: string): Supplement | null {
-  const stored = readDoc(db, DOC_TABLES.supplements, id);
-  return stored ? (stored.doc as unknown as Supplement) : null;
-}
-
-function loadIncident(db: DatabaseSync, id: string): Incident | null {
-  const stored = readDoc(db, DOC_TABLES.incidents, id);
-  return stored ? (stored.doc as unknown as Incident) : null;
-}
-
-function save(db: DatabaseSync, doc: Supplement): void {
-  writeDoc(db, DOC_TABLES.supplements, doc as unknown as Record<string, unknown>, null);
-}
+const supplements = documents<Supplement>(DOC_TABLES.supplements);
+const cases = documents<Incident>(DOC_TABLES.incidents);
 
 /**
  * Writes the winning disposition onto the case.
@@ -66,10 +44,10 @@ function save(db: DatabaseSync, doc: Supplement): void {
  * statistics another.
  */
 function syncCaseDisposition(db: DatabaseSync, caseId: string): Incident | null {
-  const incident = loadIncident(db, caseId);
+  const incident = cases.find(db, caseId);
   if (!incident) return null;
 
-  const winning = effectiveDisposition(allSupplements(db), caseId);
+  const winning = effectiveDisposition(supplements.where(db, { case_id: caseId }), caseId);
 
   /*
     Nothing is moving the case any more — the supplement that was, has been
@@ -91,7 +69,7 @@ function syncCaseDisposition(db: DatabaseSync, caseId: string): Incident | null 
       dispositionBeforeSupplement: null,
       updatedAt: new Date().toISOString(),
     };
-    writeDoc(db, DOC_TABLES.incidents, reverted as unknown as Record<string, unknown>, null);
+    cases.save(db, reverted);
     return reverted;
   }
 
@@ -110,7 +88,7 @@ function syncCaseDisposition(db: DatabaseSync, caseId: string): Incident | null 
     clearedAt: winning.change.clearedAt,
     updatedAt: new Date().toISOString(),
   };
-  writeDoc(db, DOC_TABLES.incidents, next as unknown as Record<string, unknown>, null);
+  cases.save(db, next);
   return next;
 }
 
@@ -128,7 +106,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
   app.post('/api/supplements', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
     const caseId = String(req.body?.caseId ?? '');
-    const incident = loadIncident(db, caseId);
+    const incident = cases.find(db, caseId);
     if (!incident) {
       res.status(404).json({ error: 'No such case.' });
       return;
@@ -147,14 +125,14 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       id: newId('sup'),
       caseId,
       caseNumber: incident.caseNumber,
-      number: nextNumber(allSupplements(db), caseId),
+      number: nextNumber(supplements.where(db, { case_id: caseId }), caseId),
       type: 'narrative',
       // Authorship comes from the session, never from the request.
       createdBy: user.id,
       reportingOfficer: user.name,
       reportingBadge: user.badge ?? '',
     });
-    save(db, doc);
+    supplements.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -169,7 +147,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
   /** Save a draft. Only its author, and only while it is theirs to edit. */
   app.put('/api/supplements/:id', requireAuth, (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadSupplement(db, req.params.id);
+    const current = supplements.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such supplement.' });
       return;
@@ -194,13 +172,13 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       arrest: patch.arrest === undefined ? current.arrest : patch.arrest,
       updatedAt: new Date().toISOString(),
     };
-    save(db, doc);
+    supplements.save(db, doc);
     res.json({ ok: true, supplement: doc });
   });
 
   app.post('/api/supplements/:id/submit', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadSupplement(db, req.params.id);
+    const current = supplements.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such supplement.' });
       return;
@@ -212,7 +190,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       return;
     }
 
-    const incident = loadIncident(db, current.caseId);
+    const incident = cases.find(db, current.caseId);
     if (!incident) {
       res.status(404).json({ error: 'The case this belongs to is missing.' });
       return;
@@ -231,10 +209,10 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       submittedAt: new Date().toISOString(),
       createdBy: current.createdBy || user.id,
       returnedReason: '',
-      reviewHistory: [...current.reviewHistory, event('submitted', user)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('submitted', user)],
       updatedAt: new Date().toISOString(),
     };
-    save(db, doc);
+    supplements.save(db, doc);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -248,7 +226,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/supplements/:id/approve', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadSupplement(db, req.params.id);
+    const current = supplements.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such supplement.' });
       return;
@@ -267,10 +245,10 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       reviewedBy: user.name,
       reviewedAt: new Date().toISOString(),
       returnedReason: '',
-      reviewHistory: [...current.reviewHistory, event('approved', user, note)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('approved', user, note)],
       updatedAt: new Date().toISOString(),
     };
-    save(db, doc);
+    supplements.save(db, doc);
 
     // Approval is the point at which a disposition change reaches the case.
     const incident = syncCaseDisposition(db, doc.caseId);
@@ -287,7 +265,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/supplements/:id/return', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadSupplement(db, req.params.id);
+    const current = supplements.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such supplement.' });
       return;
@@ -327,10 +305,10 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       reviewedAt: new Date().toISOString(),
       returnedReason: reason,
       reviewComments: [...current.reviewComments, ...comments],
-      reviewHistory: [...current.reviewHistory, event('returned', user, reason)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('returned', user, reason)],
       updatedAt: new Date().toISOString(),
     };
-    save(db, doc);
+    supplements.save(db, doc);
 
     // A returned supplement's disposition must come back off the case.
     const incident = syncCaseDisposition(db, doc.caseId);
@@ -347,7 +325,7 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/supplements/:id/reopen', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const current = loadSupplement(db, req.params.id);
+    const current = supplements.find(db, req.params.id);
     if (!current) {
       res.status(404).json({ error: 'No such supplement.' });
       return;
@@ -368,10 +346,10 @@ export function registerSupplementRoutes(app: Express, db: DatabaseSync): void {
       ...current,
       status: 'returned',
       returnedReason: reason,
-      reviewHistory: [...current.reviewHistory, event('reopened', user, reason)],
+      reviewHistory: [...current.reviewHistory, reviewEvent('reopened', user, reason)],
       updatedAt: new Date().toISOString(),
     };
-    save(db, doc);
+    supplements.save(db, doc);
     const incident = syncCaseDisposition(db, doc.caseId);
 
     await recordAudit(db, {

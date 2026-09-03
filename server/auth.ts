@@ -344,11 +344,3 @@ export async function attemptSignIn(
     body: { user, mustChangePassword: credential.mustChangePassword },
   };
 }
-
-/** Constant-time string comparison for anything secret-shaped. */
-export function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}

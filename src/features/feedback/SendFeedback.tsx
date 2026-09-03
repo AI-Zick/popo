@@ -17,6 +17,7 @@ import {
   KIND_HINT,
   KIND_LABEL,
   STATUS_LABEL,
+  STATUS_TONE,
   SUMMARY_MAX,
   alreadyRaised,
   answeredFor,
@@ -31,7 +32,7 @@ import {
   type FeedbackKind,
   type Impact,
 } from '@/domain/feedback';
-import { Badge, Button } from '@/components/ui/primitives';
+import { Badge, Button, TabButton } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
 
 /**
@@ -516,14 +517,6 @@ function RaisedList({
   );
 }
 
-const STATUS_TONE = {
-  new: 'neutral',
-  reading: 'accent',
-  planned: 'accent',
-  shipped: 'ok',
-  declined: 'neutral',
-} as const;
-
 function Item({
   item,
   currentUserId,
@@ -591,28 +584,6 @@ function Item({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
-        active ? 'bg-raised text-ink' : 'text-muted hover:bg-raised/60',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 

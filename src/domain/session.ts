@@ -92,10 +92,6 @@ export function registerSuccess(credential: Credential, now = Date.now()): Crede
   };
 }
 
-export function clearLockout(credential: Credential): Credential {
-  return { ...credential, failedAttempts: 0, lockedUntil: '' };
-}
-
 /* ------------------------------------------------------------------ */
 /* Session lifetime                                                    */
 /* ------------------------------------------------------------------ */

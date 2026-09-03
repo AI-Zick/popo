@@ -65,6 +65,12 @@ export const IMPACT_LABEL: Record<Impact, string> = {
   annoyance: 'It is just annoying',
 };
 
+export const IMPACT_TONE: Record<Impact, 'danger' | 'warn' | 'neutral'> = {
+  blocked: 'danger',
+  workaround: 'warn',
+  annoyance: 'neutral',
+};
+
 export type FeedbackStatus = 'new' | 'reading' | 'planned' | 'shipped' | 'declined';
 
 export const STATUS_LABEL: Record<FeedbackStatus, string> = {
@@ -73,6 +79,15 @@ export const STATUS_LABEL: Record<FeedbackStatus, string> = {
   planned: 'Going to be fixed',
   shipped: 'Fixed',
   declined: 'Not going to be done',
+};
+
+/** Beside the label, because both screens that show a status show both. */
+export const STATUS_TONE: Record<FeedbackStatus, 'neutral' | 'accent' | 'ok'> = {
+  new: 'neutral',
+  reading: 'accent',
+  planned: 'accent',
+  shipped: 'ok',
+  declined: 'neutral',
 };
 
 /**

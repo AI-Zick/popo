@@ -4,7 +4,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { DOC_TABLES, writeDocs } from './db';
+import { DOC_TABLES, documents } from './db';
 import { saveCredential } from './auth';
 import { createCredential } from '../src/domain/session';
 import { hashPassword } from '../src/domain/credentials';
@@ -43,11 +43,11 @@ export async function seedDatabase(db: DatabaseSync): Promise<void> {
     saveCredential(db, createCredential(user.id, { passwordHash, mustChangePassword: false }));
   }
 
-  writeDocs(db, DOC_TABLES.incidents, state.incidents as unknown as Record<string, unknown>[]);
-  writeDocs(db, DOC_TABLES.stops, state.stops as unknown as Record<string, unknown>[]);
-  writeDocs(db, DOC_TABLES.returns, state.returns as unknown as Record<string, unknown>[]);
-  writeDocs(db, DOC_TABLES.people, Object.values(state.people) as unknown as Record<string, unknown>[]);
-  writeDocs(db, DOC_TABLES.locations, Object.values(state.locations) as unknown as Record<string, unknown>[]);
+  documents(DOC_TABLES.incidents).replaceAll(db, state.incidents);
+  documents(DOC_TABLES.stops).replaceAll(db, state.stops);
+  documents(DOC_TABLES.returns).replaceAll(db, state.returns);
+  documents(DOC_TABLES.people).replaceAll(db, Object.values(state.people));
+  documents(DOC_TABLES.locations).replaceAll(db, Object.values(state.locations));
 
   console.log(`Seeded ${state.users.length} accounts and ${state.incidents.length} reports.`);
 }

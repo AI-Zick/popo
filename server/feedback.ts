@@ -16,9 +16,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { DOC_TABLES, readDoc, readDocs, writeDoc } from './db';
+import { DOC_TABLES, documents } from './db';
+import { newId } from './ids';
 import { requireAuth, requirePermission } from './auth';
 import { recordAudit } from './audit';
 import {
@@ -40,22 +40,7 @@ const STATUSES: FeedbackStatus[] = ['new', 'reading', 'planned', 'shipped', 'dec
 /** Feedback is cheap to write and easy to flood. */
 const PER_PERSON_PER_DAY = 40;
 
-function newId(): string {
-  return `fb_${randomBytes(8).toString('hex')}`;
-}
-
-function load(db: DatabaseSync, id: string): Feedback | null {
-  const stored = readDoc(db, DOC_TABLES.feedback, id);
-  return stored ? (stored.doc as unknown as Feedback) : null;
-}
-
-function save(db: DatabaseSync, doc: Feedback): void {
-  writeDoc(db, DOC_TABLES.feedback, doc as unknown as Record<string, unknown>, null);
-}
-
-function all(db: DatabaseSync): Feedback[] {
-  return readDocs(db, DOC_TABLES.feedback) as unknown as Feedback[];
-}
+const feedback = documents<Feedback>(DOC_TABLES.feedback);
 
 const text = (value: unknown, max: number): string => String(value ?? '').slice(0, max);
 
@@ -141,8 +126,8 @@ export function startFeedbackSweep(
     if (running) return;
     running = true;
     try {
-      for (const item of dueForRetry(all(db))) {
-        save(db, await attemptDelivery(options, item));
+      for (const item of dueForRetry(feedback.all(db))) {
+        feedback.save(db, await attemptDelivery(options, item));
       }
     } catch (error) {
       console.error('Feedback sweep failed', error);
@@ -170,7 +155,7 @@ export function registerFeedbackRoutes(
     and everyone reading it is inside the same agency.
   */
   app.get('/api/feedback', requireAuth, (_req: Request, res: Response) => {
-    res.json({ feedback: all(db), forwarding: Boolean(options.forwardUrl) });
+    res.json({ feedback: feedback.all(db), forwarding: Boolean(options.forwardUrl) });
   });
 
   /** Anyone signed in. A channel only some ranks can use is not a channel. */
@@ -185,7 +170,10 @@ export function registerFeedbackRoutes(
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const mine = all(db).filter((f) => f.submittedBy === user.id && f.at.startsWith(today));
+    // Indexed by submitter, so this reads one person's items rather than everyone's.
+    const mine = feedback
+      .where(db, { submitted_by: user.id })
+      .filter((f) => f.at.startsWith(today));
     if (mine.length >= PER_PERSON_PER_DAY) {
       res.status(429).json({
         error: `That is ${PER_PERSON_PER_DAY} pieces of feedback today. Anything more can wait until tomorrow.`,
@@ -205,7 +193,7 @@ export function registerFeedbackRoutes(
     const at = new Date().toISOString();
 
     const item: Feedback = {
-      id: newId(),
+      id: newId('fb'),
       kind,
       impact,
       summary: cleanSummary.text,
@@ -236,7 +224,7 @@ export function registerFeedbackRoutes(
     };
 
     const stored = options.forwardUrl ? await attemptDelivery(options, item) : item;
-    save(db, stored);
+    feedback.save(db, stored);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -266,7 +254,7 @@ export function registerFeedbackRoutes(
    */
   app.post('/api/feedback/:id/second', requireAuth, (req: Request, res: Response) => {
     const user = req.user!;
-    const item = load(db, req.params.id);
+    const item = feedback.find(db, req.params.id);
     if (!item) {
       res.status(404).json({ error: 'That feedback is no longer there.' });
       return;
@@ -281,7 +269,7 @@ export function registerFeedbackRoutes(
       : [...item.seconded, user.id];
 
     const updated = { ...item, seconded };
-    save(db, updated);
+    feedback.save(db, updated);
     res.json({ feedback: updated });
   });
 
@@ -297,7 +285,7 @@ export function registerFeedbackRoutes(
     requirePermission('agency.configure'),
     async (req: Request, res: Response) => {
       const user = req.user!;
-      const item = load(db, req.params.id);
+      const item = feedback.find(db, req.params.id);
       if (!item) {
         res.status(404).json({ error: 'That feedback is no longer there.' });
         return;
@@ -322,7 +310,7 @@ export function registerFeedbackRoutes(
             }
           : {}),
       };
-      save(db, updated);
+      feedback.save(db, updated);
 
       if (answered) {
         await recordAudit(db, {
@@ -343,7 +331,7 @@ export function registerFeedbackRoutes(
     requirePermission('agency.configure'),
     async (req: Request, res: Response) => {
       const user = req.user!;
-      const item = load(db, req.params.id);
+      const item = feedback.find(db, req.params.id);
       if (!item) {
         res.status(404).json({ error: 'That feedback is no longer there.' });
         return;
@@ -357,7 +345,7 @@ export function registerFeedbackRoutes(
       }
 
       const updated = await attemptDelivery(options, item);
-      save(db, updated);
+      feedback.save(db, updated);
       const ok = updated.forwarded;
       if (ok) {
         await recordAudit(db, {

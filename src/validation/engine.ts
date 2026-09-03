@@ -80,12 +80,6 @@ export const path = {
   section: (s: SectionId) => s,
 };
 
-/** Extracts the record id from a path like `persons[abc].lastName`. */
-export function entityIdFromPath(p: string): string | null {
-  const m = /\[([^\]]+)\]/.exec(p);
-  return m ? m[1] : null;
-}
-
 /* ------------------------------------------------------------------ */
 /* Helpers exposed to rules                                            */
 /* ------------------------------------------------------------------ */

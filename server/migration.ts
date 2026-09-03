@@ -11,16 +11,12 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { DOC_TABLES, writeDoc } from './db';
+import { newId } from './ids';
 import { requirePermission } from './auth';
 import { recordAudit } from './audit';
 import { importProvenance } from '../src/domain/migration';
-
-function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
 
 interface CommitRow {
   values: Record<string, string>;

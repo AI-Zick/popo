@@ -200,3 +200,34 @@ export function SectionAnchor({ section, children }: { section: string; children
     </div>
   );
 }
+
+/**
+ * One tab in a row of them.
+ *
+ * A plain button rather than anything with routing behind it: every screen that
+ * uses these is switching a local `useState`, and a tab that changes the URL
+ * would put a records clerk's NIBRS export in a patrol officer's back button.
+ */
+export function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
+        active ? 'bg-raised text-ink' : 'text-muted hover:bg-raised/60',
+      )}
+    >
+      {children}
+    </button>
+  );
+}

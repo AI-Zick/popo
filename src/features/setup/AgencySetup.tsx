@@ -4,7 +4,7 @@ import { useStore } from '@/state/store';
 import { parseGeoJSON, type GeoFeatureCollection } from '@/domain/geo';
 import { ZONE_LABELS } from '@/domain/agency';
 import { STATES } from '@/domain/codes';
-import { Button, FieldGrid, Panel } from '@/components/ui/primitives';
+import { Button, FieldGrid, Panel, TabButton } from '@/components/ui/primitives';
 import { ZoneMap } from '@/components/location/ZoneMap';
 import { UserAdmin } from './UserAdmin';
 import { AuditLog } from './AuditLog';
@@ -287,28 +287,6 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-lg px-3 py-1.5 text-[13px] font-medium transition',
-        active ? 'bg-raised text-ink' : 'text-muted hover:bg-raised/60',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function GeoJsonInput({
   label,

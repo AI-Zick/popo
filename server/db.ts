@@ -193,6 +193,8 @@ CREATE TABLE IF NOT EXISTS feedback (
   doc          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feedback_status ON feedback(status, at);
+-- One person's own items, for the per-day limit on submitting.
+CREATE INDEX IF NOT EXISTS feedback_submitter ON feedback(submitted_by, at);
 
 -- Advisory only. A lock says "somebody is in here" so two officers do not
 -- unknowingly work the same report; it does not prevent a write, because a
@@ -421,4 +423,85 @@ export function writeDocs(
     db.exec('ROLLBACK');
     throw error;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Typed access to one table                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A typed view of a single document table.
+ *
+ * Every route module used to carry its own three-line `load`, `save` and `all`
+ * around the functions above, each with the same pair of casts, because a
+ * document comes back as `Record<string, unknown>` and every caller knows
+ * better. Fifteen copies of that, and the casts spread across every file that
+ * touched storage.
+ *
+ * They live here now, once. The casts are still unavoidable — SQLite hands back
+ * parsed JSON and something has to assert its shape — but there is exactly one
+ * place where the assertion is made, and it is the place that did the parsing.
+ */
+export interface Documents<T> {
+  all(db: DatabaseSync): T[];
+  /**
+   * Only the documents whose lifted columns all match.
+   *
+   * The point is what it does *not* do: reading every row and parsing every
+   * document to throw most of them away. Every column named here is one the
+   * table already lifts and indexes, so "this case's supplements" is an index
+   * seek rather than a scan of eleven years of them.
+   */
+  where(db: DatabaseSync, criteria: Record<string, string>): T[];
+  /**
+   * One lifted column from every row, without parsing any documents.
+   *
+   * For the questions that are answered by a column alone — the highest case
+   * number so far, say — where parsing the documents to reach it is the whole
+   * cost.
+   */
+  columnValues(db: DatabaseSync, column: string): string[];
+  find(db: DatabaseSync, id: string): T | null;
+  /** The stored version alongside it, for an optimistic write. */
+  findWithVersion(db: DatabaseSync, id: string): { doc: T; version: number } | null;
+  save(db: DatabaseSync, doc: T, expectedVersion?: number | null): WriteOutcome;
+  replaceAll(db: DatabaseSync, docs: T[]): void;
+  remove(db: DatabaseSync, id: string): void;
+}
+
+export function documents<T>(table: DocTable): Documents<T> {
+  const asDoc = (doc: T) => doc as unknown as Record<string, unknown>;
+
+  return {
+    all: (db) => readDocs(db, table) as unknown as T[],
+    where: (db, criteria) => {
+      const columns = Object.keys(criteria);
+      if (columns.length === 0) return readDocs(db, table) as unknown as T[];
+      /*
+        Column names are interpolated, values are bound. The names come from
+        this file's own table definitions and never from a request; the values
+        are the ones that could carry anything, and they go through the driver.
+      */
+      const clause = columns.map((column) => `${column} = ?`).join(' AND ');
+      const rows = db
+        .prepare(`SELECT doc FROM ${table.name} WHERE ${clause}`)
+        .all(...columns.map((column) => criteria[column])) as { doc: string }[];
+      return rows.map((row) => JSON.parse(row.doc)) as T[];
+    },
+    columnValues: (db, column) =>
+      (db.prepare(`SELECT ${column} AS value FROM ${table.name}`).all() as { value: string }[]).map(
+        (row) => String(row.value ?? ''),
+      ),
+    find: (db, id) => {
+      const stored = readDoc(db, table, id);
+      return stored ? (stored.doc as unknown as T) : null;
+    },
+    findWithVersion: (db, id) => {
+      const stored = readDoc(db, table, id);
+      return stored ? { doc: stored.doc as unknown as T, version: stored.version } : null;
+    },
+    save: (db, doc, expectedVersion = null) => writeDoc(db, table, asDoc(doc), expectedVersion),
+    replaceAll: (db, docs) => writeDocs(db, table, docs.map(asDoc)),
+    remove: (db, id) => deleteDoc(db, table, id),
+  };
 }

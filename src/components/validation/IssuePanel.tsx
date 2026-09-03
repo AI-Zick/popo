@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/cn';
 import { useStore } from '@/state/store';
 import { SECTION_LABEL, SECTION_ORDER, type SectionId } from '@/domain/types';
-import type { Issue, Severity } from '@/validation/engine';
+import type { Issue } from '@/validation/engine';
 import { Button } from '@/components/ui/primitives';
 
 type Filter = 'all' | 'error' | 'warning';
@@ -273,20 +273,5 @@ function AllClear({ filter }: { filter: Filter }) {
       <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{body}</p>
     </div>
-  );
-}
-
-/** Small inline severity chip used in section headers. */
-export function SeverityChip({ severity, count }: { severity: Severity; count: number }) {
-  if (count === 0) return null;
-  return (
-    <span
-      className={cn(
-        'inline-flex min-w-4 items-center justify-center rounded px-1 text-[10.5px] font-bold tabular',
-        severity === 'error' ? 'bg-danger text-white' : 'bg-warn/25 text-warn',
-      )}
-    >
-      {count}
-    </span>
   );
 }

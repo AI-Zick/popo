@@ -324,11 +324,6 @@ export const METHOD_OF_ENTRY: CodeOption[] = [
   { value: 'N', label: 'No Force' },
 ];
 
-export const PREMISES_ENTERED: CodeOption[] = Array.from({ length: 50 }, (_, i) => ({
-  value: String(i + 1),
-  label: String(i + 1),
-}));
-
 export const SEX_CODES: CodeOption[] = [
   { value: 'M', label: 'Male' },
   { value: 'F', label: 'Female' },

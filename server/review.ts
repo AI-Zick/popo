@@ -9,24 +9,29 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { DOC_TABLES, readDoc, writeDoc } from './db';
+import { DOC_TABLES, documents } from './db';
+import { newId } from './ids';
 import { requireAuth } from './auth';
 import { recordAudit } from './audit';
 import { canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
 import type { Incident } from '../src/domain/types';
 
-function loadIncident(db: DatabaseSync, id: string): { doc: Incident; version: number } | null {
-  const stored = readDoc(db, DOC_TABLES.incidents, id);
-  return stored ? { doc: stored.doc as unknown as Incident, version: stored.version } : null;
-}
+export const incidents = documents<Incident>(DOC_TABLES.incidents);
 
-function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
-
-function event(action: ReviewEvent['action'], user: { id: string; name: string }, note = ''): ReviewEvent {
+/**
+ * One entry in a report's review history.
+ *
+ * Exported because crash reports and supplements move through the same review
+ * states and were each building this identically. The shape is the audit trail
+ * for who moved a document and when, and three copies of it is three chances
+ * for one to drift.
+ */
+export function reviewEvent(
+  action: ReviewEvent['action'],
+  user: { id: string; name: string },
+  note = '',
+): ReviewEvent {
   return {
     id: newId('rev'),
     action,
@@ -45,14 +50,14 @@ function event(action: ReviewEvent['action'], user: { id: string; name: string }
  * comma a second earlier. The content written is the content just read.
  */
 function save(db: DatabaseSync, doc: Incident): void {
-  writeDoc(db, DOC_TABLES.incidents, doc as unknown as Record<string, unknown>, null);
+  incidents.save(db, doc);
 }
 
 export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
   /** Officer sends the report up. */
   app.post('/api/reports/:id/submit', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const loaded = loadIncident(db, req.params.id);
+    const loaded = incidents.findWithVersion(db, req.params.id);
     if (!loaded) {
       res.status(404).json({ error: 'No such report.' });
       return;
@@ -71,7 +76,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       // Recorded on first submission so review can tell whose report it is.
       createdBy: loaded.doc.createdBy || user.id,
       returnedReason: '',
-      reviewHistory: [...(loaded.doc.reviewHistory ?? []), event('submitted', user)],
+      reviewHistory: [...(loaded.doc.reviewHistory ?? []), reviewEvent('submitted', user)],
       updatedAt: new Date().toISOString(),
     };
     save(db, doc);
@@ -88,7 +93,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
 
   app.post('/api/reports/:id/approve', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const loaded = loadIncident(db, req.params.id);
+    const loaded = incidents.findWithVersion(db, req.params.id);
     if (!loaded) {
       res.status(404).json({ error: 'No such report.' });
       return;
@@ -107,7 +112,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       reviewedBy: user.name,
       reviewedAt: new Date().toISOString(),
       returnedReason: '',
-      reviewHistory: [...(loaded.doc.reviewHistory ?? []), event('approved', user, note)],
+      reviewHistory: [...(loaded.doc.reviewHistory ?? []), reviewEvent('approved', user, note)],
       updatedAt: new Date().toISOString(),
     };
     save(db, doc);
@@ -129,7 +134,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
    */
   app.post('/api/reports/:id/return', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const loaded = loadIncident(db, req.params.id);
+    const loaded = incidents.findWithVersion(db, req.params.id);
     if (!loaded) {
       res.status(404).json({ error: 'No such report.' });
       return;
@@ -171,7 +176,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       returnedReason: reason,
       // Previous rounds' comments are kept; the officer sees the whole history.
       reviewComments: [...(loaded.doc.reviewComments ?? []), ...comments],
-      reviewHistory: [...(loaded.doc.reviewHistory ?? []), event('returned', user, reason)],
+      reviewHistory: [...(loaded.doc.reviewHistory ?? []), reviewEvent('returned', user, reason)],
       updatedAt: new Date().toISOString(),
     };
     save(db, doc);
@@ -189,7 +194,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
   /** Puts an approved report back into the officer's hands for correction. */
   app.post('/api/reports/:id/reopen', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
-    const loaded = loadIncident(db, req.params.id);
+    const loaded = incidents.findWithVersion(db, req.params.id);
     if (!loaded) {
       res.status(404).json({ error: 'No such report.' });
       return;
@@ -211,7 +216,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       ...loaded.doc,
       status: 'returned',
       returnedReason: reason,
-      reviewHistory: [...(loaded.doc.reviewHistory ?? []), event('reopened', user, reason)],
+      reviewHistory: [...(loaded.doc.reviewHistory ?? []), reviewEvent('reopened', user, reason)],
       updatedAt: new Date().toISOString(),
     };
     save(db, doc);
@@ -228,7 +233,7 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
 
   /** Officer marks one of the supervisor's notes as dealt with. */
   app.post('/api/reports/:id/comments/:commentId/resolve', requireAuth, (req: Request, res: Response) => {
-    const loaded = loadIncident(db, req.params.id);
+    const loaded = incidents.findWithVersion(db, req.params.id);
     if (!loaded) {
       res.status(404).json({ error: 'No such report.' });
       return;

@@ -3,8 +3,10 @@ import { Download, Loader2, Send, TriangleAlert, Users } from 'lucide-react';
 import { useStore } from '@/state/store';
 import {
   IMPACT_LABEL,
+  IMPACT_TONE,
   KIND_LABEL,
   STATUS_LABEL,
+  STATUS_TONE,
   triage,
   type Feedback,
   type FeedbackStatus,
@@ -124,16 +126,6 @@ export function FeedbackQueue() {
     </Panel>
   );
 }
-
-const STATUS_TONE = {
-  new: 'neutral',
-  reading: 'accent',
-  planned: 'accent',
-  shipped: 'ok',
-  declined: 'neutral',
-} as const;
-
-const IMPACT_TONE = { blocked: 'danger', workaround: 'warn', annoyance: 'neutral' } as const;
 
 function QueueItem({
   item,
