@@ -13,6 +13,7 @@ import {
 } from '@/domain/feedback';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
+import { DEMO } from '@/state/api';
 
 /**
  * What officers have said, in the order it is worth reading.
@@ -80,8 +81,10 @@ export function FeedbackQueue() {
           ))}
         </div>
         <span className="flex-1" />
+        {/* The demo viewer cannot hand anyone a file, and the demo has no
+            feedback to hand over in any case. */}
         {mayAnswer && (
-          <Button size="sm" onClick={exportAll} disabled={feedback.length === 0}>
+          <Button size="sm" onClick={exportAll} disabled={DEMO || feedback.length === 0}>
             <Download size={13} aria-hidden />
             Export all
           </Button>

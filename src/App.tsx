@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { cn } from '@/lib/cn';
 import { Loader2, ServerCrash } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { Dashboard } from '@/features/dashboard/Dashboard';
@@ -9,6 +10,8 @@ import { SendFeedback } from '@/features/feedback/SendFeedback';
 import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
+import { DEMO } from '@/state/api';
+import { DemoBar } from '@/features/demo/DemoBar';
 
 /*
   Split off the screens nobody lands on.
@@ -100,7 +103,14 @@ export default function App() {
   if (mustChangePassword) return <ChangePassword />;
 
   return (
-    <div className="h-full">
+    <div className={cn('h-full', DEMO && 'flex flex-col')}>
+      {/*
+        Only in the published demo. It says what this is and lets a tester
+        become somebody else, which is how the separation-of-duties rules
+        become visible rather than merely enforced.
+      */}
+      {DEMO && <DemoBar />}
+
       {/* Reachable from every screen, because searching is not a screen. */}
       <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
@@ -112,6 +122,7 @@ export default function App() {
       <FeedbackButton onClick={() => setFeedbackOpen(true)} />
       <SendFeedback open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
+      <div className={cn(DEMO ? 'min-h-0 flex-1' : 'h-full')}>
       {setupOpen && !incident ? (
         <Suspense fallback={<ScreenLoading />}>
           <AgencySetup onClose={() => setSetupOpen(false)} />
@@ -138,6 +149,7 @@ export default function App() {
       ) : (
         <Dashboard onOpenSetup={() => setSetupOpen(true)} />
       )}
+      </div>
     </div>
   );
 }

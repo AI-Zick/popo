@@ -23,6 +23,7 @@ import {
 import { freshnessTone } from '@/domain/freshness';
 import { SOURCE_LABEL } from '@/domain/person';
 import { Badge, Button } from '@/components/ui/primitives';
+import { photoUrl } from '@/lib/assetUrl';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -138,7 +139,7 @@ function Thumbnail({ photo }: { photo: PersonPhoto }) {
   return (
     <li className="w-[104px]">
       <img
-        src={`/api/photos/${photo.id}/file`}
+        src={photoUrl(photo.id)}
         alt={photo.caption || PHOTO_KIND_LABEL[photo.kind]}
         loading="lazy"
         className={cn(
@@ -312,7 +313,7 @@ function PhotoCard({
       )}
     >
       <img
-        src={`/api/photos/${photo.id}/file`}
+        src={photoUrl(photo.id)}
         alt={photo.caption || PHOTO_KIND_LABEL[photo.kind]}
         loading="lazy"
         className="h-[132px] w-[100px] shrink-0 rounded-lg border border-line bg-raised object-cover"

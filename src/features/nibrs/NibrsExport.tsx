@@ -16,6 +16,7 @@ import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
+import { DEMO } from '@/state/api';
 
 /**
  * The state submission.
@@ -61,13 +62,15 @@ export function NibrsExport() {
   const filename = exportFilename(agency, new Date(), profile);
 
   const download = () => {
-    const blob = new Blob([result.content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
+    if (!DEMO) {
+      const blob = new Blob([result.content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
     setDownloaded(true);
 
     record({
@@ -119,17 +122,36 @@ export function NibrsExport() {
         )}
 
         <div className="mt-4 flex items-center gap-3">
+          {/*
+            The demo cannot hand anyone a file — the viewer it runs in does not
+            allow it — so it shows the submission instead. That is arguably the
+            better demonstration anyway: the thing worth looking at is the
+            fixed-width output, and a file in somebody's downloads folder is a
+            file they have to go and open.
+          */}
           <Button variant="primary" onClick={download} disabled={result.included.length === 0}>
             <Download size={15} aria-hidden />
-            Download {filename}
+            {DEMO ? `Show ${filename}` : `Download ${filename}`}
           </Button>
-          {downloaded && (
+          {downloaded && !DEMO && (
             <span className="flex items-center gap-1.5 text-[12.5px] text-ok">
               <CheckCircle2 size={14} aria-hidden />
               Saved. The download is recorded in the audit log.
             </span>
           )}
         </div>
+
+        {downloaded && DEMO && (
+          <div className="mt-3 rounded-lg border border-line bg-canvas p-3">
+            <p className="mb-2 text-[12px] text-muted">
+              What would be submitted. Every column is at a fixed offset — one character out of
+              place and the state rejects the batch.
+            </p>
+            <pre className="max-h-80 overflow-auto whitespace-pre font-mono text-[11px] leading-relaxed text-ink">
+              {result.content}
+            </pre>
+          </div>
+        )}
 
         {/*
           Said plainly and on the screen rather than buried in a manual: the

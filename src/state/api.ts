@@ -82,7 +82,39 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * True in the published demo build, false in the real app.
+ *
+ * The one switch. Everything below it talks to an in-browser stand-in instead
+ * of a server; nothing above it knows the difference, which is the point —
+ * the screens a tester clicks are the screens, not a mock-up of them.
+ */
+export const DEMO = import.meta.env.VITE_DEMO === '1';
+
+async function demoRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const { handle } = await import('@/state/demo/router');
+  const body = init.body ? (JSON.parse(String(init.body)) as unknown) : undefined;
+  const reply = await handle(init.method ?? 'GET', path, body);
+  if (reply.status >= 400) {
+    throw new ApiError(
+      (reply.body as { error?: string } | null)?.error ?? `Request failed (${reply.status}).`,
+      reply.status,
+    );
+  }
+  /*
+    Copied on the way out, because a real response always is.
+
+    Without this the demo hands back the live arrays it is holding, and the
+    client ends up sharing objects with the store behind it — a list the client
+    appends to grows twice, once from its own update and once because the array
+    it copied was the same array. Serialising is not a formality of HTTP; it is
+    the boundary, and the demo has to have it too.
+  */
+  return structuredClone(reply.body) as T;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (DEMO) return demoRequest<T>(path, init);
   let response: Response;
   try {
     response = await fetch(path, {
@@ -253,6 +285,10 @@ export const api = {
     file: File,
     details: { takenOn: string; kind: string; caption: string },
   ): Promise<{ photo: PersonPhoto }> {
+    if (DEMO) {
+      const { addPhoto } = await import('@/state/demo/uploads');
+      return { photo: await addPhoto(masterId, file, details) };
+    }
     const form = new FormData();
     form.append('file', file);
     form.append('takenOn', details.takenOn);
@@ -567,6 +603,10 @@ export const api = {
     file: File,
     caption: string,
   ): Promise<{ attachment: Attachment }> {
+    if (DEMO) {
+      const { addAttachment } = await import('@/state/demo/uploads');
+      return { attachment: (await addAttachment(incidentId, file, caption)) as Attachment };
+    }
     const form = new FormData();
     form.append('file', file);
     form.append('incidentId', incidentId);

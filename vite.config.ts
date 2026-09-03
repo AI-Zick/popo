@@ -8,6 +8,14 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
   version: string;
 };
 
+/*
+  The published demo is one HTML file with everything inside it, because that
+  is what an artifact host can serve — no second request is possible, so no
+  chunk may be separate. Chunking is a production concern anyway: the demo is
+  opened once by somebody being shown it, not every morning by a department.
+*/
+const DEMO = process.env.VITE_DEMO === '1';
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   /*
@@ -20,6 +28,11 @@ export default defineConfig({
   },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   build: {
+    // Inlined into the single file below, so a separate map would be a dead
+    // link and a copy of the source nobody asked to publish.
+    sourcemap: false,
+    assetsInlineLimit: DEMO ? 100_000_000 : 4096,
+    cssCodeSplit: !DEMO,
     rollupOptions: {
       output: {
         /*
@@ -29,10 +42,14 @@ export default defineConfig({
           a department opening this every morning re-downloads what actually
           changed rather than all of it.
         */
-        manualChunks: {
-          react: ['react', 'react-dom', 'react-dom/client'],
-          icons: ['lucide-react'],
-        },
+        ...(DEMO
+          ? { inlineDynamicImports: true, manualChunks: undefined }
+          : {
+              manualChunks: {
+                react: ['react', 'react-dom', 'react-dom/client'],
+                icons: ['lucide-react'],
+              },
+            }),
       },
     },
   },

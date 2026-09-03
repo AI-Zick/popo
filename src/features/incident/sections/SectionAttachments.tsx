@@ -15,6 +15,7 @@ import type { Attachment } from '@/state/api';
 import { Badge, Button, EmptyState, SectionAnchor } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { attachmentUrl } from '@/lib/assetUrl';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -188,13 +189,13 @@ function AttachmentCard({
         {isImage ? (
           // Opening the file is itself an access event, and the server logs it.
           <a
-            href={`/api/attachments/${attachment.id}/file`}
+            href={attachmentUrl(attachment.id)}
             target="_blank"
             rel="noreferrer"
             className="shrink-0"
           >
             <img
-              src={`/api/attachments/${attachment.id}/file`}
+              src={attachmentUrl(attachment.id)}
               alt={attachment.caption || attachment.filename}
               className="size-16 rounded-lg border border-line object-cover"
             />
@@ -208,7 +209,7 @@ function AttachmentCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <a
-              href={`/api/attachments/${attachment.id}/file`}
+              href={attachmentUrl(attachment.id)}
               target="_blank"
               rel="noreferrer"
               className="truncate text-[13.5px] font-medium text-ink hover:underline"
