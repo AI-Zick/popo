@@ -24,6 +24,7 @@ import { registerStopRoutes } from './stops';
 import { registerCrashRoutes } from './crashes';
 import { registerMigrationRoutes } from './migration';
 import { registerFeedbackRoutes, startFeedbackSweep } from './feedback';
+import { registerEvidenceRoutes } from './evidence';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -413,6 +414,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerStopRoutes(app, db);
   registerCrashRoutes(app, db);
   registerMigrationRoutes(app, db);
+  registerEvidenceRoutes(app, db);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

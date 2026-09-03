@@ -311,7 +311,7 @@ export function custodyState(chain: CustodyEntry[]): CustodyState {
 
   return {
     status,
-    holder: closed || status === 'signedOut' || status === 'inField' ? holderOf(at) : '',
+    holder: holderFor(status, at),
     // A shelf check confirms the location, so let it refresh what is shown.
     location: lastLocation(chain) || at.location,
     since: at.at,
@@ -319,7 +319,15 @@ export function custodyState(chain: CustodyEntry[]): CustodyState {
   };
 }
 
-function holderOf(entry: CustodyEntry): string {
+/**
+ * Who has it, where that is a meaningful question.
+ *
+ * Nobody has a destroyed item, and naming the clerk who signed the order as
+ * its holder reads as though they took it home. Released is different: who
+ * took it is exactly what a released item's record is for.
+ */
+function holderFor(status: CustodyStatus, entry: CustodyEntry): string {
+  if (status === 'destroyed' || status === 'inStorage' || status === 'uncollected') return '';
   return entry.toName || entry.actorName;
 }
 

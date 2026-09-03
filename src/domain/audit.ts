@@ -51,6 +51,10 @@ export type AuditAction =
   | 'crash.approved'
   | 'crash.returned'
   | 'crash.reopened'
+  | 'evidence.booked'
+  | 'evidence.released'
+  | 'evidence.destroyed'
+  | 'evidence.holdChanged'
   | 'feedback.sent'
   | 'feedback.answered'
   | 'feedback.forwarded'
@@ -92,6 +96,10 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'crash.approved': 'Crash report approved',
   'crash.returned': 'Crash report returned',
   'crash.reopened': 'Crash report reopened',
+  'evidence.booked': 'Evidence booked in',
+  'evidence.released': 'Evidence released',
+  'evidence.destroyed': 'Evidence destroyed',
+  'evidence.holdChanged': 'Evidence hold placed or lifted',
   'feedback.sent': 'Feedback sent to the vendor',
   'feedback.answered': 'Feedback answered',
   'feedback.forwarded': 'Feedback re-sent to the vendor',
@@ -122,6 +130,11 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'supplement.returned',
   'supplement.reopened',
   'migration.imported',
+  // A thing leaving the property room is irreversible and is the event an
+  // audit of the room actually asks about.
+  'evidence.released',
+  'evidence.destroyed',
+  'evidence.holdChanged',
   // Text authored inside the agency leaving it is an access event, whatever
   // the intent — the same reason a narrative sent for reading is on this list.
   'feedback.sent',

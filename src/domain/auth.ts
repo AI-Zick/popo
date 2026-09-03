@@ -53,6 +53,15 @@ export type Permission =
   /** Stand up a new customer agency and its first administrator. */
   | 'agency.provision'
   /**
+   * Property-room duties: move an item, check the shelf, release it, destroy it.
+   *
+   * Separate from writing reports because it is a separate job. Any officer
+   * seizes property and signs it in or out — that is police work. Deciding
+   * where an item lives and when it leaves for good belongs to the property
+   * clerk, and an agency that gives that to everyone has no property room.
+   */
+  | 'evidence.manage'
+  /**
    * Read the audit log. Deliberately separate from account management — the
    * people who review access are not always the people who grant it, and an
    * internal affairs or records reviewer needs this without the ability to
@@ -69,6 +78,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'reports.approve': 'Approve reports',
   'users.manage': 'Create and manage accounts',
   'agency.provision': 'Provision new agencies',
+  'evidence.manage': 'Run the property room',
   'audit.view': 'Read the audit log',
 };
 
@@ -80,9 +90,17 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.retract',
     'notes.viewRetracted',
     'reports.approve',
+    'evidence.manage',
     'audit.view',
   ],
-  records: ['notes.add', 'notes.viewRestricted', 'notes.retract', 'notes.viewRetracted', 'audit.view'],
+  records: [
+    'notes.add',
+    'notes.viewRestricted',
+    'notes.retract',
+    'notes.viewRetracted',
+    'evidence.manage',
+    'audit.view',
+  ],
   admin: [
     'notes.add',
     'notes.viewRestricted',
@@ -91,6 +109,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'agency.configure',
     'reports.approve',
     'users.manage',
+    'evidence.manage',
     'audit.view',
   ],
   vendor: [
@@ -102,6 +121,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'reports.approve',
     'users.manage',
     'agency.provision',
+    'evidence.manage',
     'audit.view',
   ],
 };

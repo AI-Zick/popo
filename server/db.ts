@@ -196,6 +196,36 @@ CREATE INDEX IF NOT EXISTS feedback_status ON feedback(status, at);
 -- One person's own items, for the per-day limit on submitting.
 CREATE INDEX IF NOT EXISTS feedback_submitter ON feedback(submitted_by, at);
 
+-- Physical custody of a thing, from the scene to the shelf to its disposal.
+-- Distinct from the property listed on a report, which is the NIBRS view of
+-- what was taken; this is the object itself.
+CREATE TABLE IF NOT EXISTS evidence (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  tag_number  TEXT NOT NULL DEFAULT '',
+  case_id     TEXT NOT NULL DEFAULT '',
+  category    TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS evidence_tag ON evidence(tag_number);
+CREATE INDEX IF NOT EXISTS evidence_case ON evidence(case_id);
+
+-- The chain of custody. Its own table rather than a document table, because a
+-- document table can be updated and this must not be: every row is appended,
+-- hashed against the one before it, and never touched again. A correction is a
+-- new row that says what was actually true.
+CREATE TABLE IF NOT EXISTS custody (
+  id        TEXT PRIMARY KEY,
+  item_id   TEXT NOT NULL,
+  at        TEXT NOT NULL,
+  seq       INTEGER NOT NULL,
+  doc       TEXT NOT NULL
+);
+-- Ordered by seq, not by time: the hash chain has one true order, and a
+-- back-dated correction must not be read out of the position it was written in.
+CREATE UNIQUE INDEX IF NOT EXISTS custody_item_seq ON custody(item_id, seq);
+
 -- Advisory only. A lock says "somebody is in here" so two officers do not
 -- unknowingly work the same report; it does not prevent a write, because a
 -- lock that cannot be broken becomes a lock nobody can clear at 3am when its
@@ -231,7 +261,8 @@ export interface DocTable {
     | 'stops'
     | 'crashes'
     | 'returns'
-    | 'feedback';
+    | 'feedback'
+    | 'evidence';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -283,6 +314,14 @@ export const DOC_TABLES: Record<string, DocTable> = {
       last_name: String(doc.lastName ?? ''),
       first_name: String(doc.firstName ?? ''),
       dob: String(doc.dob ?? ''),
+    }),
+  },
+  evidence: {
+    name: 'evidence',
+    columns: (doc) => ({
+      tag_number: String(doc.tagNumber ?? ''),
+      case_id: String(doc.caseId ?? ''),
+      category: String(doc.category ?? ''),
     }),
   },
   feedback: {

@@ -17,6 +17,26 @@ import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
 import type { Feedback, FeedbackDraft } from '@/domain/feedback';
+import type {
+  CustodyEntry,
+  CustodyState,
+  EvidenceItem,
+  Finding as EvidenceFinding,
+} from '@/domain/evidence';
+import type { ChainStatus as CustodyStatus } from '@/domain/chain';
+
+/** An item plus everything a list needs, computed on the server. */
+export interface EvidenceSummary {
+  item: EvidenceItem;
+  state: CustodyState;
+  entries: number;
+  findings: EvidenceFinding[];
+}
+
+export interface EvidenceDetail extends EvidenceSummary {
+  chain: CustodyEntry[];
+  integrity: CustodyStatus;
+}
 
 export type Collection = 'incidents' | 'people' | 'locations';
 
@@ -139,6 +159,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ kind, rows }),
     });
+  },
+
+  /* ---- Property and evidence ---------------------------------------- */
+
+  evidence(): Promise<{ evidence: EvidenceSummary[] }> {
+    return request('/api/evidence');
+  },
+
+  evidenceItem(id: string): Promise<EvidenceDetail> {
+    return request(`/api/evidence/${id}`);
+  },
+
+  bookEvidence(input: Record<string, string>): Promise<{
+    item: EvidenceItem;
+    chain: CustodyEntry[];
+    state: CustodyState;
+  }> {
+    return request('/api/evidence', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  recordCustody(
+    id: string,
+    input: Record<string, string>,
+  ): Promise<{ entry: CustodyEntry; chain: CustodyEntry[]; state: CustodyState }> {
+    return request(`/api/evidence/${id}/custody`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  updateEvidence(id: string, patch: Partial<EvidenceItem>): Promise<{ item: EvidenceItem }> {
+    return request(`/api/evidence/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  witnesses(): Promise<{ witnesses: { id: string; name: string; badge: string }[] }> {
+    return request('/api/evidence/meta/witnesses');
   },
 
   /* ---- Feedback ----------------------------------------------------- */

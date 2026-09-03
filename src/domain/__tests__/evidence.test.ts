@@ -122,6 +122,32 @@ describe('the ledger is the record', () => {
     expect(custodyState(chain)).toMatchObject({ status: 'signedOut', holder: 'Circuit Court' });
   });
 
+  it('names who took a released item, and nobody for a destroyed one', async () => {
+    /*
+      "Who has it" is the right question for a released item and a meaningless
+      one for a destroyed item — naming the clerk who signed the order reads as
+      though they took it home.
+    */
+    const released = await chainOf(
+      collected,
+      booked,
+      draft({ action: 'released', at: daysBefore(1), toParty: 'owner', toName: 'D. Whitfield', reason: 'Returned' }),
+    );
+    expect(custodyState(released).holder).toBe('D. Whitfield');
+
+    const destroyed = await chainOf(
+      collected,
+      booked,
+      draft({ action: 'destroyed', at: daysBefore(1), toParty: 'destruction', reason: 'Court order' }),
+    );
+    expect(custodyState(destroyed).holder).toBe('');
+  });
+
+  it('does not name a holder for something sitting on a shelf', async () => {
+    // It is in the property room. The room is not a person.
+    expect(custodyState(await chainOf(collected, booked)).holder).toBe('');
+  });
+
   it('closes the chain once the item has gone for good', async () => {
     const chain = await chainOf(
       collected,

@@ -13,6 +13,7 @@ import { ActivityReportView } from '@/features/activity/ActivityReportView';
 import { StopLog } from '@/features/activity/StopLog';
 import { ImportWizard } from '@/features/migration/ImportWizard';
 import { FeedbackQueue } from '@/features/feedback/FeedbackQueue';
+import { PropertyRoom } from '@/features/evidence/PropertyRoom';
 import { cn } from '@/lib/cn';
 
 /**
@@ -28,6 +29,7 @@ type Tab =
   | 'activity'
   | 'stops'
   | 'import'
+  | 'evidence'
   | 'feedback';
 
 const SCREEN_NAME: Record<Tab, string> = {
@@ -38,6 +40,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   activity: 'Activity report',
   stops: 'Traffic stops',
   import: 'Import records',
+  evidence: 'Property room',
   feedback: 'Feedback',
 };
 
@@ -93,6 +96,13 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Import records
             </TabButton>
           )}
+          {/*
+            Open to every officer: seizing property and signing it in or out is
+            police work. What a clerk may do beyond that is gated inside.
+          */}
+          <TabButton active={tab === 'evidence'} onClick={() => setTab('evidence')}>
+            Property
+          </TabButton>
           <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
             Traffic stops
           </TabButton>
@@ -121,7 +131,9 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             'mx-auto space-y-4 px-6 py-6',
             // The import review shows whole rows from the old system side by
             // side. Three columns of that in 768px is unreadable.
-            tab === 'import' || tab === 'feedback' ? 'max-w-5xl' : 'max-w-3xl',
+            tab === 'import' || tab === 'feedback' || tab === 'evidence'
+              ? 'max-w-5xl'
+              : 'max-w-3xl',
           )}
         >
           {tab === 'accounts' && mayManageUsers && <UserAdmin />}
@@ -130,6 +142,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'stops' && <StopLog />}
           {tab === 'activity' && <ActivityReportView />}
           {tab === 'import' && mayConfigure && <ImportWizard />}
+          {tab === 'evidence' && <PropertyRoom />}
           {tab === 'feedback' && <FeedbackQueue />}
 
           {tab === 'jurisdiction' && mayConfigure && (

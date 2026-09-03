@@ -61,7 +61,16 @@ import { createSession, touchSession, type Session, type SignInOutcome } from '@
 import { isEditable, unresolvedComments } from '@/domain/review';
 import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
 import type { Feedback, FeedbackDraft, FeedbackStatus } from '@/domain/feedback';
-import { api, ApiError, type Attachment, type Collection, type LockHolder } from './api';
+import type { EvidenceItem } from '@/domain/evidence';
+import {
+  api,
+  ApiError,
+  type Attachment,
+  type Collection,
+  type EvidenceDetail,
+  type EvidenceSummary,
+  type LockHolder,
+} from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { profileFor, stateRules } from '@/domain/nibrs';
@@ -250,6 +259,22 @@ interface StoreValue {
   saveStop: (id: string, patch: Partial<TrafficStop>) => Promise<GuardResult>;
   removeStop: (id: string) => Promise<GuardResult>;
 
+  /* ---- Property and evidence --------------------------------------- */
+  /**
+   * Every item the property room holds, with where it is.
+   *
+   * The state and the findings are computed on the server from each item's
+   * ledger, not here: three clients working out where a thing is from the same
+   * entries would be three chances to disagree, and the one question this
+   * module exists to answer is where a thing is.
+   */
+  evidence: EvidenceSummary[];
+  bookEvidence: (input: Record<string, string>) => Promise<GuardResult & { tagNumber?: string }>;
+  recordCustody: (id: string, input: Record<string, string>) => Promise<GuardResult>;
+  updateEvidence: (id: string, patch: Partial<EvidenceItem>) => Promise<GuardResult>;
+  /** One item's whole chain, fetched when somebody opens it. */
+  loadEvidence: (id: string) => Promise<EvidenceDetail | null>;
+
   /* ---- Feedback ---------------------------------------------------- */
   /**
    * Everything anyone in this agency has sent the vendor.
@@ -392,6 +417,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
   const [users, setUsers] = useState<User[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [evidence, setEvidence] = useState<EvidenceSummary[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [feedbackForwarding, setFeedbackForwarding] = useState(false);
 
@@ -515,6 +541,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       report screen ever needs, and a failure here — an older server without
       the endpoint, say — must not take the whole app down with it.
     */
+    void api
+      .evidence()
+      .then(({ evidence: items }) => setEvidence(items))
+      .catch(() => setEvidence([]));
     void api
       .feedback()
       .then(({ feedback: items, forwarding }) => {
@@ -1120,6 +1150,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [returns, activeCrashId, markCrashDirty],
   );
+
+  /* ------------------------------------------------- evidence ----------- */
+
+  /** Re-reads the list so derived state comes back from one place. */
+  const refreshEvidence = useCallback(async () => {
+    try {
+      const { evidence: items } = await api.evidence();
+      setEvidence(items);
+    } catch {
+      /* Leave what is on screen; the next action will report the real error. */
+    }
+  }, []);
+
+  const bookEvidence = useCallback(
+    async (input: Record<string, string>): Promise<GuardResult & { tagNumber?: string }> => {
+      try {
+        const { item } = await api.bookEvidence(input);
+        await refreshEvidence();
+        return { ok: true, tagNumber: item.tagNumber };
+      } catch (error) {
+        return failed(error, 'Could not book it in.');
+      }
+    },
+    [refreshEvidence],
+  );
+
+  const recordCustody = useCallback(
+    async (id: string, input: Record<string, string>): Promise<GuardResult> => {
+      try {
+        await api.recordCustody(id, input);
+        await refreshEvidence();
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not record it.');
+      }
+    },
+    [refreshEvidence],
+  );
+
+  const updateEvidence = useCallback(
+    async (id: string, patch: Partial<EvidenceItem>): Promise<GuardResult> => {
+      try {
+        await api.updateEvidence(id, patch);
+        await refreshEvidence();
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not save it.');
+      }
+    },
+    [refreshEvidence],
+  );
+
+  const loadEvidence = useCallback(async (id: string): Promise<EvidenceDetail | null> => {
+    try {
+      return await api.evidenceItem(id);
+    } catch {
+      return null;
+    }
+  }, []);
 
   /* ------------------------------------------------- feedback ----------- */
 
@@ -2346,6 +2435,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     logStop,
     saveStop,
     removeStop,
+
+    evidence,
+    bookEvidence,
+    recordCustody,
+    updateEvidence,
+    loadEvidence,
 
     feedback,
     feedbackForwarding,
