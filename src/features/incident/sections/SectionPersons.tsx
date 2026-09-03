@@ -33,6 +33,7 @@ import {
   useFieldIssues,
 } from '@/components/ui/fields';
 import { AddExistingPersonButton } from '@/components/person/PersonPicker';
+import { PersonPhotos } from '@/components/person/PersonPhotos';
 import { AutoLinkNotice, DuplicateCandidates } from '@/components/person/DuplicateCandidates';
 import {
   ARREST_TYPES,
@@ -397,6 +398,15 @@ function PersonCard({ person, index }: { person: Person; index: number }) {
             onChange={(v) => setLink({ description: v })}
           />
         </div>
+      )}
+
+      {/*
+        Photographs live on the identity, not the report — a face outlives the
+        case it was taken on, and the officer who needs it next is on a
+        different one.
+      */}
+      {!person.isUnknown && !isOrgVictim && (
+        <PersonPhotos masterId={person.masterId} personName={displayName(person)} />
       )}
 
       {/* ---- Arrest detail ---------------------------------------------- */}

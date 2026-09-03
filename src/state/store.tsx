@@ -85,6 +85,12 @@ import {
   type CrashUnit,
 } from '@/domain/crash';
 import {
+  currentPhoto,
+  pendingRemovals,
+  photosFor,
+  type PersonPhoto,
+} from '@/domain/photo';
+import {
   describeTasks,
   sortTasks,
   type CaseTask,
@@ -284,6 +290,22 @@ interface StoreValue {
   editTask: (id: string, patch: Partial<CaseTask>) => Promise<GuardResult>;
   removeTask: (id: string) => Promise<GuardResult>;
 
+  /* ---- Photographs --------------------------------------------------- */
+  photos: PersonPhoto[];
+  /** Every photograph of one person, newest likeness first. */
+  photosOf: (masterId: string) => PersonPhoto[];
+  /** The one to put on the record, or null. */
+  faceOf: (masterId: string) => PersonPhoto | null;
+  /** Takedown requests waiting on somebody with the authority. */
+  photoRequests: PersonPhoto[];
+  addPhoto: (
+    masterId: string,
+    file: File,
+    details: { takenOn: string; kind: string; caption: string },
+  ) => Promise<GuardResult>;
+  requestPhotoRemoval: (id: string, reason: string) => Promise<GuardResult>;
+  decidePhoto: (id: string, remove: boolean, note: string) => Promise<GuardResult>;
+
   /* ---- Inbound data ------------------------------------------------- */
   /** Everything CAD, the MDT and the registries have sent. */
   returns: QueryReturn[];
@@ -459,6 +481,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [returns, setReturns] = useState<QueryReturn[]>([]);
   const [arrests, setArrests] = useState<Arrest[]>([]);
   const [caseTasks, setCaseTasks] = useState<CaseTask[]>([]);
+  const [photos, setPhotos] = useState<PersonPhoto[]>([]);
   const [activeCrashId, setActiveCrashId] = useState<string | null>(null);
   const [activeArrestId, setActiveArrestId] = useState<string | null>(null);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
@@ -584,6 +607,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setReturns(state.returns ?? []);
     setArrests(state.arrests ?? []);
     setCaseTasks(state.caseTasks ?? []);
+    setPhotos(state.photos ?? []);
     setPeople(state.people);
     setLocations(state.locations);
     setUsers(state.users);
@@ -1285,6 +1309,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return failed(error, 'Could not remove it.');
     }
   }, []);
+
+  /* -------------------------------------------------- photographs ------- */
+
+  const photosOf = useCallback((masterId: string) => photosFor(photos, masterId), [photos]);
+
+  const faceOf = useCallback(
+    (masterId: string) => currentPhoto(photos.filter((p) => p.masterId === masterId)),
+    [photos],
+  );
+
+  const photoRequests = useMemo(() => pendingRemovals(photos), [photos]);
+
+  /** Replaces one photograph with whatever the server says it now is. */
+  const replacePhoto = useCallback((photo: PersonPhoto) => {
+    setPhotos((prev) => prev.map((p) => (p.id === photo.id ? photo : p)));
+  }, []);
+
+  const addPhoto = useCallback(
+    async (
+      masterId: string,
+      file: File,
+      details: { takenOn: string; kind: string; caption: string },
+    ): Promise<GuardResult> => {
+      try {
+        const { photo } = await api.addPhoto(masterId, file, details);
+        setPhotos((prev) => [...prev, photo]);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'The photograph was not accepted.');
+      }
+    },
+    [],
+  );
+
+  const requestPhotoRemoval = useCallback(
+    async (id: string, reason: string): Promise<GuardResult> => {
+      try {
+        const { photo } = await api.requestPhotoRemoval(id, reason);
+        replacePhoto(photo);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not send that.');
+      }
+    },
+    [replacePhoto],
+  );
+
+  const decidePhoto = useCallback(
+    async (id: string, remove: boolean, note: string): Promise<GuardResult> => {
+      try {
+        const { photo } = await api.decidePhoto(id, remove, note);
+        replacePhoto(photo);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'That did not work.');
+      }
+    },
+    [replacePhoto],
+  );
 
   /* -------------------------------------------------- inbound ----------- */
 
@@ -2715,6 +2798,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     returnArrest,
     reopenArrest,
     arrestsForCase,
+
+    photos,
+    photosOf,
+    faceOf,
+    photoRequests,
+    addPhoto,
+    requestPhotoRemoval,
+    decidePhoto,
 
     caseTasks,
     tasksForCase,

@@ -27,6 +27,7 @@ import { registerFeedbackRoutes, startFeedbackSweep } from './feedback';
 import { registerEvidenceRoutes } from './evidence';
 import { registerArrestRoutes } from './arrests';
 import { registerTaskRoutes } from './tasks';
+import { registerPhotoRoutes } from './photos';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -186,6 +187,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const returns = readDocsWithVersions(db, DOC_TABLES.returns);
     const arrests = readDocsWithVersions(db, DOC_TABLES.arrests);
     const caseTasks = readDocsWithVersions(db, DOC_TABLES.caseTasks);
+    const photos = readDocsWithVersions(db, DOC_TABLES.personPhotos);
 
     // Versions travel with the data so the client can send back what it saw.
     const versions: Record<string, number> = {};
@@ -201,6 +203,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       returns: returns.map((r) => r.doc),
       arrests: arrests.map((a) => a.doc),
       caseTasks: caseTasks.map((t) => t.doc),
+      photos: photos.map((p) => p.doc),
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
       versions,
@@ -423,6 +426,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerEvidenceRoutes(app, db);
   registerArrestRoutes(app, db);
   registerTaskRoutes(app, db);
+  registerPhotoRoutes(app, db, config.dataDir);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

@@ -33,6 +33,10 @@ export type AuditAction =
   | 'note.retracted'
   | 'note.restored'
   | 'note.restrictedViewed'
+  | 'photo.added'
+  | 'photo.removalRequested'
+  | 'photo.removed'
+  | 'photo.kept'
   | 'attachment.added'
   | 'attachment.viewed'
   | 'attachment.retracted'
@@ -83,6 +87,10 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'note.retracted': 'Note withdrawn',
   'note.restored': 'Note restored',
   'note.restrictedViewed': 'Restricted note viewed',
+  'photo.added': 'Photograph added to a person',
+  'photo.removalRequested': 'Photograph takedown asked for',
+  'photo.removed': 'Photograph taken down',
+  'photo.kept': 'Photograph takedown refused',
   'attachment.added': 'Attachment added',
   'attachment.viewed': 'Attachment opened',
   'attachment.retracted': 'Attachment withdrawn',
@@ -125,6 +133,7 @@ export const SECURITY_ACTIONS: AuditAction[] = [
   'auth.signInFailed',
   'auth.lockout',
   'note.retracted',
+  'photo.removed',
   'note.restrictedViewed',
   'attachment.viewed',
   'attachment.retracted',

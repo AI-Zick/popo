@@ -12,6 +12,7 @@ import type { TrafficStop } from '@/domain/activity';
 import type { CrashReport } from '@/domain/crash';
 import type { Arrest, Problem as ArrestProblem } from '@/domain/arrest';
 import type { CaseTask } from '@/domain/caseTask';
+import type { PersonPhoto } from '@/domain/photo';
 import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
@@ -238,6 +239,48 @@ export const api = {
     return request(`/api/tasks/${id}`, { method: 'DELETE' });
   },
 
+  /* ---- Photographs of a person --------------------------------------- */
+
+  async addPhoto(
+    masterId: string,
+    file: File,
+    details: { takenOn: string; kind: string; caption: string },
+  ): Promise<{ photo: PersonPhoto }> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('takenOn', details.takenOn);
+    form.append('kind', details.kind);
+    form.append('caption', details.caption);
+    // No Content-Type header — the browser sets the multipart boundary.
+    const response = await fetch(`/api/people/${masterId}/photos`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new ApiError(
+        (body as { error?: string } | null)?.error ?? 'The photograph was not accepted.',
+        response.status,
+      );
+    }
+    return body as { photo: PersonPhoto };
+  },
+
+  requestPhotoRemoval(id: string, reason: string): Promise<{ photo: PersonPhoto }> {
+    return request(`/api/photos/${id}/request-removal`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  decidePhoto(id: string, remove: boolean, note: string): Promise<{ photo: PersonPhoto }> {
+    return request(`/api/photos/${id}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ remove, note }),
+    });
+  },
+
   /* ---- Feedback ----------------------------------------------------- */
 
   feedback(): Promise<{ feedback: Feedback[]; forwarding: boolean }> {
@@ -349,6 +392,7 @@ export const api = {
     returns: QueryReturn[];
     arrests: Arrest[];
     caseTasks: CaseTask[];
+    photos: PersonPhoto[];
     people: PersonIndex;
     locations: LocationIndex;
     agency: AgencyProfile | null;

@@ -27,6 +27,20 @@ export const FRESHNESS_DAYS = {
   stale: 3 * 365,
 } as const;
 
+/**
+ * The same scale, at a different speed.
+ *
+ * Not everything rots as fast as a phone number. A photograph of somebody's
+ * face is still a fair likeness long after their address has stopped being
+ * their address, and judging both on one set of numbers would either shout
+ * about every usable photograph or stay quiet about a four-year-old address.
+ */
+export interface Thresholds {
+  current: number;
+  aging: number;
+  stale: number;
+}
+
 export type FreshnessLevel = 'current' | 'aging' | 'stale' | 'ancient' | 'unknown';
 
 export interface Freshness {
@@ -47,7 +61,11 @@ const DAY = 86_400_000;
  * Deliberately vague past a few months. "Recorded 1,247 days ago" is precision
  * nobody needs; "3 years old" is the judgement they are actually making.
  */
-export function freshness(iso: string | undefined | null, now = Date.now()): Freshness {
+export function freshness(
+  iso: string | undefined | null,
+  now = Date.now(),
+  thresholds: Thresholds = FRESHNESS_DAYS,
+): Freshness {
   if (!iso) {
     // No date is not the same as new. A record migrated from a previous system
     // with no provenance could be twenty years old, and saying nothing invites
@@ -67,20 +85,15 @@ export function freshness(iso: string | undefined | null, now = Date.now()): Fre
 
   const days = Math.max(0, Math.floor((now - at) / DAY));
 
-  if (days <= FRESHNESS_DAYS.current) {
+  if (days <= thresholds.current) {
     return { level: 'current', days, label: recentLabel(days), worthChecking: false };
   }
-  if (days <= FRESHNESS_DAYS.aging) {
-    return {
-      level: 'aging',
-      days,
-      label: `${Math.round(days / 30)} months old`,
-      worthChecking: false,
-    };
+  if (days <= thresholds.aging) {
+    return { level: 'aging', days, label: agingLabel(days), worthChecking: false };
   }
 
   const years = Math.floor(days / 365);
-  if (days <= FRESHNESS_DAYS.stale) {
+  if (days <= thresholds.stale) {
     return {
       level: 'stale',
       days,
@@ -94,6 +107,18 @@ export function freshness(iso: string | undefined | null, now = Date.now()): Fre
     label: `${years} years old`,
     worthChecking: true,
   };
+}
+
+/**
+ * Between "fine" and "check this".
+ *
+ * Reads in months up to a couple of years and in years after that, because
+ * "31 months old" is arithmetic and "3 years old" is the judgement.
+ */
+function agingLabel(days: number): string {
+  if (days < 550) return `${Math.round(days / 30)} months old`;
+  const years = Math.round(days / 365);
+  return `${years} ${years === 1 ? 'year' : 'years'} old`;
 }
 
 function recentLabel(days: number): string {
@@ -117,9 +142,13 @@ export function freshnessTone(level: FreshnessLevel): 'ok' | 'neutral' | 'warn' 
 }
 
 /** Short parenthetical for print, where there is no room for a badge. */
-export function ageForPrint(iso: string | undefined | null, now = Date.now()): string {
-  const result = freshness(iso, now);
+export function ageForPrint(
+  iso: string | undefined | null,
+  now = Date.now(),
+  thresholds: Thresholds = FRESHNESS_DAYS,
+): string {
+  const result = freshness(iso, now, thresholds);
   if (result.level === 'unknown') return 'date unknown';
-  if (result.days !== null && result.days <= FRESHNESS_DAYS.current) return 'current';
+  if (result.days !== null && result.days <= thresholds.current) return 'current';
   return result.label.toLowerCase();
 }

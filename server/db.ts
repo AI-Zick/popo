@@ -216,6 +216,23 @@ CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
 -- One person's history at this agency, which is the other way it is read.
 CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
 
+-- Photographs of a person, hanging off the identity rather than a case: a face
+-- outlives the report it was taken on. Bytes live on disk beside the
+-- attachments, for the same reason.
+CREATE TABLE IF NOT EXISTS person_photos (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  master_id  TEXT NOT NULL DEFAULT '',
+  taken_on   TEXT NOT NULL DEFAULT '',
+  removal    TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+-- Every photograph of one person, newest likeness first.
+CREATE INDEX IF NOT EXISTS person_photos_master ON person_photos(master_id, taken_on);
+-- The takedown queue, which is read on its own.
+CREATE INDEX IF NOT EXISTS person_photos_removal ON person_photos(removal);
+
 -- What is left to do on a case. Deliberately not part of the report document:
 -- an approved report is locked, and "still waiting on the video" is exactly the
 -- item that outlives approval.
@@ -301,7 +318,8 @@ export interface DocTable {
     | 'feedback'
     | 'evidence'
     | 'arrests'
-    | 'case_tasks';
+    | 'case_tasks'
+    | 'person_photos';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -363,6 +381,14 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       status: String(doc.status ?? 'draft'),
       arrested_at: String(doc.arrestedAt ?? ''),
+    }),
+  },
+  personPhotos: {
+    name: 'person_photos',
+    columns: (doc) => ({
+      master_id: String(doc.masterId ?? ''),
+      taken_on: String(doc.takenOn ?? ''),
+      removal: String(doc.removal ?? ''),
     }),
   },
   caseTasks: {
