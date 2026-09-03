@@ -24,7 +24,9 @@ import { recordAudit } from './audit';
 import {
   DETAIL_MAX,
   SUMMARY_MAX,
+  dueForRetry,
   enforceRedaction,
+  signPayload,
   type Feedback,
   type FeedbackKind,
   type FeedbackStatus,
@@ -60,20 +62,33 @@ const text = (value: unknown, max: number): string => String(value ?? '').slice(
 /**
  * Sending it on to the vendor.
  *
- * Off unless `AEGIS_FEEDBACK_URL` is set, and deliberately so: this is the only
- * path in the system that posts agency-authored text to somewhere outside the
- * agency's network, and it should be a decision somebody made rather than a
- * default they inherited. `DEPLOYMENT.md` says what crosses the wire.
+ * On by default — see `vendor.ts` — because a channel every customer must
+ * configure before it works reports nothing from the agencies least likely to
+ * configure it. `DEPLOYMENT.md` says exactly what crosses the wire, and
+ * `AEGIS_FEEDBACK_URL=off` stops it.
  *
- * A failure is not an error the officer sees. Their feedback is saved either
- * way; it is marked unforwarded and can be re-sent from the queue.
+ * A failure is never an error the officer sees. Their feedback is saved either
+ * way, and the sweep below keeps trying.
  */
-async function forward(url: string, item: Feedback): Promise<boolean> {
+async function forward(
+  options: { forwardUrl: string; signingKey: string },
+  item: Feedback,
+): Promise<boolean> {
+  const body = JSON.stringify(item);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  // Shared with the receiver, so the two ends cannot drift apart.
+  const signature = await signPayload(options.signingKey, timestamp, body);
+
   try {
-    const response = await fetch(url, {
+    const response = await fetch(options.forwardUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(item),
+      headers: {
+        'content-type': 'application/json',
+        'x-aegis-agency': item.context.agencyOri || 'unknown',
+        'x-aegis-timestamp': timestamp,
+        'x-aegis-signature': signature,
+      },
+      body,
       signal: AbortSignal.timeout(8000),
     });
     return response.ok;
@@ -82,10 +97,70 @@ async function forward(url: string, item: Feedback): Promise<boolean> {
   }
 }
 
+/**
+ * Attempts delivery once and records what happened.
+ *
+ * Returns the item as it should now be stored — the attempt count and time are
+ * written whether or not it worked, because that is what the backoff reads.
+ */
+async function attemptDelivery(
+  options: { forwardUrl: string; signingKey: string },
+  item: Feedback,
+): Promise<Feedback> {
+  const at = new Date().toISOString();
+  const ok = await forward(options, item);
+  return {
+    ...item,
+    forwarded: ok,
+    forwardedAt: ok ? at : item.forwardedAt,
+    forwardAttempts: item.forwardAttempts + 1,
+    lastAttemptAt: at,
+  };
+}
+
+/** How often the queue is swept for anything that has not got through. */
+const SWEEP_MS = 60_000;
+
+/**
+ * Keeps trying, so nobody has to notice.
+ *
+ * Without this, feedback written while the receiver happened to be down waits
+ * for an administrator to spot a badge on a settings screen and click a button.
+ * They do not spot it, so it never arrives — which is the exact failure this
+ * whole channel exists to prevent.
+ */
+export function startFeedbackSweep(
+  db: DatabaseSync,
+  options: { forwardUrl: string; signingKey: string },
+): () => void {
+  if (!options.forwardUrl) return () => {};
+
+  let running = false;
+  const tick = async () => {
+    // One sweep at a time: a slow receiver must not stack up overlapping runs.
+    if (running) return;
+    running = true;
+    try {
+      for (const item of dueForRetry(all(db))) {
+        save(db, await attemptDelivery(options, item));
+      }
+    } catch (error) {
+      console.error('Feedback sweep failed', error);
+    } finally {
+      running = false;
+    }
+  };
+
+  const timer = setInterval(() => void tick(), SWEEP_MS);
+  // Never hold the process open for a retry; shutdown should not wait on this.
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 export function registerFeedbackRoutes(
   app: Express,
   db: DatabaseSync,
-  options: { forwardUrl: string } = { forwardUrl: '' },
+  options: { forwardUrl: string; signingKey: string } = { forwardUrl: '', signingKey: '' },
 ): void {
   /*
     Everyone can read the queue, and that is the point: an officer about to
@@ -156,13 +231,12 @@ export function registerFeedbackRoutes(
       seconded: [],
       forwarded: false,
       forwardedAt: '',
+      forwardAttempts: 0,
+      lastAttemptAt: '',
     };
 
-    if (options.forwardUrl && (await forward(options.forwardUrl, item))) {
-      item.forwarded = true;
-      item.forwardedAt = new Date().toISOString();
-    }
-    save(db, item);
+    const stored = options.forwardUrl ? await attemptDelivery(options, item) : item;
+    save(db, stored);
 
     await recordAudit(db, {
       actorId: user.id,
@@ -173,14 +247,14 @@ export function registerFeedbackRoutes(
         kind,
         impact,
         item.context.screen,
-        item.forwarded ? 'sent to the vendor' : 'held locally',
+        stored.forwarded ? 'sent to the vendor' : 'queued for sending',
         removed.length > 0 ? `${removed.length} redacted before sending` : '',
       ]
         .filter(Boolean)
         .join(' · '),
     });
 
-    res.json({ feedback: item, redacted: removed.length });
+    res.json({ feedback: stored, redacted: removed.length });
   });
 
   /**
@@ -282,12 +356,10 @@ export function registerFeedbackRoutes(
         return;
       }
 
-      const ok = await forward(options.forwardUrl, item);
-      const updated = ok
-        ? { ...item, forwarded: true, forwardedAt: new Date().toISOString() }
-        : item;
+      const updated = await attemptDelivery(options, item);
+      save(db, updated);
+      const ok = updated.forwarded;
       if (ok) {
-        save(db, updated);
         await recordAudit(db, {
           actorId: user.id,
           actorName: user.name,

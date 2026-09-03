@@ -3,7 +3,14 @@ import {
   alreadyRaised,
   answeredFor,
   checkDraft,
+  MAX_FORWARD_ATTEMPTS,
+  MAX_SKEW_SECONDS,
   describeFindings,
+  dueForRetry,
+  retryDelayMinutes,
+  signPayload,
+  signaturesMatch,
+  timestampFresh,
   enforceRedaction,
   mustAcknowledge,
   redact,
@@ -181,7 +188,105 @@ const item = (partial: Partial<Feedback>): Feedback => ({
   seconded: [],
   forwarded: false,
   forwardedAt: '',
+  forwardAttempts: 0,
+  lastAttemptAt: '',
   ...partial,
+});
+
+describe('signing what is sent', () => {
+  /*
+    Both ends of this wire have to agree exactly — the agency's Node server
+    signs, the vendor's Worker verifies — and when they disagree the failure is
+    silent: every message is rejected and nobody is watching an endpoint that
+    has never worked. Hence one shared implementation, and these.
+  */
+  const KEY = 'a-per-agency-secret';
+  const BODY = JSON.stringify({ summary: 'It will not submit' });
+
+  it('is stable for the same key, time and body', async () => {
+    expect(await signPayload(KEY, '1000', BODY)).toBe(await signPayload(KEY, '1000', BODY));
+    expect(await signPayload(KEY, '1000', BODY)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('changes when any part of the request changes', async () => {
+    const base = await signPayload(KEY, '1000', BODY);
+    expect(await signPayload('another-agency', '1000', BODY)).not.toBe(base);
+    expect(await signPayload(KEY, '1001', BODY)).not.toBe(base);
+    expect(await signPayload(KEY, '1000', `${BODY} `)).not.toBe(base);
+  });
+
+  it('covers the timestamp, so a captured request cannot be replayed', async () => {
+    // Signing the body alone would let anybody re-post a copy indefinitely.
+    const early = await signPayload(KEY, '1000', BODY);
+    const late = await signPayload(KEY, '9999', BODY);
+    expect(early).not.toBe(late);
+  });
+
+  it('compares signatures without leaking how much was right', () => {
+    const sig = 'a'.repeat(64);
+    expect(signaturesMatch(sig, sig)).toBe(true);
+    expect(signaturesMatch(sig, 'b'.repeat(64))).toBe(false);
+    expect(signaturesMatch(sig, 'a'.repeat(63))).toBe(false);
+    expect(signaturesMatch(sig, '')).toBe(false);
+  });
+
+  it('refuses a timestamp too far from now', () => {
+    const now = 1_000_000_000_000;
+    const seconds = Math.floor(now / 1000);
+    expect(timestampFresh(String(seconds), now)).toBe(true);
+    expect(timestampFresh(String(seconds - MAX_SKEW_SECONDS + 1), now)).toBe(true);
+    expect(timestampFresh(String(seconds - MAX_SKEW_SECONDS - 1), now)).toBe(false);
+    // A clock ahead of ours is just as suspect as one behind.
+    expect(timestampFresh(String(seconds + MAX_SKEW_SECONDS + 1), now)).toBe(false);
+    expect(timestampFresh('not a number', now)).toBe(false);
+    expect(timestampFresh('', now)).toBe(false);
+  });
+});
+
+describe('getting it to the vendor', () => {
+  const now = new Date('2026-09-03T12:00:00.000Z');
+  const minutesAgo = (n: number) => new Date(now.getTime() - n * 60000).toISOString();
+
+  it('retries something that has never been tried', () => {
+    /*
+      The failure this exists to prevent: feedback written while the vendor
+      endpoint happened to be down waits for somebody to notice a badge in a
+      settings screen and click a button. Nobody notices, so it never arrives.
+    */
+    expect(dueForRetry([item({ id: 'fresh' })], now).map((i) => i.id)).toEqual(['fresh']);
+  });
+
+  it('leaves alone anything that already arrived', () => {
+    expect(dueForRetry([item({ forwarded: true, forwardedAt: minutesAgo(1) })], now)).toEqual([]);
+  });
+
+  it('waits longer after each failure', () => {
+    const once = item({ id: 'once', forwardAttempts: 1, lastAttemptAt: minutesAgo(2) });
+    // One minute has passed of the five this one now wants.
+    expect(dueForRetry([once], now)).toEqual([]);
+    expect(dueForRetry([{ ...once, lastAttemptAt: minutesAgo(6) }], now)).toHaveLength(1);
+  });
+
+  it('settles at twice a day rather than growing without limit', () => {
+    // Ten attempts is past the end of the backoff table but short of the cap,
+    // so this measures the interval rather than the giving-up rule below.
+    expect(retryDelayMinutes(10)).toBe(720);
+    const waiting = item({ forwardAttempts: 10, lastAttemptAt: minutesAgo(700) });
+    expect(dueForRetry([waiting], now)).toHaveLength(0);
+    expect(dueForRetry([{ ...waiting, lastAttemptAt: minutesAgo(721) }], now)).toHaveLength(1);
+  });
+
+  it('stops retrying after enough failures, without discarding it', () => {
+    // Twenty failures is a configuration problem, and retrying forever hides
+    // it. The item stays queued and an administrator can still send it.
+    const exhausted = item({ forwardAttempts: MAX_FORWARD_ATTEMPTS, lastAttemptAt: minutesAgo(5000) });
+    expect(dueForRetry([exhausted], now)).toEqual([]);
+    expect(exhausted.forwarded).toBe(false);
+  });
+
+  it('does not freeze the queue when a clock has gone backwards', () => {
+    expect(dueForRetry([item({ lastAttemptAt: 'not a date' })], now)).toHaveLength(1);
+  });
 });
 
 describe('triaging the queue', () => {

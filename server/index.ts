@@ -23,7 +23,7 @@ import { registerSupplementRoutes } from './supplements';
 import { registerStopRoutes } from './stops';
 import { registerCrashRoutes } from './crashes';
 import { registerMigrationRoutes } from './migration';
-import { registerFeedbackRoutes } from './feedback';
+import { registerFeedbackRoutes, startFeedbackSweep } from './feedback';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -413,7 +413,10 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerStopRoutes(app, db);
   registerCrashRoutes(app, db);
   registerMigrationRoutes(app, db);
-  registerFeedbackRoutes(app, db, { forwardUrl: config.feedbackUrl });
+  registerFeedbackRoutes(app, db, {
+    forwardUrl: config.feedbackUrl,
+    signingKey: config.feedbackKey,
+  });
   registerAttachmentRoutes(app, db, config.dataDir);
 
   app.use('/api', (_req, res) => {
@@ -459,5 +462,18 @@ if (isMain) {
     }
   });
 
-  installGracefulShutdown(server, () => db.close());
+  /*
+    Keeps retrying anything the receiver did not take. Without it, feedback
+    written during a five-minute outage waits for somebody to notice a badge on
+    a settings screen — and nobody does.
+  */
+  const stopSweep = startFeedbackSweep(db, {
+    forwardUrl: config.feedbackUrl,
+    signingKey: config.feedbackKey,
+  });
+
+  installGracefulShutdown(server, () => {
+    stopSweep();
+    db.close();
+  });
 }

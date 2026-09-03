@@ -139,6 +139,125 @@ export interface Feedback {
   /** Whether it has reached the vendor. False until it has, or forever. */
   forwarded: boolean;
   forwardedAt: string;
+  /** How many times delivery has been tried, so retries can back off. */
+  forwardAttempts: number;
+  lastAttemptAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Getting it there                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The signature an agency puts on a piece of feedback.
+ *
+ * Lives here, in the shared domain, because both ends of the wire have to agree
+ * on it exactly: the agency's Node server signs, and the vendor's Worker
+ * verifies. Two implementations of "the obvious HMAC" drift — a different
+ * separator, a different encoding — and the failure is silent, because every
+ * message is simply rejected and nobody is watching an endpoint that has never
+ * worked. One function, imported by both, cannot drift.
+ *
+ * Built on WebCrypto rather than `node:crypto` for the same reason: it is the
+ * one available in both places.
+ *
+ * The timestamp is signed alongside the body so a captured request cannot be
+ * replayed later, and the key is per-agency so a leaked one is a single agency
+ * to rotate rather than an endpoint anybody can post through.
+ */
+export async function signPayload(
+  key: string,
+  timestamp: string,
+  body: string,
+): Promise<string> {
+  const encoder = new TextEncoder();
+  /*
+    Bare `crypto`, not `globalThis.crypto`. This module is compiled three ways —
+    the browser bundle, the agency's Node server, and the vendor's Worker — and
+    the Workers type definitions declare `crypto` as a global without adding it
+    to `typeof globalThis`. The bare form is the one all three accept.
+  */
+  const imported = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    imported,
+    encoder.encode(`${timestamp}.${body}`),
+  );
+  return [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Constant-time comparison of two signatures.
+ *
+ * A check that returns on the first wrong byte leaks how much of a guess was
+ * right, one request at a time. Not a realistic attack across the public
+ * internet against a 256-bit key, but the correct version costs nothing.
+ */
+export function signaturesMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Requests older than this are refused, so a captured one cannot be replayed. */
+export const MAX_SKEW_SECONDS = 300;
+
+/** Whether a request's timestamp is close enough to now to be accepted. */
+export function timestampFresh(timestamp: string, now = Date.now()): boolean {
+  const sent = Number(timestamp);
+  if (!Number.isFinite(sent)) return false;
+  return Math.abs(Math.floor(now / 1000) - sent) <= MAX_SKEW_SECONDS;
+}
+
+/**
+ * How long to wait before trying delivery again, in minutes.
+ *
+ * A vendor endpoint is down for one of two reasons: briefly, because something
+ * was being deployed, or for a long time, because something is properly broken.
+ * The first wants a quick retry and the second wants the agency's server to
+ * stop hammering it, so the gaps widen fast and then settle at twice a day.
+ */
+const BACKOFF_MINUTES = [1, 5, 30, 120, 360, 720];
+
+/**
+ * After this many failures it stays queued but stops retrying on its own.
+ *
+ * Not discarded — an administrator can still send it by hand, and the queue
+ * still shows it waiting. Something that has failed twenty times is a
+ * configuration problem, and retrying it forever only hides that.
+ */
+export const MAX_FORWARD_ATTEMPTS = 20;
+
+export function retryDelayMinutes(attempts: number): number {
+  return BACKOFF_MINUTES[Math.min(attempts, BACKOFF_MINUTES.length - 1)];
+}
+
+/**
+ * Feedback that should be re-sent now.
+ *
+ * The reason this exists at all: without it, a piece of feedback written while
+ * the vendor endpoint happened to be down waits for somebody to notice a badge
+ * in a settings screen and click a button. Nobody notices, so it never arrives
+ * — which is the failure this whole channel was built to avoid.
+ */
+export function dueForRetry(items: Feedback[], now = new Date()): Feedback[] {
+  return items.filter((item) => {
+    if (item.forwarded) return false;
+    if (item.forwardAttempts >= MAX_FORWARD_ATTEMPTS) return false;
+    if (!item.lastAttemptAt) return true;
+
+    const since = (now.getTime() - new Date(item.lastAttemptAt).getTime()) / 60000;
+    // A clock that has gone backwards must not freeze the queue forever.
+    if (Number.isNaN(since)) return true;
+    return since >= retryDelayMinutes(item.forwardAttempts);
+  });
 }
 
 export type FeedbackDraft = Pick<Feedback, 'kind' | 'impact' | 'summary' | 'detail'> & {

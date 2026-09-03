@@ -8,6 +8,7 @@
  */
 
 import type { Express, NextFunction, Request, Response } from 'express';
+import { resolveFeedbackUrl } from './vendor';
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -26,10 +27,13 @@ export interface ServerConfig {
   /**
    * Where officer feedback is posted, or empty for nowhere.
    *
-   * The only outbound path in the system, so it is off unless an agency turns
-   * it on. Empty means feedback is kept locally and exported by hand.
+   * The only outbound path in the system. On by default — see `vendor.ts` for
+   * why — and switched off with `AEGIS_FEEDBACK_URL=off`, which leaves feedback
+   * in the agency's own database to be exported by hand.
    */
   feedbackUrl: string;
+  /** This agency's signing key, so the receiver can tell who sent it. */
+  feedbackKey: string;
 }
 
 export interface ConfigProblem {
@@ -69,7 +73,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
     request that carries agency-authored text off the agency's network, and
     sending it unencrypted would undo the point of every other control here.
   */
-  const feedbackUrl = env.AEGIS_FEEDBACK_URL ?? '';
+  const feedbackUrl = resolveFeedbackUrl(env.AEGIS_FEEDBACK_URL);
+  const feedbackKey = env.AEGIS_FEEDBACK_KEY ?? '';
+
+  /*
+    Every install gets its own key at provisioning, so one leaked key is one
+    agency to rotate rather than a hole anybody can post through. Without one
+    the receiver has no way to know a request is really from this agency.
+  */
+  if (feedbackUrl && !feedbackKey) {
+    problems.push({
+      fatal: false,
+      message:
+        'No AEGIS_FEEDBACK_KEY. Feedback will be sent unsigned and the receiver will reject it. Ask for this agency\'s key.',
+    });
+  }
   if (feedbackUrl && !feedbackUrl.startsWith('https://')) {
     if (production) {
       problems.push({
@@ -95,6 +113,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
       tls,
       trustProxy: behindProxy,
       feedbackUrl,
+      feedbackKey,
     },
     problems,
   };

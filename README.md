@@ -576,10 +576,29 @@ carrying record content is added to the context.
 
 Feedback is stored in **the agency's own database**, not the vendor's, so a
 records manager can always see and audit what has left the building, and every
-send is an audit entry. Whether it goes anywhere on its own is a deployment
-choice — see `AEGIS_FEEDBACK_URL` in `DEPLOYMENT.md`. Unset, it is exported by
-an administrator and sent on by hand, which is the right default for an agency
-with no outbound path.
+send is an audit entry.
+
+**It goes straight to the people who build the software, with nobody in
+between.** No supervisor sees it first, holds it, or has to forward it — a
+channel that routes complaints about a workflow through the person who approved
+that workflow collects nothing worth reading. And it is on by default rather
+than opt-in, because a channel every customer must configure before it works
+reports nothing from the sites least likely to configure it, which are exactly
+the sites whose problems most need hearing. An agency that cannot allow
+outbound traffic sets `AEGIS_FEEDBACK_URL=off`, and officers are told on the
+form which of the two is happening before they write anything.
+
+Each request is signed with a key issued to that agency alone, over the body
+and a timestamp, so the receiver can tell a real install from anyone who found
+the URL, one leaked key is one agency to rotate, and a captured request cannot
+be replayed. Delivery retries on failure — one minute, then five, widening to
+twice a day — and survives a restart. Feedback written while the receiver was
+down arrives on its own; nobody has to notice a badge on a settings screen,
+which is the same as saying nobody would.
+
+The receiving end is in `vendor/feedback-receiver`: one Cloudflare Worker that
+verifies the signature, stores the item, then emails. In that order, because
+email fails, and feedback that only ever existed as an email attempt is gone.
 
 Two things make it a conversation rather than a suggestion box nailed shut:
 

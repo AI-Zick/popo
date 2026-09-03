@@ -5,3 +5,4 @@ dist
 .vite
 *.tsbuildinfo
 data/
+.wrangler

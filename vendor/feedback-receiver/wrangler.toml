@@ -1,0 +1,24 @@
+name = "aegis-feedback"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Signing keys, one per agency: the key is the ORI, the value is that agency's
+# secret. Create the namespace with `npx wrangler kv namespace create KEYS`
+# and paste the id it prints here.
+[[kv_namespaces]]
+binding = "KEYS"
+id = "REPLACE_WITH_KEYS_NAMESPACE_ID"
+
+# Everything received. The durable record — the email is only a notification
+# about it, and email fails.
+[[kv_namespaces]]
+binding = "FEEDBACK"
+id = "REPLACE_WITH_FEEDBACK_NAMESPACE_ID"
+
+[vars]
+# A verified sender on a domain you control. Not a secret.
+FROM_EMAIL = "feedback@example.com"
+
+# Secrets are set with `wrangler secret put`, never written here:
+#   npx wrangler secret put RESEND_KEY
+#   npx wrangler secret put NOTIFY_EMAIL

@@ -52,21 +52,40 @@ NODE_ENV=production AEGIS_TLS_KEY=/path/key.pem AEGIS_TLS_CERT=/path/cert.pem \
 | `AEGIS_TLS_KEY` / `AEGIS_TLS_CERT` | — | Serve HTTPS directly |
 | `AEGIS_TRUST_PROXY` | — | `1` when TLS terminates upstream |
 | `AEGIS_SERVE_CLIENT` | on in production | Serve `dist/` from the API |
-| `AEGIS_FEEDBACK_URL` | — | Where officer feedback is posted. Off by default |
+| `AEGIS_FEEDBACK_URL` | the vendor | Override, or `off` to send nowhere |
+| `AEGIS_FEEDBACK_KEY` | — | This agency's feedback signing key |
 
-### `AEGIS_FEEDBACK_URL`, and what crosses the wire
+### Feedback, and what crosses the wire
 
-This is the only setting that sends anything out of your network, so it is off
-until you set it, and the server refuses to start in production if it is not
-`https`.
+This is the only outbound path in the system, so it is documented in full.
 
-With it unset, feedback is written to your own database and goes nowhere. An
-administrator exports it from **Setup → Feedback** and sends the file on. That
-is the right default for an agency with no outbound path, and it means nothing
-leaves without somebody deciding it should.
+Feedback is **sent by default**, to the address built into the release. A
+channel every customer has to configure before it works reports nothing from
+the sites least likely to configure it, which are the ones whose problems most
+need hearing — so the default is on, and switching it off is a decision you
+make rather than one you inherit:
 
-With it set, each piece of feedback is POSTed as JSON when it is written. What
-goes in that request:
+```
+AEGIS_FEEDBACK_URL=off
+```
+
+With it off, feedback is written to your own database and goes nowhere; an
+administrator exports it from **Setup → Feedback**. Officers are told which of
+those two is happening, on the form itself, before they write anything.
+
+Each request is signed with `AEGIS_FEEDBACK_KEY`, issued to your agency at
+provisioning, over the request body and its timestamp. The receiver rejects
+anything unsigned, signed with another agency's key, or more than five minutes
+old — so nobody can post as you, and a captured request cannot be replayed. If
+the key is ever exposed, ask for a new one: revoking yours affects no other
+agency. The server refuses to start in production if the address is not `https`,
+and warns at startup if there is no key.
+
+Delivery is retried on failure, backing off from one minute to twice a day, and
+survives a restart. Nothing is lost because the receiver was down, and nobody
+has to notice a badge on a settings screen.
+
+What goes in that request:
 
 - what the officer typed, minus any social security number, which the server
   removes whether or not the browser did;
@@ -79,7 +98,8 @@ is structural by construction and there is a test that fails if a field capable
 of carrying record content is added to it.
 
 Every send is written to the audit log as `feedback.sent`, so what has left the
-building is answerable from your own records rather than the vendor's.
+building is answerable from your own records rather than the vendor's, and every
+item stays in your database whether or not it was forwarded.
 
 ## Backups
 
