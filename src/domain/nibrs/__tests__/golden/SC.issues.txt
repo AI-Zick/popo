@@ -1,0 +1,16 @@
+profile: SC
+2026-000401  1 issue(s)
+  warning  persons  Arrestee 1  nibrs.SC.arrestee.Arrestee 1.arrestTransactionNumber
+      South Carolina needs the arrest charge statute
+2026-000402  1 issue(s)
+  warning  persons  Arrestee 1  nibrs.SC.arrestee.Arrestee 1.arrestTransactionNumber
+      South Carolina needs the arrest charge statute
+2026-000403  0 issue(s)
+2026-000404  1 issue(s)
+  warning  incident  South Carolina  nibrs.SC.administrative..incidentDate
+      South Carolina needs the incident date
+2026-000405  0 issue(s)
+2026-000406  0 issue(s)
+2026-000407  0 issue(s)
+2026-000408  0 issue(s)
+2026-000409  0 issue(s)

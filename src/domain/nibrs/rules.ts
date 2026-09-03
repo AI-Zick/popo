@@ -15,14 +15,7 @@
 import type { Rule, Issue } from '@/validation/engine';
 import type { SectionId } from '../types';
 import type { SegmentLayout, StateProfile } from './spec';
-import {
-  administrativeValues,
-  arresteeValues,
-  offenderValues,
-  offenseValues,
-  propertyValues,
-  victimValues,
-} from './extract';
+import { SEGMENT_KINDS } from './extract';
 
 /** Which part of the report a segment's fields are edited in. */
 const SEGMENT_SECTION: Record<string, SectionId> = {
@@ -32,6 +25,20 @@ const SEGMENT_SECTION: Record<string, SectionId> = {
   victim: 'persons',
   offender: 'persons',
   arrestee: 'persons',
+};
+
+/**
+ * How a repeated segment is named in an issue: "Offense 2", "Victim 1".
+ *
+ * Absent for the administrative segment, which occurs exactly once, so its
+ * issues are scoped to the state's name instead of "Administrative 1".
+ */
+const SEGMENT_LABEL: Record<string, string> = {
+  offense: 'Offense',
+  property: 'Property',
+  victim: 'Victim',
+  offender: 'Offender',
+  arrestee: 'Arrestee',
 };
 
 function missing<K extends string>(
@@ -80,27 +87,18 @@ export function requiredFieldRules(profile: StateProfile): Rule {
       }
     };
 
-    report('administrative', missing(profile.segments.administrative, administrativeValues(incident, agency, location ?? undefined)));
-
-    offenseValues(incident, agency).forEach((values, i) => {
-      report('offense', missing(profile.segments.offense, values), `Offense ${i + 1}`);
-    });
-
-    propertyValues(incident, agency).forEach((values, i) => {
-      report('property', missing(profile.segments.property, values), `Property ${i + 1}`);
-    });
-
-    victimValues(incident, agency, persons).forEach((values, i) => {
-      report('victim', missing(profile.segments.victim, values), `Victim ${i + 1}`);
-    });
-
-    offenderValues(incident, agency, persons).forEach((values, i) => {
-      report('offender', missing(profile.segments.offender, values), `Offender ${i + 1}`);
-    });
-
-    arresteeValues(incident, agency, persons).forEach((values, i) => {
-      report('arrestee', missing(profile.segments.arrestee, values), `Arrestee ${i + 1}`);
-    });
+    /*
+      The same list the exporter renders from. Checking anything else would
+      let a segment be written to the file that nothing ever validated.
+    */
+    const of = { incident, agency, persons, location: location ?? undefined };
+    for (const kind of SEGMENT_KINDS) {
+      const layout = profile.segments[kind.name] as SegmentLayout<string>;
+      const label = SEGMENT_LABEL[kind.name];
+      kind.values(of).forEach((values, i) => {
+        report(kind.name, missing(layout, values), label ? `${label} ${i + 1}` : undefined);
+      });
+    }
 
     return issues;
   };

@@ -1,0 +1,12 @@
+profile: NH
+2026-000401  0 issue(s)
+2026-000402  0 issue(s)
+2026-000403  0 issue(s)
+2026-000404  1 issue(s)
+  warning  incident  New Hampshire  nibrs.NH.administrative..incidentDate
+      New Hampshire needs the incident date
+2026-000405  0 issue(s)
+2026-000406  0 issue(s)
+2026-000407  0 issue(s)
+2026-000408  0 issue(s)
+2026-000409  0 issue(s)

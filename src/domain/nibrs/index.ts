@@ -22,19 +22,11 @@ import type { AgencyProfile } from '../agency';
 import type { MasterLocation } from '../location';
 import type { PersonIndex } from '../person';
 import { resolvePeople } from '../person';
-import type { StateProfile } from './spec';
+import type { SegmentLayout, SegmentName, StateProfile } from './spec';
 import { profileFor } from './states';
 import { renderSegment } from './format';
 import { renderElement, xmlDocument } from './xml';
-import {
-  administrativeValues,
-  arresteeValues,
-  headerValues,
-  offenderValues,
-  offenseValues,
-  propertyValues,
-  victimValues,
-} from './extract';
+import { SEGMENT_KINDS, headerValues } from './extract';
 
 export * from './spec';
 export * from './format';
@@ -73,23 +65,40 @@ export interface ExportInput {
   at?: Date;
 }
 
-/** One incident's worth of segments, as ordered value bags. */
+/**
+ * A segment ready to render: its layout, and the values to put in it.
+ *
+ * Both widened to plain strings. The pairing is correct by construction — each
+ * bag comes from the extractor for that very segment — but TypeScript cannot
+ * see the correlation across a union of six differently-keyed layouts, and
+ * saying so once here reads better than scattering casts at the call site.
+ */
+interface RenderableSegment {
+  name: Exclude<SegmentName, 'header'>;
+  layout: SegmentLayout<string>;
+  values: Record<string, string | undefined>;
+}
+
+/** One incident's worth of segments, in file order. */
 function segmentsFor(
   incident: Incident,
   input: ExportInput,
-): { segment: keyof StateProfile['segments']; values: Record<string, string | undefined> }[] {
-  const persons = resolvePeople(incident.persons, input.people);
-  const location = input.locations[incident.locationId];
-  const { agency } = input;
+  profile: StateProfile,
+): RenderableSegment[] {
+  const of = {
+    incident,
+    agency: input.agency,
+    persons: resolvePeople(incident.persons, input.people),
+    location: input.locations[incident.locationId],
+  };
 
-  return [
-    { segment: 'administrative' as const, values: administrativeValues(incident, agency, location) },
-    ...offenseValues(incident, agency).map((values) => ({ segment: 'offense' as const, values })),
-    ...propertyValues(incident, agency).map((values) => ({ segment: 'property' as const, values })),
-    ...victimValues(incident, agency, persons).map((values) => ({ segment: 'victim' as const, values })),
-    ...offenderValues(incident, agency, persons).map((values) => ({ segment: 'offender' as const, values })),
-    ...arresteeValues(incident, agency, persons).map((values) => ({ segment: 'arrestee' as const, values })),
-  ];
+  return SEGMENT_KINDS.flatMap((kind) =>
+    kind.values(of).map((values) => ({
+      name: kind.name,
+      layout: profile.segments[kind.name] as SegmentLayout<string>,
+      values,
+    })),
+  );
 }
 
 /** Why an incident is not in the file, or null when it is. */
@@ -139,12 +148,11 @@ export function buildExport(input: ExportInput): ExportResult {
       continue;
     }
 
-    for (const { segment, values } of segmentsFor(incident, input)) {
-      const layout = profile.segments[segment];
+    for (const { name, layout, values } of segmentsFor(incident, input, profile)) {
       bodies.push(
         profile.transport === 'xml'
-          ? renderElement(segment, layout as never, values as never)
-          : renderSegment(layout as never, values as never),
+          ? renderElement(name, layout, values)
+          : renderSegment(layout, values),
       );
       segmentCount += 1;
     }

@@ -16,6 +16,7 @@ import type { MasterLocation } from '../location';
 import type { Person } from '../person';
 import { OFFENSE_BY_CODE } from '../codes';
 import type {
+  SegmentName,
   AdministrativeField,
   ArresteeField,
   HeaderField,
@@ -28,6 +29,37 @@ import type {
 export type Values<K extends string> = Partial<Record<K, string>>;
 
 const ACTION_ADD = 'I'; // Incident report. 'D' would delete a previously sent one.
+
+/**
+ * The fields every segment repeats.
+ *
+ * A NIBRS file is a flat list of lines with no nesting, so each one has to say
+ * for itself what kind of record it is, whose agency wrote it and which
+ * incident it belongs to. Six builders were each spelling that out; a state
+ * that carries one more identifier on every record — South Carolina already
+ * does — is now one edit rather than six.
+ */
+function recordKey(
+  segmentLevel: string,
+  incident: Incident,
+  agency: AgencyProfile,
+): { segmentLevel: string; ori: string; stateAgencyCode: string; caseNumber: string } {
+  return {
+    segmentLevel,
+    ori: agency.ori,
+    stateAgencyCode: agency.stateAgencyCode,
+    caseNumber: incident.caseNumber,
+  };
+}
+
+/**
+ * Who NIBRS counts as an offender.
+ *
+ * Somebody arrested is an offender too — the arrestee segment is additional to
+ * the offender segment, not instead of it. Stated once because the victim
+ * segment needs the same set, to number its relationships against.
+ */
+const isOffender = (p: Person) => p.role === 'suspect' || p.role === 'arrestee';
 
 function clearanceCode(incident: Incident): string {
   switch (incident.clearanceStatus) {
@@ -99,9 +131,7 @@ export function administrativeValues(
   location: MasterLocation | undefined,
 ): Values<AdministrativeField> {
   return {
-    segmentLevel: '1',
-    ori: agency.ori,
-    caseNumber: incident.caseNumber,
+    ...recordKey('1', incident, agency),
     incidentDate: incident.occurredFrom,
     // 'R' when the exact date is unknown and this is the report date instead.
     reportDateIndicator: incident.occurredFrom ? '' : 'R',
@@ -110,7 +140,6 @@ export function administrativeValues(
     clearedDate: incident.clearedAt,
     actionType: ACTION_ADD,
     beat: location?.beat,
-    stateAgencyCode: agency.stateAgencyCode,
   };
 }
 
@@ -118,10 +147,7 @@ export function offenseValues(incident: Incident, agency: AgencyProfile): Values
   return incident.offenses.map((offense) => {
     const def = OFFENSE_BY_CODE.get(offense.code);
     return {
-      segmentLevel: '2',
-      ori: agency.ori,
-      stateAgencyCode: agency.stateAgencyCode,
-      caseNumber: incident.caseNumber,
+      ...recordKey('2', incident, agency),
       offenseCode: offense.code,
       attemptCompleted: offense.attemptCompleted || 'C',
       criminalActivity: offense.criminalActivity.slice(0, 3).join(''),
@@ -139,10 +165,7 @@ export function offenseValues(incident: Incident, agency: AgencyProfile): Values
 
 export function propertyValues(incident: Incident, agency: AgencyProfile): Values<PropertyField>[] {
   return incident.property.map((item) => ({
-    segmentLevel: '3',
-    ori: agency.ori,
-    stateAgencyCode: agency.stateAgencyCode,
-    caseNumber: incident.caseNumber,
+    ...recordKey('3', incident, agency),
     lossType: lossTypeCode(item.lossType),
     descriptionCode: item.descriptionCode,
     // Whole dollars. An item with no value entered goes out blank, not as zero.
@@ -160,9 +183,7 @@ export function victimValues(
   persons: Person[],
 ): Values<VictimField>[] {
   const victims = persons.filter((p) => p.role === 'victim');
-  const offenderIndex = new Map(
-    persons.filter((p) => p.role === 'suspect' || p.role === 'arrestee').map((p, i) => [p.id, i]),
-  );
+  const offenderIndex = new Map(persons.filter(isOffender).map((p, i) => [p.id, i]));
 
   return victims.map((victim, index) => {
     // Offense codes this victim is connected to, up to ten.
@@ -174,10 +195,7 @@ export function victimValues(
 
     const relationship = victim.relationships[0];
     return {
-      segmentLevel: '4',
-      ori: agency.ori,
-      stateAgencyCode: agency.stateAgencyCode,
-      caseNumber: incident.caseNumber,
+      ...recordKey('4', incident, agency),
       sequence: sequence(index),
       connectedOffenses: connected,
       victimType: victim.victimType,
@@ -206,7 +224,7 @@ export function offenderValues(
   agency: AgencyProfile,
   persons: Person[],
 ): Values<OffenderField>[] {
-  const offenders = persons.filter((p) => p.role === 'suspect' || p.role === 'arrestee');
+  const offenders = persons.filter(isOffender);
 
   // An incident with no known offender still reports one "unknown" offender:
   // NIBRS counts the crime either way, and a submission with no offender
@@ -214,10 +232,7 @@ export function offenderValues(
   if (offenders.length === 0) {
     return [
       {
-        segmentLevel: '5',
-        ori: agency.ori,
-        stateAgencyCode: agency.stateAgencyCode,
-        caseNumber: incident.caseNumber,
+        ...recordKey('5', incident, agency),
         sequence: '0',
         age: '',
         sex: '',
@@ -228,10 +243,7 @@ export function offenderValues(
   }
 
   return offenders.map((offender, index) => ({
-    segmentLevel: '5',
-    ori: agency.ori,
-    stateAgencyCode: agency.stateAgencyCode,
-    caseNumber: incident.caseNumber,
+    ...recordKey('5', incident, agency),
     sequence: sequence(index),
     age: ageFrom(offender, incident),
     sex: offender.sex,
@@ -248,10 +260,7 @@ export function arresteeValues(
   const arrestees = persons.filter((p) => p.role === 'arrestee');
 
   return arrestees.map((arrestee, index) => ({
-    segmentLevel: '6',
-    ori: agency.ori,
-    stateAgencyCode: agency.stateAgencyCode,
-    caseNumber: incident.caseNumber,
+    ...recordKey('6', incident, agency),
     sequence: sequence(index),
     arrestTransactionNumber: arrestee.charges[0]?.statute,
     arrestDate: arrestee.arrestDate,
@@ -266,3 +275,52 @@ export function arresteeValues(
     dispositionUnder18: '',
   }));
 }
+
+/* ------------------------------------------------------------------ */
+/* The segments an incident produces                                   */
+/* ------------------------------------------------------------------ */
+
+/** Everything the builders above read, gathered once per incident. */
+export interface SegmentSource {
+  incident: Incident;
+  agency: AgencyProfile;
+  persons: Person[];
+  location: MasterLocation | undefined;
+}
+
+export interface SegmentKind {
+  name: Exclude<SegmentName, 'header'>;
+  /** Every record of this kind, in file order. */
+  values: (of: SegmentSource) => Values<string>[];
+}
+
+/**
+ * One list of the segments, in the order they go in the file.
+ *
+ * Two places need it, and they used to enumerate it separately: the exporter
+ * renders each segment, and the validator checks each one's required fields
+ * against the very same values. Kept apart, adding a segment to one and
+ * forgetting the other means a state's required-field checks silently do not
+ * cover it — and the way anybody finds out is a rejection notice from the
+ * state, six weeks after the officer could have fixed it.
+ */
+export const SEGMENT_KINDS: SegmentKind[] = [
+  {
+    name: 'administrative',
+    values: ({ incident, agency, location }) => [administrativeValues(incident, agency, location)],
+  },
+  { name: 'offense', values: ({ incident, agency }) => offenseValues(incident, agency) },
+  { name: 'property', values: ({ incident, agency }) => propertyValues(incident, agency) },
+  {
+    name: 'victim',
+    values: ({ incident, agency, persons }) => victimValues(incident, agency, persons),
+  },
+  {
+    name: 'offender',
+    values: ({ incident, agency, persons }) => offenderValues(incident, agency, persons),
+  },
+  {
+    name: 'arrestee',
+    values: ({ incident, agency, persons }) => arresteeValues(incident, agency, persons),
+  },
+];

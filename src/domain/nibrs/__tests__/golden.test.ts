@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { buildExport, exportFilename } from '..';
+import { buildExport, exportFilename, layoutWidth, requiredFieldRules } from '..';
+import { runRules } from '@/validation/engine';
 import { NATIONAL, NEW_HAMPSHIRE, SOUTH_CAROLINA } from '../states';
 import type { SegmentLayout, StateProfile } from '../spec';
 import {
@@ -36,9 +37,6 @@ const PROFILES: [string, StateProfile][] = [
   ['NH', NEW_HAMPSHIRE],
 ];
 
-const width = (layout: SegmentLayout<string>) =>
-  layout.reduce((total, field) => total + field.width, 0);
-
 function render(name: string, profile: StateProfile): string {
   const result = buildExport({
     incidents: INCIDENTS,
@@ -63,6 +61,46 @@ function render(name: string, profile: StateProfile): string {
     result.content,
   ].join('\n');
 }
+
+/**
+ * The state's generated checks, pinned alongside the file.
+ *
+ * Required-field rules are derived from the same layouts and run over the same
+ * values as the export, so a change that alters one usually alters the other.
+ * Pinning only the file would let the checks drift quietly — and a check that
+ * stops firing is invisible: the report simply stops being held back, and the
+ * state rejects the submission instead.
+ */
+function issuesFor(name: string, profile: StateProfile): string {
+  const lines: string[] = [`profile: ${name}`];
+  for (const incident of INCIDENTS) {
+    const { issues } = runRules(incident, [requiredFieldRules(profile)], {
+      people: PEOPLE,
+      locations: LOCATIONS,
+      agency: AGENCY,
+    });
+    lines.push(`${incident.caseNumber}  ${issues.length} issue(s)`);
+    for (const issue of issues) {
+      lines.push(`  ${issue.severity}  ${issue.section}  ${issue.scope}  ${issue.key}`);
+      lines.push(`      ${issue.title}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+describe('the state checks these layouts generate', () => {
+  for (const [name, profile] of PROFILES) {
+    it(`matches the committed ${name} issues`, () => {
+      const path = new URL(`./golden/${name}.issues.txt`, import.meta.url);
+      const actual = issuesFor(name, profile);
+      if (process.env.UPDATE_GOLDEN) {
+        writeFileSync(path, actual);
+        return;
+      }
+      expect(actual).toBe(readFileSync(path, 'utf8'));
+    });
+  }
+});
 
 describe('the submission file, byte for byte', () => {
   for (const [name, profile] of PROFILES) {
@@ -93,7 +131,7 @@ describe('the submission file, byte for byte', () => {
       // The header, when the state uses one, is the first line and its own width.
       if (profile.header) {
         expect(lines[0].length, `${name} header: ${JSON.stringify(lines[0])}`).toBe(
-          width(profile.header),
+          layoutWidth(profile.header),
         );
         lines.shift();
       }
@@ -110,7 +148,7 @@ describe('the submission file, byte for byte', () => {
         const layout = bySegment[line[0]];
         expect(layout, `${name}: no layout for segment level ${line[0]}`).toBeDefined();
         expect(line.length, `${name} segment ${line[0]}: ${JSON.stringify(line)}`).toBe(
-          width(layout),
+          layoutWidth(layout),
         );
       }
     }
