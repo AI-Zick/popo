@@ -33,6 +33,9 @@ export type AuditAction =
   | 'note.retracted'
   | 'note.restored'
   | 'note.restrictedViewed'
+  | 'fleet.checked'
+  | 'fleet.requested'
+  | 'fleet.requestUpdated'
   | 'photo.added'
   | 'photo.removalRequested'
   | 'photo.removed'
@@ -87,6 +90,9 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'note.retracted': 'Note withdrawn',
   'note.restored': 'Note restored',
   'note.restrictedViewed': 'Restricted note viewed',
+  'fleet.checked': 'Cruiser checked',
+  'fleet.requested': 'Cruiser maintenance reported',
+  'fleet.requestUpdated': 'Maintenance request moved on',
   'photo.added': 'Photograph added to a person',
   'photo.removalRequested': 'Photograph takedown asked for',
   'photo.removed': 'Photograph taken down',

@@ -28,6 +28,7 @@ import { registerEvidenceRoutes } from './evidence';
 import { registerArrestRoutes } from './arrests';
 import { registerTaskRoutes } from './tasks';
 import { registerPhotoRoutes } from './photos';
+import { registerFleetRoutes } from './fleet';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -427,6 +428,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerArrestRoutes(app, db);
   registerTaskRoutes(app, db);
   registerPhotoRoutes(app, db, config.dataDir);
+  registerFleetRoutes(app, db);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

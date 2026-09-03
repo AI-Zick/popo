@@ -8,7 +8,7 @@ import type {
   PersonRole,
 } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
-import type { AgencyProfile } from '@/domain/agency';
+import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
 import { createUser, type User } from '@/domain/auth';
@@ -108,6 +108,7 @@ const ZONES: GeoFeatureCollection = {
 };
 
 const AGENCY: AgencyProfile = {
+  ...emptyAgency(),
   name: 'Cedar Falls Police Department',
   ori: 'AL0010200',
   stateAgencyCode: '',

@@ -216,6 +216,47 @@ CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
 -- One person's history at this agency, which is the other way it is read.
 CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
 
+-- The fleet. A cruiser is not a document — nothing is submitted or approved —
+-- so these tables are plain records with their own small rules.
+CREATE TABLE IF NOT EXISTS cruisers (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  unit       TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'inService',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cruisers_unit ON cruisers(unit);
+
+-- One completed daily check. Append-only in practice: there is no route that
+-- edits one, because a signed statement that a car was fine is exactly the
+-- thing nobody should be able to revise after the crash.
+CREATE TABLE IF NOT EXISTS cruiser_checks (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  cruiser_id TEXT NOT NULL DEFAULT '',
+  officer_id TEXT NOT NULL DEFAULT '',
+  at         TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+-- "Has this car been checked today", which is how the list is read.
+CREATE INDEX IF NOT EXISTS cruiser_checks_car ON cruiser_checks(cruiser_id, at);
+
+CREATE TABLE IF NOT EXISTS maintenance_requests (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  number     TEXT NOT NULL DEFAULT '',
+  cruiser_id TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'open',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_number ON maintenance_requests(number);
+-- The supervisor's queue, and one car's history.
+CREATE INDEX IF NOT EXISTS maintenance_status ON maintenance_requests(status);
+CREATE INDEX IF NOT EXISTS maintenance_car ON maintenance_requests(cruiser_id);
+
 -- Photographs of a person, hanging off the identity rather than a case: a face
 -- outlives the report it was taken on. Bytes live on disk beside the
 -- attachments, for the same reason.
@@ -319,7 +360,10 @@ export interface DocTable {
     | 'evidence'
     | 'arrests'
     | 'case_tasks'
-    | 'person_photos';
+    | 'person_photos'
+    | 'cruisers'
+    | 'cruiser_checks'
+    | 'maintenance_requests';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -381,6 +425,29 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       status: String(doc.status ?? 'draft'),
       arrested_at: String(doc.arrestedAt ?? ''),
+    }),
+  },
+  cruisers: {
+    name: 'cruisers',
+    columns: (doc) => ({
+      unit: String(doc.unit ?? ''),
+      status: String(doc.status ?? 'inService'),
+    }),
+  },
+  cruiserChecks: {
+    name: 'cruiser_checks',
+    columns: (doc) => ({
+      cruiser_id: String(doc.cruiserId ?? ''),
+      officer_id: String(doc.officerId ?? ''),
+      at: String(doc.at ?? ''),
+    }),
+  },
+  maintenanceRequests: {
+    name: 'maintenance_requests',
+    columns: (doc) => ({
+      number: String(doc.number ?? ''),
+      cruiser_id: String(doc.cruiserId ?? ''),
+      status: String(doc.status ?? 'open'),
     }),
   },
   personPhotos: {

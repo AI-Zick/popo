@@ -85,6 +85,12 @@ import {
   type CrashUnit,
 } from '@/domain/crash';
 import {
+  requestQueue,
+  type Cruiser,
+  type CruiserCheck,
+  type MaintenanceRequest,
+} from '@/domain/fleet';
+import {
   currentPhoto,
   pendingRemovals,
   photosFor,
@@ -306,6 +312,33 @@ interface StoreValue {
   requestPhotoRemoval: (id: string, reason: string) => Promise<GuardResult>;
   decidePhoto: (id: string, remove: boolean, note: string) => Promise<GuardResult>;
 
+  /* ---- The fleet ----------------------------------------------------- */
+  cruisers: Cruiser[];
+  cruiserChecks: CruiserCheck[];
+  maintenanceRequests: MaintenanceRequest[];
+  /** Open requests, worst first. What a fleet supervisor actually reads. */
+  maintenanceQueue: MaintenanceRequest[];
+  refreshFleet: () => Promise<void>;
+  addCruiser: (input: Partial<Cruiser>) => Promise<GuardResult>;
+  updateCruiser: (id: string, patch: Partial<Cruiser>) => Promise<GuardResult>;
+  fileCheck: (input: {
+    cruiserId: string;
+    shift: string;
+    odometer: string;
+    notes: string;
+    items: { itemId: string; result: string; note: string }[];
+  }) => Promise<GuardResult & { offRoad?: boolean; raised?: number }>;
+  reportFault: (input: {
+    cruiserId: string;
+    problem: string;
+    urgency: string;
+    odometer: string;
+  }) => Promise<GuardResult & { offRoad?: boolean }>;
+  moveRequest: (
+    id: string,
+    input: { status: string; note?: string; assignedTo?: string },
+  ) => Promise<GuardResult & { backOnRoad?: boolean }>;
+
   /* ---- Inbound data ------------------------------------------------- */
   /** Everything CAD, the MDT and the registries have sent. */
   returns: QueryReturn[];
@@ -482,6 +515,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [arrests, setArrests] = useState<Arrest[]>([]);
   const [caseTasks, setCaseTasks] = useState<CaseTask[]>([]);
   const [photos, setPhotos] = useState<PersonPhoto[]>([]);
+  const [cruisers, setCruisers] = useState<Cruiser[]>([]);
+  const [cruiserChecks, setCruiserChecks] = useState<CruiserCheck[]>([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
   const [activeCrashId, setActiveCrashId] = useState<string | null>(null);
   const [activeArrestId, setActiveArrestId] = useState<string | null>(null);
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
@@ -1309,6 +1345,102 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return failed(error, 'Could not remove it.');
     }
   }, []);
+
+  /* -------------------------------------------------- the fleet --------- */
+
+  /*
+    Fetched on its own rather than with the main state pull, like the property
+    room. A report screen never needs the fleet, and a failure here — an older
+    server without the routes, say — must not take the whole app down.
+  */
+  const refreshFleet = useCallback(async () => {
+    try {
+      const state = await api.fleet();
+      setCruisers(state.cruisers ?? []);
+      setCruiserChecks(state.checks ?? []);
+      setMaintenanceRequests(state.requests ?? []);
+    } catch {
+      /* Leave what is already loaded. */
+    }
+  }, []);
+
+  const maintenanceQueue = useMemo(
+    () => requestQueue(maintenanceRequests),
+    [maintenanceRequests],
+  );
+
+  const addCruiser = useCallback(
+    async (input: Partial<Cruiser>): Promise<GuardResult> => {
+      try {
+        const { cruiser } = await api.addCruiser(input);
+        setCruisers((prev) => [...prev, cruiser]);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not add it.');
+      }
+    },
+    [],
+  );
+
+  const updateCruiser = useCallback(
+    async (id: string, patch: Partial<Cruiser>): Promise<GuardResult> => {
+      try {
+        const { cruiser } = await api.updateCruiser(id, patch);
+        setCruisers((prev) => prev.map((c) => (c.id === cruiser.id ? cruiser : c)));
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not save it.');
+      }
+    },
+    [],
+  );
+
+  const fileCheck = useCallback(
+    async (input: {
+      cruiserId: string;
+      shift: string;
+      odometer: string;
+      notes: string;
+      items: { itemId: string; result: string; note: string }[];
+    }) => {
+      try {
+        const result = await api.fileCheck(input);
+        // A check can put a car off the road and raise requests, so the whole
+        // fleet is re-read rather than three lists patched by hand.
+        await refreshFleet();
+        return { ok: true as const, offRoad: result.offRoad, raised: result.requests.length };
+      } catch (error) {
+        return failed(error, 'The check was not filed.');
+      }
+    },
+    [refreshFleet],
+  );
+
+  const reportFault = useCallback(
+    async (input: { cruiserId: string; problem: string; urgency: string; odometer: string }) => {
+      try {
+        const result = await api.reportFault(input);
+        await refreshFleet();
+        return { ok: true as const, offRoad: result.offRoad };
+      } catch (error) {
+        return failed(error, 'That was not sent.');
+      }
+    },
+    [refreshFleet],
+  );
+
+  const moveRequest = useCallback(
+    async (id: string, input: { status: string; note?: string; assignedTo?: string }) => {
+      try {
+        const result = await api.moveRequest(id, input);
+        await refreshFleet();
+        return { ok: true as const, backOnRoad: result.backOnRoad };
+      } catch (error) {
+        return failed(error, 'That did not work.');
+      }
+    },
+    [refreshFleet],
+  );
 
   /* -------------------------------------------------- photographs ------- */
 
@@ -2798,6 +2930,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     returnArrest,
     reopenArrest,
     arrestsForCase,
+
+    cruisers,
+    cruiserChecks,
+    maintenanceRequests,
+    maintenanceQueue,
+    refreshFleet,
+    addCruiser,
+    updateCruiser,
+    fileCheck,
+    reportFault,
+    moveRequest,
 
     photos,
     photosOf,

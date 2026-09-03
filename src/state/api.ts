@@ -13,6 +13,12 @@ import type { CrashReport } from '@/domain/crash';
 import type { Arrest, Problem as ArrestProblem } from '@/domain/arrest';
 import type { CaseTask } from '@/domain/caseTask';
 import type { PersonPhoto } from '@/domain/photo';
+import type {
+  Cruiser,
+  CruiserCheck,
+  MaintenanceRequest,
+  Problem as FleetProblem,
+} from '@/domain/fleet';
 import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
@@ -278,6 +284,58 @@ export const api = {
     return request(`/api/photos/${id}/decide`, {
       method: 'POST',
       body: JSON.stringify({ remove, note }),
+    });
+  },
+
+  /* ---- The fleet ------------------------------------------------------ */
+
+  fleet(): Promise<{
+    cruisers: Cruiser[];
+    checks: CruiserCheck[];
+    requests: MaintenanceRequest[];
+  }> {
+    return request('/api/fleet');
+  },
+
+  addCruiser(input: Partial<Cruiser>): Promise<{ cruiser: Cruiser }> {
+    return request('/api/fleet/cruisers', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  updateCruiser(id: string, patch: Partial<Cruiser>): Promise<{ cruiser: Cruiser }> {
+    return request(`/api/fleet/cruisers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  fileCheck(input: {
+    cruiserId: string;
+    shift: string;
+    odometer: string;
+    notes: string;
+    items: { itemId: string; result: string; note: string }[];
+  }): Promise<{
+    check: CruiserCheck;
+    requests: MaintenanceRequest[];
+    offRoad: boolean;
+    problems?: FleetProblem[];
+  }> {
+    return request('/api/fleet/checks', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  reportFault(input: {
+    cruiserId: string;
+    problem: string;
+    urgency: string;
+    odometer: string;
+  }): Promise<{ request: MaintenanceRequest; offRoad: boolean }> {
+    return request('/api/fleet/requests', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  moveRequest(
+    id: string,
+    input: { status: string; note?: string; assignedTo?: string },
+  ): Promise<{ request: MaintenanceRequest; backOnRoad: boolean }> {
+    return request(`/api/fleet/requests/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify(input),
     });
   },
 

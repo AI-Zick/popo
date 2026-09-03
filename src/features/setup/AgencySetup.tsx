@@ -14,6 +14,8 @@ import { StopLog } from '@/features/activity/StopLog';
 import { ImportWizard } from '@/features/migration/ImportWizard';
 import { FeedbackQueue } from '@/features/feedback/FeedbackQueue';
 import { PropertyRoom } from '@/features/evidence/PropertyRoom';
+import { FleetView } from '@/features/fleet/FleetView';
+import { ChecklistEditor } from '@/features/fleet/ChecklistEditor';
 import { cn } from '@/lib/cn';
 
 /**
@@ -30,6 +32,7 @@ type Tab =
   | 'stops'
   | 'import'
   | 'evidence'
+  | 'fleet'
   | 'feedback';
 
 const SCREEN_NAME: Record<Tab, string> = {
@@ -41,6 +44,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   stops: 'Traffic stops',
   import: 'Import records',
   evidence: 'Property room',
+  fleet: 'Fleet',
   feedback: 'Feedback',
 };
 
@@ -103,6 +107,13 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           <TabButton active={tab === 'evidence'} onClick={() => setTab('evidence')}>
             Property
           </TabButton>
+          {/*
+            Open to every officer. Checking the car you are about to drive and
+            saying when it is broken is not an administrative privilege.
+          */}
+          <TabButton active={tab === 'fleet'} onClick={() => setTab('fleet')}>
+            Fleet
+          </TabButton>
           <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
             Traffic stops
           </TabButton>
@@ -131,7 +142,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             'mx-auto space-y-4 px-6 py-6',
             // The import review shows whole rows from the old system side by
             // side. Three columns of that in 768px is unreadable.
-            tab === 'import' || tab === 'feedback' || tab === 'evidence'
+            tab === 'import' || tab === 'feedback' || tab === 'evidence' || tab === 'fleet'
               ? 'max-w-5xl'
               : 'max-w-3xl',
           )}
@@ -143,6 +154,12 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'activity' && <ActivityReportView />}
           {tab === 'import' && mayConfigure && <ImportWizard />}
           {tab === 'evidence' && <PropertyRoom />}
+          {tab === 'fleet' && (
+            <>
+              <FleetView />
+              {mayConfigure && <ChecklistEditor />}
+            </>
+          )}
           {tab === 'feedback' && <FeedbackQueue />}
 
           {tab === 'jurisdiction' && mayConfigure && (

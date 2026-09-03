@@ -8,6 +8,7 @@
  */
 
 import type { GeoFeatureCollection } from './geo';
+import { DEFAULT_CHECKLIST, type ChecklistItem } from './fleet';
 
 export interface AgencyProfile {
   name: string;
@@ -39,6 +40,17 @@ export interface AgencyProfile {
   /** Patrol areas within the jurisdiction. */
   zones: GeoFeatureCollection | null;
 
+  /**
+   * What the daily cruiser check asks.
+   *
+   * Configuration rather than code, because it is the agency's business: a
+   * department with rifles in the cars checks the rifle and one without does
+   * not, and a fixed list would have half its users ticking a box that means
+   * nothing to them. Seeded from a sensible default so the feature works on
+   * day one — an empty checklist is a feature nobody turns on.
+   */
+  checklist: ChecklistItem[];
+
   /** False until someone has been through setup. */
   configured: boolean;
 }
@@ -57,6 +69,7 @@ export function emptyAgency(): AgencyProfile {
     zoneLabel: 'Beat',
     boundary: null,
     zones: null,
+    checklist: DEFAULT_CHECKLIST.map((item, i) => ({ ...item, id: `chk${i + 1}` })),
     configured: false,
   };
 }
