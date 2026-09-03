@@ -19,6 +19,7 @@ import { canReopen, canReview, REVIEW_ACTION_LABEL, STATUS_LABEL } from '@/domai
 import { CLEARANCE_OPTIONS, EXCEPTIONAL_CLEARANCE_REASONS } from '@/domain/codes';
 import { Badge, Button, FieldGrid, Panel } from '@/components/ui/primitives';
 import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
+import { Dictate } from '@/components/ui/Dictate';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -162,6 +163,11 @@ export function SupplementEditor() {
                 required
                 rows={14}
                 placeholder="On 20 March I received the latent print comparison from the state lab…"
+                value={supplement.narrative}
+                onChange={(v) => updateSupplement({ narrative: v })}
+              />
+              <Dictate
+                path="supplement.narrative"
                 value={supplement.narrative}
                 onChange={(v) => updateSupplement({ narrative: v })}
               />

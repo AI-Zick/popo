@@ -4,6 +4,7 @@ import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
 import { Panel } from '@/components/ui/primitives';
 import { TextareaField } from '@/components/ui/fields';
+import { Dictate } from '@/components/ui/Dictate';
 import { cn } from '@/lib/cn';
 import { SuggestionPanel } from '@/features/narrative/SuggestionPanel';
 
@@ -36,6 +37,11 @@ export function SectionNarrative() {
           required
           rows={22}
           placeholder="On the above date and time I was dispatched to…"
+          value={text}
+          onChange={(v) => update((d) => void (d.narrative = v))}
+        />
+        <Dictate
+          path={path.incident('narrative')}
           value={text}
           onChange={(v) => update((d) => void (d.narrative = v))}
         />

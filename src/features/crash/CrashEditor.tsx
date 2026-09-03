@@ -32,6 +32,7 @@ import { displayName } from '@/domain/person';
 import { STATES } from '@/domain/codes';
 import { Badge, Button, FieldGrid, Panel } from '@/components/ui/primitives';
 import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
+import { Dictate } from '@/components/ui/Dictate';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { InboundPanel } from './InboundPanel';
@@ -334,6 +335,12 @@ export function CrashEditor() {
                   placeholder="Unit 1 was travelling north on…"
                   value={crash.narrative}
                   onChange={(v) => updateCrash({ narrative: v })}
+                />
+                <Dictate
+                  path="crash.narrative"
+                  value={crash.narrative}
+                  onChange={(v) => updateCrash({ narrative: v })}
+                  disabled={!editable || !mine}
                 />
               </Panel>
             </fieldset>

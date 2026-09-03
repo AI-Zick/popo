@@ -32,6 +32,7 @@ import { canReopen, canReview, REVIEW_ACTION_LABEL, STATUS_LABEL } from '@/domai
 import { displayName } from '@/domain/person';
 import { Badge, Button, FieldGrid, Panel, RecordCard } from '@/components/ui/primitives';
 import { SelectField, TextField, TextareaField, ToggleField } from '@/components/ui/fields';
+import { Dictate } from '@/components/ui/Dictate';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -431,6 +432,12 @@ export function ArrestEditor() {
                   placeholder="Observed leaving the unit with the property in hand…"
                   value={arrest.narrative}
                   onChange={(v) => set({ narrative: v })}
+                />
+                <Dictate
+                  path="narrative"
+                  value={arrest.narrative}
+                  onChange={(v) => set({ narrative: v })}
+                  disabled={!writable}
                 />
               </Panel>
             </fieldset>
