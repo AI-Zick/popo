@@ -15,6 +15,9 @@
  */
 
 import type { UUID } from './person';
+import { headHash, sealLink, verifyLinks, type ChainStatus, type Fingerprint } from './chain';
+
+export type { ChainStatus };
 
 export type AuditAction =
   | 'auth.signIn'
@@ -151,37 +154,26 @@ export type AuditDraft = Omit<AuditEntry, 'id' | 'at' | 'prevHash' | 'hash'>;
 /* ------------------------------------------------------------------ */
 
 /**
- * Fields are joined in a fixed order, each length-prefixed, so that no two
- * different entries can produce the same input string. Length prefixing avoids
- * the ambiguity a plain separator has when the separator itself appears in a
- * field — "ab" + "c" and "a" + "bc" must not hash alike.
+ * Which fields the hash covers, and in what order.
+ *
+ * Every field of the entry, because an audit line with an unhashed field could
+ * be edited afterwards without breaking anything — which is worse than not
+ * hashing it, since it would still look sealed. The chaining itself lives in
+ * `chain.ts`, shared with an evidence item's chain of custody.
  */
-function canonical(entry: Omit<AuditEntry, 'hash'>): string {
-  return [
-    entry.id,
-    entry.at,
-    entry.actorId,
-    entry.actorName,
-    entry.action,
-    entry.target,
-    entry.detail,
-    entry.prevHash,
-  ]
-    .map((part) => {
-      const value = String(part ?? '');
-      return `${value.length}:${value}`;
-    })
-    .join('|');
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+const AUDIT_FINGERPRINT: Fingerprint<Omit<AuditEntry, 'hash'>> = (entry) => [
+  entry.id,
+  entry.at,
+  entry.actorId,
+  entry.actorName,
+  entry.action,
+  entry.target,
+  entry.detail,
+  entry.prevHash,
+];
 
 export async function sealEntry(entry: Omit<AuditEntry, 'hash'>): Promise<AuditEntry> {
-  return { ...entry, hash: await sha256Hex(canonical(entry)) };
+  return sealLink(entry, AUDIT_FINGERPRINT);
 }
 
 /** Appends a sealed entry to the chain. Never mutates the input. */
@@ -191,47 +183,13 @@ export async function appendEntry(
   id: string,
   at = new Date().toISOString(),
 ): Promise<AuditEntry[]> {
-  const prevHash = log.length > 0 ? log[log.length - 1].hash : '';
-  const sealed = await sealEntry({ ...draft, id, at, prevHash });
+  const sealed = await sealEntry({ ...draft, id, at, prevHash: headHash(log) });
   return [...log, sealed];
 }
 
-export interface ChainStatus {
-  intact: boolean;
-  /** Index of the first entry that does not verify. */
-  brokenAt: number | null;
-  reason: string | null;
-  checked: number;
-}
-
 /** Recomputes every hash and every link. */
-export async function verifyChain(log: AuditEntry[]): Promise<ChainStatus> {
-  let prevHash = '';
-  for (let i = 0; i < log.length; i += 1) {
-    const entry = log[i];
-
-    if (entry.prevHash !== prevHash) {
-      return {
-        intact: false,
-        brokenAt: i,
-        reason: 'An entry is missing, or entries have been reordered.',
-        checked: log.length,
-      };
-    }
-
-    const { hash, ...rest } = entry;
-    if ((await sha256Hex(canonical(rest))) !== hash) {
-      return {
-        intact: false,
-        brokenAt: i,
-        reason: 'An entry has been altered since it was written.',
-        checked: log.length,
-      };
-    }
-
-    prevHash = hash;
-  }
-  return { intact: true, brokenAt: null, reason: null, checked: log.length };
+export function verifyChain(log: AuditEntry[]): Promise<ChainStatus> {
+  return verifyLinks(log, AUDIT_FINGERPRINT);
 }
 
 /** Most recent first, optionally narrowed. */

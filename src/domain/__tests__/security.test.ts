@@ -24,6 +24,7 @@ import {
 import {
   appendEntry,
   filterLog,
+  sealEntry,
   verifyChain,
   type AuditEntry,
 } from '../audit';
@@ -250,6 +251,40 @@ describe('audit log', () => {
     const log = await buildLog();
     const status = await verifyChain([log[1], log[0], log[2]]);
     expect(status.intact).toBe(false);
+  });
+
+  it('produces the hashes it always has', async () => {
+    /*
+      Audit hashes live in every deployed database. A change to how they are
+      computed does not corrupt anything, but it does make every entry written
+      before the change fail verification — and an audit log that reports itself
+      broken is worse than useless, because nobody can tell that from one that
+      really has been tampered with.
+
+      These three are pinned for that reason. The last one carries the field
+      separator inside a field, which is what the length prefixing is for.
+    */
+    const sealed = await Promise.all([
+      sealEntry({
+        id: 'a1', at: '2026-09-03T10:00:00.000Z', actorId: 'u-reyes', actorName: 'M. Reyes',
+        action: 'auth.signIn', target: '', detail: '', prevHash: '',
+      }),
+      sealEntry({
+        id: 'a2', at: '2026-09-03T10:05:00.000Z', actorId: 'u-vance', actorName: 'R. Vance',
+        action: 'report.approved', target: '2026-000431', detail: 'looks good',
+        prevHash: 'deadbeef',
+      }),
+      sealEntry({
+        id: 'a3', at: '2026-09-03T10:06:00.000Z', actorId: '', actorName: 'a|b',
+        action: 'note.added', target: 'c', detail: '|d|', prevHash: 'x',
+      }),
+    ]);
+
+    expect(sealed.map((e) => e.hash)).toEqual([
+      '24c9de79733b4c437a8bcec372fdc18c2ea0d598f1955e98cb8417d5f5cd8867',
+      'ade63f9312ce5ef3e757539d8a043c08d95272158953ebe439eb8987fd7d0434',
+      'cbeabb521550231372b8571dc08e93bc349596ba79a55f59eb25f32bdfc69c81',
+    ]);
   });
 
   it('treats an empty log as intact', async () => {
