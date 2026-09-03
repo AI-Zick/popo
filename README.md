@@ -883,6 +883,31 @@ age of the last confirmation rather than of the note — a code written in 2021
 and checked last week is current, and saying "3 years ago" next to it teaches
 people to distrust something that was just verified.
 
+### What loads when
+
+The first bundle is what an officer needs to start working: the dashboard, the
+incident and supplement editors, and search. Everything else is fetched at the
+moment it is asked for.
+
+Setup — jurisdiction, accounts, the audit log, NIBRS export, the import wizard,
+activity reports — is a records clerk's screen that an officer may never open.
+The crash editor drags in a vector diagram canvas a burglary report has no use
+for. Both sit behind an explicit click, which is exactly when a fetch is free,
+so neither is in the bundle that decides how long the sign-in screen takes.
+
+React and the icon set are their own chunks. They change when a dependency is
+upgraded, a few times a year; the app changes daily. Separating them means a
+normal deploy invalidates the app bundle and nothing else, so a department
+opening this every morning re-downloads what actually changed:
+
+```
+index      320 kB  (89 kB gzipped)   the app
+react      135 kB  (43 kB)           changes on upgrade
+icons       42 kB  ( 9 kB)           changes on upgrade
+AgencySetup 76 kB  (22 kB)           on demand
+CrashEditor 41 kB  (12 kB)           on demand
+```
+
 ## Architecture
 
 ```
