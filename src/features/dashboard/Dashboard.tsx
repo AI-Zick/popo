@@ -14,6 +14,7 @@ import {
   Send,
   Settings,
   Shield,
+  Users,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { runRules } from '@/validation/engine';
@@ -75,7 +76,13 @@ type QueueItem = {
   open: () => void;
 };
 
-export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
+export function Dashboard({
+  onOpenSetup,
+  onOpenSearch,
+}: {
+  onOpenSetup: () => void;
+  onOpenSearch: () => void;
+}) {
   const {
     incidents,
     supplements,
@@ -121,11 +128,17 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
       [...history].reverse().find((e) => e.action === 'submitted')?.at ?? '';
 
     const entries: QueueItem[] = [
+      /*
+        Straight to the decision. A supervisor coming from this queue is here to
+        approve it or send it back, and both live on the review section — so
+        opening on page one and leaving them to find the rest is how a reviewer
+        concludes the software cannot do it.
+      */
       ...incidents.map((i) => ({
         ...i,
         kind: 'report' as const,
         label: i.caseNumber,
-        open: () => openIncident(i.id),
+        open: () => openIncident(i.id, 'review'),
       })),
       ...supplements.map((s) => ({
         ...s,
@@ -133,7 +146,7 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
         label: supplementLabel(s),
         changesStatus: Boolean(s.disposition),
         open: () => {
-          openIncident(s.caseId);
+          openIncident(s.caseId, 'review');
           openSupplement(s.id);
         },
       })),
@@ -273,14 +286,30 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
             placeholder="Filter these reports…"
             className="w-full rounded-lg border border-line bg-canvas py-2 pl-9 pr-16 text-[13.5px] text-ink placeholder:text-faint"
           />
-          {/*
-            This box filters the list in front of you. Searching everything the
-            agency knows is a different job, so it says where that lives.
-          */}
-          <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-faint">
-            ⌘K all
-          </kbd>
         </div>
+
+        {/*
+          The box on the left filters the list in front of you. Searching what
+          the agency knows — people, vehicles, places, every report — is a
+          different job, and it used to say so in a two-word keyboard hint
+          inside that box. Somebody testing this looked for people and vehicle
+          search and concluded there wasn't any, which is the only evidence
+          that matters about a hint: it names what it finds, and it is a
+          button, because a shortcut nobody is told about is a shortcut nobody
+          presses.
+        */}
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          title="Search people, vehicles, places, reports and crashes"
+          className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-canvas px-3 py-2 text-[13px] text-muted transition hover:border-accent/40 hover:text-ink"
+        >
+          <Users size={15} className="text-faint" aria-hidden />
+          Look up a person or vehicle
+          <kbd className="rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-faint">
+            ⌘K
+          </kbd>
+        </button>
 
         <UserMenu />
 
@@ -436,6 +465,11 @@ export function Dashboard({ onOpenSetup }: { onOpenSetup: () => void }) {
               />
             ) : (
               <ul className="space-y-2">
+                <li className="mb-1 text-[12.5px] leading-relaxed text-muted">
+                  Opening one takes you to the bottom of it, where you approve it or send it back
+                  with what needs fixing. Nothing is decided from this list — reading the report is
+                  the job.
+                </li>
                 {queue.map((entry) => (
                   <li key={entry.report.id}>
                     <button

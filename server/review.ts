@@ -14,7 +14,7 @@ import { DOC_TABLES, documents } from './db';
 import { newId } from './ids';
 import { requireAuth } from './auth';
 import { recordAudit } from './audit';
-import { canRecall, canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
+import { canHandOff, canRecall, canReopen, canReview, canSubmit, handOffPatch, type ReviewComment, type ReviewEvent } from '../src/domain/review';
 import { runRules, type Issue } from '../src/validation/engine';
 import { ALL_RULES } from '../src/validation/rules';
 import { stateRules } from '../src/domain/nibrs/rules';
@@ -200,6 +200,56 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       action: 'report.recalled',
       target: doc.caseNumber,
       detail: '',
+    });
+    res.json({ ok: true, report: doc });
+  });
+
+  /** Passes the report to another officer to finish. */
+  app.post('/api/reports/:id/hand-off', requireAuth, async (req: Request, res: Response) => {
+    const user = req.user!;
+    const loaded = incidents.findWithVersion(db, req.params.id);
+    if (!loaded) {
+      res.status(404).json({ error: 'No such report.' });
+      return;
+    }
+    const check = canHandOff(user, loaded.doc);
+    if (!check.ok) {
+      res.status(409).json({ error: check.reason });
+      return;
+    }
+
+    const toId = String(req.body?.toId ?? '');
+    const row = db.prepare('SELECT id, name, badge, active FROM users WHERE id = ?').get(toId) as
+      | { id: string; name: string; badge: string; active: number }
+      | undefined;
+    if (!row || !row.active) {
+      res.status(400).json({ error: 'That is not an account this report can be handed to.' });
+      return;
+    }
+    if (row.id === loaded.doc.createdBy) {
+      res.status(409).json({ error: 'That officer already has this report.' });
+      return;
+    }
+
+    const doc: Incident = {
+      ...loaded.doc,
+      ...handOffPatch(loaded.doc, { id: row.id, name: row.name, badge: row.badge ?? '' }, () =>
+        newId('sof'),
+      ),
+      reviewHistory: [
+        ...(loaded.doc.reviewHistory ?? []),
+        reviewEvent('handedOff', user, `To ${row.name}`),
+      ],
+      updatedAt: new Date().toISOString(),
+    };
+    save(db, doc);
+
+    await recordAudit(db, {
+      actorId: user.id,
+      actorName: user.name,
+      action: 'report.handedOff',
+      target: doc.caseNumber,
+      detail: `to ${row.name}`,
     });
     res.json({ ok: true, report: doc });
   });

@@ -1158,6 +1158,14 @@ export const api = {
     return request(`/api/reports/${id}/recall`, { method: 'POST' });
   },
 
+  /** Passes the report to another officer to finish. */
+  handOffReport(id: string, toId: string): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/hand-off`, {
+      method: 'POST',
+      body: JSON.stringify({ toId }),
+    });
+  },
+
   approveReport(id: string, note = ''): Promise<{ report: Incident }> {
     return request(`/api/reports/${id}/approve`, {
       method: 'POST',

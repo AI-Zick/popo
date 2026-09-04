@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react';
 import { ArrowRight, CalendarCheck, CalendarClock, Gavel, History, ShieldAlert, Users } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
@@ -59,13 +60,74 @@ const ROLE_TONE: Record<PersonRole, 'danger' | 'warn' | 'accent' | 'neutral'> = 
   other: 'neutral',
 };
 
+/**
+ * The roles a report is read by, in the order they matter.
+ *
+ * Victims first: they are who the offence happened to, and on most reports
+ * they are also who the required fields are about.
+ */
+const ROLE_TABS: PersonRole[] = ['victim', 'suspect', 'arrestee', 'witness', 'complainant', 'other'];
+
+const ROLE_TAB_LABEL: Record<PersonRole, string> = {
+  victim: 'Victims',
+  suspect: 'Suspects',
+  arrestee: 'Arrestees',
+  witness: 'Witnesses',
+  complainant: 'Reported by',
+  other: 'Others',
+};
+
 export function SectionPersons() {
-  const { incident, persons, addNewPerson } = useStore();
+  const { incident, persons, addNewPerson, validation } = useStore();
+  const [tab, setTab] = useState<PersonRole | 'all'>('all');
   if (!incident) return null;
+
+  const byRole = (role: PersonRole) => persons.filter((person) => person.role === role);
+  const shown = tab === 'all' ? persons : byRole(tab);
+
+  /*
+    Problems, counted per role, so a tab that is hiding a blocking error says
+    so. Splitting a list into tabs is only safe if nothing can hide behind one
+    — an officer who cannot see the victim's missing date of birth because
+    they are on the Witnesses tab is worse off than before.
+  */
+  const errorsIn = (role: PersonRole) =>
+    byRole(role).reduce(
+      (count, person) =>
+        count +
+        validation.errors.filter((issue) => issue.path.startsWith(`persons[${person.id}]`)).length,
+      0,
+    );
 
   return (
     <SectionAnchor section="persons">
       <AutoLinkNotice />
+
+      {/*
+        Roles as tabs, because "who was the victim" and "who was the suspect"
+        are different questions asked at different moments, and a flat list of
+        nine people answers neither quickly. "Everyone" stays first and stays
+        the default: on a two-person report the tabs are overhead, and this is
+        a two-person report most of the time.
+      */}
+      {persons.length > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <RoleTab active={tab === 'all'} onClick={() => setTab('all')} count={persons.length}>
+            Everyone
+          </RoleTab>
+          {ROLE_TABS.filter((role) => byRole(role).length > 0).map((role) => (
+            <RoleTab
+              key={role}
+              active={tab === role}
+              onClick={() => setTab(role)}
+              count={byRole(role).length}
+              errors={errorsIn(role)}
+            >
+              {ROLE_TAB_LABEL[role]}
+            </RoleTab>
+          ))}
+        </div>
+      )}
 
       {persons.length === 0 ? (
         <EmptyState
@@ -84,8 +146,14 @@ export function SectionPersons() {
         />
       ) : (
         <>
-          {persons.map((person, index) => (
-            <PersonCard key={person.id} person={person} index={index} />
+          {shown.map((person) => (
+            <PersonCard
+              key={person.id}
+              person={person}
+              /* Numbered by their place on the report, not on the tab — the
+                 validation messages say "Victim 2" and mean the whole report. */
+              index={persons.indexOf(person)}
+            />
           ))}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {(['victim', 'suspect', 'arrestee', 'witness'] as PersonRole[]).map((role) => (
@@ -98,6 +166,42 @@ export function SectionPersons() {
         </>
       )}
     </SectionAnchor>
+  );
+}
+
+function RoleTab({
+  active,
+  onClick,
+  count,
+  errors = 0,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  errors?: number;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition',
+        active ? 'bg-surface text-ink ring-1 ring-line' : 'text-muted hover:bg-surface/60',
+      )}
+    >
+      {children}
+      <span className="text-[11.5px] text-faint tabular">{count}</span>
+      {errors > 0 && (
+        <span
+          className="flex size-4 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white tabular"
+          aria-label={`${errors} to fix`}
+        >
+          {errors}
+        </span>
+      )}
+    </button>
   );
 }
 

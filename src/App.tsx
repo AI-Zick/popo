@@ -169,7 +169,7 @@ export default function App() {
       ) : incident ? (
         <IncidentEditor />
       ) : (
-        <Dashboard onOpenSetup={() => setSetupOpen(true)} />
+        <Dashboard onOpenSetup={() => setSetupOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
       )}
       </div>
     </div>

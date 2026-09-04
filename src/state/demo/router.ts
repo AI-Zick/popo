@@ -11,7 +11,7 @@
  */
 
 import { can, createUser, sanitizeUserInput, type Permission } from '@/domain/auth';
-import { canRecall, canReopen, canReview, canSubmit } from '@/domain/review';
+import { canHandOff, canRecall, canReopen, canReview, canSubmit, handOffPatch } from '@/domain/review';
 import { checkArrest, blockingProblems as arrestBlocking, createArrest, createCharge, nextArrestNumber } from '@/domain/arrest';
 import { createTask, sortTasks } from '@/domain/caseTask';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
@@ -503,6 +503,16 @@ export async function handle(method: string, url: string, body: unknown): Promis
         }
         Object.assign(incident, { status: 'pending_review', submittedAt: at() });
         await audit({ actorId: user.id, actorName: user.name, action: 'report.submitted', target: incident.caseNumber, detail: '' });
+        return ok({ ok: true, report: incident });
+      }
+      if (action === 'hand-off') {
+        const allowed = canHandOff(user, incident);
+        if (!allowed.ok) return fail(409, allowed.reason!);
+        const to = state.users.find((u) => u.id === text(input.toId, 64) && u.active);
+        if (!to) return fail(400, 'That is not an account this report can be handed to.');
+        if (to.id === incident.createdBy) return fail(409, 'That officer already has this report.');
+        Object.assign(incident, handOffPatch(incident, { id: to.id, name: to.name, badge: to.badge }, () => newId('sof')));
+        await audit({ actorId: user.id, actorName: user.name, action: 'report.handedOff', target: incident.caseNumber, detail: `to ${to.name}` });
         return ok({ ok: true, report: incident });
       }
       if (action === 'recall') {

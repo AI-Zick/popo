@@ -79,6 +79,7 @@ export type AuditAction =
   | 'attachment.retracted'
   | 'report.submitted'
   | 'report.recalled'
+  | 'report.handedOff'
   | 'report.approved'
   | 'report.returned'
   | 'report.reopened'
@@ -169,6 +170,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'attachment.added': 'Attachment added',
   'attachment.viewed': 'Attachment opened',
   'attachment.retracted': 'Attachment withdrawn',
+  'report.handedOff': 'Report handed to another officer',
   'report.recalled': 'Report taken back by its author',
   'report.submitted': 'Report submitted',
   'report.approved': 'Report approved',

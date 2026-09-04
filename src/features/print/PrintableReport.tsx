@@ -128,6 +128,28 @@ export function PrintableReport({ onClose }: { onClose: () => void }) {
               label="Disposition"
               value={labelOf(CLEARANCE_OPTIONS, incident.clearanceStatus) || '—'}
             />
+            {/*
+              Who else was there. On the printed copy because that is the copy
+              that reaches a court, a prosecutor and a records request — a
+              second officer who is only in the system is a second officer
+              nobody outside it knows to ask.
+            */}
+            {incident.supportingOfficers.length > 0 && (
+              <Field
+                label="Also worked it"
+                value={incident.supportingOfficers
+                  .map((officer) =>
+                    [
+                      officer.name,
+                      officer.badge && `#${officer.badge}`,
+                      officer.role && `(${officer.role})`,
+                    ]
+                      .filter(Boolean)
+                      .join(' '),
+                  )
+                  .join('; ')}
+              />
+            )}
           </Grid>
           {(incident.isDomestic || incident.isHateCrime || incident.isGangRelated || incident.involvesJuvenile) && (
             <p className="mt-2 text-[11px]">

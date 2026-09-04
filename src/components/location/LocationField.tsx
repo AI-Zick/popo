@@ -481,8 +481,9 @@ function NewLocationForm({
           onClick={() => {
             if (created.current) return;
             created.current = true;
-            createAndSetLocation(draft);
-            onDone('');
+            // The id it actually got — passing '' here set the report's
+            // location to nothing, immediately after creating the place.
+            onDone(createAndSetLocation(draft));
           }}
         >
           Save location

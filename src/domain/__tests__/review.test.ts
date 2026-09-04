@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildQueue,
+  canDiscard,
+  canHandOff,
   canRecall,
   canReopen,
   canReview,
   canSubmit,
   describeWait,
+  handOffPatch,
+  isUntouched,
   isEditable,
   REVIEW_SLA_HOURS,
   unresolvedComments,
@@ -180,5 +184,150 @@ describe('taking a report back out of the queue', () => {
 
   it('not on a draft that was never submitted', () => {
     expect(canRecall(officer, submitted({ status: 'draft' as const })).ok).toBe(false);
+  });
+});
+
+describe('handing a report to another officer', () => {
+  const draft = (partial = {}) => ({
+    status: 'draft' as const,
+    createdBy: 'u-officer',
+    reportingOfficer: 'M. Reyes',
+    reportingBadge: '4417',
+    supportingOfficers: [] as { id: string; name: string; badge: string; role: string }[],
+    ...partial,
+  });
+
+  const dtam = { id: 'u-tam', name: 'D. Tam', badge: '3388' };
+  let n = 0;
+  const ids = () => `sof_${(n += 1)}`;
+
+  it('the officer holding it may', () => {
+    expect(canHandOff(officer, draft()).ok).toBe(true);
+  });
+
+  it('a supervisor may reassign somebody else’s', () => {
+    expect(canHandOff(supervisor, draft({ createdBy: 'u-someone' })).ok).toBe(true);
+  });
+
+  it('another officer may not', () => {
+    const other = createUser({ id: 'u-other', name: 'K. Lang', role: 'officer' });
+    expect(canHandOff(other, draft()).ok).toBe(false);
+  });
+
+  it('not while a supervisor has it', () => {
+    const check = canHandOff(officer, draft({ status: 'pending_review' as const }));
+    expect(check.ok).toBe(false);
+    expect(check.reason).toMatch(/Take it back first/);
+  });
+
+  it('a report sent back is still the officer’s to hand on', () => {
+    expect(canHandOff(officer, draft({ status: 'returned' as const })).ok).toBe(true);
+  });
+
+  it('keeps the officer who started it, as a supporting officer', () => {
+    /*
+      The whole point. A report that ends up with one name on it when two
+      people worked it misleads everybody who reads it afterwards — including
+      the first officer, when somebody asks them two years later what they saw.
+    */
+    const patch = handOffPatch(draft(), dtam, ids);
+    expect(patch.reportingOfficer).toBe('D. Tam');
+    expect(patch.reportingBadge).toBe('3388');
+    expect(patch.createdBy).toBe('u-tam');
+    expect(patch.supportingOfficers).toHaveLength(1);
+    expect(patch.supportingOfficers[0]).toMatchObject({
+      name: 'M. Reyes',
+      badge: '4417',
+      role: 'Started the report',
+    });
+  });
+
+  it('takes the incoming officer off the supporting list', () => {
+    /*
+      Reports get handed back. Without this, an officer who gives one up and
+      later takes it again is listed twice — once as the author, once as their
+      own assistant.
+    */
+    const once = draft(handOffPatch(draft(), dtam, ids));
+    expect(once.supportingOfficers.map((o) => o.name)).toEqual(['M. Reyes']);
+
+    const back = handOffPatch(once, { id: 'u-officer', name: 'M. Reyes', badge: '4417' }, ids);
+    expect(back.reportingOfficer).toBe('M. Reyes');
+    expect(back.supportingOfficers.map((o) => o.name)).toEqual(['D. Tam']);
+  });
+
+  it('does not list the same officer twice', () => {
+    const messy = draft({
+      supportingOfficers: [{ id: 'x', name: 'M. Reyes', badge: '4417', role: 'Assisted' }],
+    });
+    const patch = handOffPatch(messy, dtam, ids);
+    expect(patch.supportingOfficers.filter((o) => o.name === 'M. Reyes')).toHaveLength(1);
+  });
+
+  it('adds nobody when the report had no officer on it yet', () => {
+    const patch = handOffPatch(draft({ reportingOfficer: '' }), dtam, ids);
+    expect(patch.supportingOfficers).toHaveLength(0);
+  });
+});
+
+describe('throwing away a report nobody wrote on', () => {
+  const empty = (partial = {}) => ({
+    status: 'draft' as const,
+    createdBy: 'u-officer',
+    offenses: [] as unknown[],
+    persons: [] as unknown[],
+    property: [] as unknown[],
+    vehicles: [] as unknown[],
+    narrative: '',
+    locationId: '',
+    occurredFrom: '',
+    ...partial,
+  });
+
+  it('lets the officer who started it be rid of it', () => {
+    /*
+      A report is created by pressing a button, and pressing it by mistake is
+      ordinary. Making somebody file it to be rid of it puts a case number on
+      nothing and teaches them to submit junk.
+    */
+    expect(canDiscard(officer, empty()).ok).toBe(true);
+  });
+
+  it('refuses once anything real is on it', () => {
+    // Then it is a record, and records are destroyed under a court order.
+    const written = empty({ narrative: 'On the above date I was dispatched to' });
+    expect(canDiscard(officer, written).ok).toBe(false);
+    expect(canDiscard(officer, written).reason).toMatch(/court order/);
+
+    for (const patch of [
+      { offenses: [{}] },
+      { persons: [{}] },
+      { property: [{}] },
+      { vehicles: [{}] },
+      { locationId: 'loc-1' },
+      { occurredFrom: '2026-01-01T09:00' },
+    ]) {
+      expect(canDiscard(officer, empty(patch)).ok).toBe(false);
+    }
+  });
+
+  it('counts an attachment as something real', () => {
+    expect(canDiscard(officer, empty(), 1).ok).toBe(false);
+  });
+
+  it('does not count the case number and the officer’s own name', () => {
+    // Both are filled in automatically. Neither is a record of anything.
+    expect(isUntouched(empty())).toBe(true);
+  });
+
+  it('refuses somebody else’s', () => {
+    const other = createUser({ id: 'u-other', name: 'K. Lang', role: 'officer' });
+    expect(canDiscard(other, empty()).ok).toBe(false);
+  });
+
+  it('refuses one that has been through review', () => {
+    const back = empty({ status: 'returned' as const });
+    expect(canDiscard(officer, back).ok).toBe(false);
+    expect(canDiscard(officer, back).reason).toMatch(/send it back up/);
   });
 });

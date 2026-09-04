@@ -8,6 +8,7 @@ import {
   Printer,
   Send,
   ShieldCheck,
+  Trash2,
   UserCog,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -18,6 +19,7 @@ import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import type { ReportStatus } from '@/domain/types';
+import { canDiscard } from '@/domain/review';
 
 const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' }> = {
   draft: { label: 'Draft', tone: 'neutral' },
@@ -48,10 +50,19 @@ export function EditorHeader({
     dismissConflict,
     lockOn,
     taskSummary,
+    saveNow,
+    discardReport,
+    currentUser,
+    attachments,
   } = useStore();
   if (!incident) return null;
 
   const outstandingWork = taskSummary(incident.id);
+  const discardable = canDiscard(
+    currentUser,
+    incident,
+    attachments.filter((file) => file.incidentId === incident.id && !file.retractedAt).length,
+  );
 
   const heldBy = lockOn(incident.id);
   const wasReturned = incident.status === 'returned' && incident.returnedReason;
@@ -158,11 +169,37 @@ export function EditorHeader({
         </PanelTab>
       </div>
 
-      {savedAt && (
-        <span className="flex items-center gap-1.5 text-[12px] text-faint">
-          <Cloud size={13} aria-hidden />
-          Saved {relativeTime(savedAt)}
-        </span>
+      {/*
+        The editor saves as it goes and has always said so. This makes it
+        something an officer can press — "Saved just now" is a claim you have
+        to take on trust at the moment you close the laptop, and the honest
+        answer to somebody who wants a Save button is to give them one that
+        really does finish the work.
+      */}
+      <button
+        type="button"
+        onClick={() => void saveNow()}
+        title="Write everything pending to the server now"
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] text-faint transition hover:bg-raised hover:text-ink"
+      >
+        <Cloud size={13} aria-hidden />
+        {savedAt ? `Saved ${relativeTime(savedAt)}` : 'Save'}
+      </button>
+
+      {/*
+        Only ever offered on a draft nobody has written on. `canDiscard` holds
+        that line — a report with anything real in it is a record, and records
+        are destroyed under a court order with a second person, not from a
+        button in the corner of the screen.
+      */}
+      {discardable.ok && (
+        <Button
+          onClick={() => void discardReport()}
+          title="Throw away this empty report"
+        >
+          <Trash2 size={15} aria-hidden />
+          Discard
+        </Button>
       )}
 
       <UserMenu />

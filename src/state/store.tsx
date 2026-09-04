@@ -59,7 +59,7 @@ import {
   type LocationMatch,
 } from '@/domain/locationMatching';
 import { createSession, touchSession, type Session, type SignInOutcome } from '@/domain/session';
-import { isEditable, unresolvedComments } from '@/domain/review';
+import { canDiscard, isEditable, unresolvedComments } from '@/domain/review';
 import type { AuditDraft, AuditEntry, ChainStatus } from '@/domain/audit';
 import type { Feedback, FeedbackDraft, FeedbackStatus } from '@/domain/feedback';
 import type { EvidenceItem } from '@/domain/evidence';
@@ -241,8 +241,14 @@ interface StoreValue {
     comments: { path: string; section: string; message: string }[],
   ) => Promise<GuardResult>;
   reopenReport: (reason: string) => Promise<GuardResult>;
+  /** Writes everything pending, now. */
+  saveNow: () => Promise<GuardResult>;
+  /** Throws away a draft nobody has written on. */
+  discardReport: () => Promise<GuardResult>;
   /** The author takes a report back out of the review queue. */
   recallReport: () => Promise<GuardResult>;
+  /** Passes the report to another officer to finish. */
+  handOffReport: (toId: string) => Promise<GuardResult>;
   resolveReviewComment: (commentId: string) => void;
   uploadAttachment: (file: File, caption: string) => Promise<GuardResult>;
   retractAttachment: (id: string, reason: string) => Promise<GuardResult>;
@@ -303,7 +309,7 @@ interface StoreValue {
   savedAt: string | null;
   autoLink: AutoLinkNotice | null;
 
-  openIncident: (id: string) => void;
+  openIncident: (id: string, section?: SectionId) => void;
   closeIncident: () => void;
   createNew: () => void;
   deleteIncident: (id: string) => void;
@@ -555,7 +561,8 @@ interface StoreValue {
 
   // Location index
   setLocation: (locationId: string, place?: MasterLocation) => void;
-  createAndSetLocation: (draft: Partial<MasterLocation>) => void;
+  /** Creates the place (or reuses an identical one) and attaches it. Returns its id. */
+  createAndSetLocation: (draft: Partial<MasterLocation>) => string;
   updateLocation: (locationId: string, patch: Partial<MasterLocation>) => void;
   addNote: (locationId: string, note: { kind: NoteKind; text: string; sensitive: boolean }) => void;
   updateNote: (locationId: string, noteId: string, patch: Partial<PremiseNote>) => void;
@@ -2561,13 +2568,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * is reused instead — that is what keeps one storage facility to one record.
    */
   const createAndSetLocation = useCallback(
-    (draft: Partial<MasterLocation>) => {
+    (draft: Partial<MasterLocation>): string => {
       const existing = autoLinkLocation(
         findLocations({ address: draft.address, commonName: draft.commonName, city: draft.city }, locations),
       );
       if (existing) {
         setLocation(existing.location.id);
-        return;
+        return existing.location.id;
       }
       const created = createLocation({
         // Anything the form did not fill in falls back to the jurisdiction.
@@ -2578,6 +2585,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLocations((prev) => ({ ...prev, [created.id]: created }));
       markDirty('locations', created.id);
       setLocation(created.id, created);
+      /*
+        Handed back so the caller knows which record it got. The form that
+        creates a place also has to close the dialog, and closing used to mean
+        calling the picker's callback with an empty string — which set the
+        report's location to nothing, one line after this had set it properly.
+      */
+      return created.id;
     },
     [locations, setLocation, agency.city, agency.state],
   );
@@ -3034,24 +3048,72 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   /* -------------------------------------------------- lifecycle -------- */
-  const resetEditorState = useCallback(() => {
-    setActiveSectionState('incident');
-    setVisitedSections(new Set(['incident']));
+  const resetEditorState = useCallback((section: SectionId = 'incident') => {
+    setActiveSectionState(section);
+    setVisitedSections(new Set([section]));
     setSubmitAttempted(false);
     setRevealedPaths(new Set());
     setAutoLink(null);
     setSavedAt(null);
   }, []);
 
+  /**
+   * Opens a report, on the section the reader came for.
+   *
+   * A supervisor arriving from the review queue wants to approve it or send it
+   * back, and both of those live on the last section — so opening on the first
+   * one and leaving them to find the rest is how a reviewer concludes the
+   * software cannot do it. Everyone else still lands where a report starts.
+   */
   const openIncident = useCallback(
-    (id: string) => {
+    (id: string, section?: SectionId) => {
       setActiveId(id);
-      resetEditorState();
+      resetEditorState(section);
     },
     [resetEditorState],
   );
 
   const closeIncident = useCallback(() => setActiveId(null), []);
+
+  /**
+   * Writes everything pending, now.
+   *
+   * The editor saves as it goes, and says so — but "Saved just now" is a claim
+   * an officer has to take on trust at the moment they close the laptop, and
+   * the honest answer to somebody who wants a Save button is to give them one
+   * that really does finish the work rather than to explain why they do not
+   * need it.
+   */
+  const saveNow = useCallback(async (): Promise<GuardResult> => {
+    try {
+      await flush();
+      setSavedAt(new Date().toISOString());
+      return { ok: true };
+    } catch (error) {
+      return failed(error, 'Could not save.');
+    }
+  }, [flush]);
+
+  /**
+   * Throws away a report nobody wrote on.
+   *
+   * Removing it locally and flushing is what deletes it: `flush` treats a
+   * dirty id with no document behind it as a delete, which is the same path a
+   * record removed any other way takes. `canDiscard` is what decides whether
+   * this is allowed — and it only ever is for an empty draft.
+   */
+  const discardReport = useCallback(async (): Promise<GuardResult> => {
+    if (!incident) return { ok: false, reason: 'No report is open.' };
+    const check = canDiscard(currentUser, incident, attachments.filter((file) => file.incidentId === incident.id && !file.retractedAt).length);
+    if (!check.ok) return { ok: false, reason: check.reason };
+
+    const id = incident.id;
+    setActiveId(null);
+    setIncidents((prev) => prev.filter((report) => report.id !== id));
+    markDirty('incidents', id);
+    await flush();
+    return { ok: true };
+  }, [incident, currentUser, attachments, markDirty, flush]);
 
   const createNew = useCallback(() => {
     const fresh = createIncident({
@@ -3155,6 +3217,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [incident, adoptReport]);
 
+  const handOffReport = useCallback(
+    async (toId: string): Promise<GuardResult> => {
+      if (!incident) return { ok: false, reason: 'No report is open.' };
+      try {
+        await api.handOffReport(incident.id, toId);
+        await adoptReport();
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'Could not hand it on.');
+      }
+    },
+    [incident, adoptReport],
+  );
+
   const resolveReviewComment = useCallback(
     (commentId: string) => {
       if (!incident) return;
@@ -3203,6 +3279,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     returnReport,
     reopenReport,
     recallReport,
+    handOffReport,
+    saveNow,
+    discardReport,
     resolveReviewComment,
     uploadAttachment,
     retractAttachment,

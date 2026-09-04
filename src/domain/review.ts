@@ -35,7 +35,13 @@ export interface ReviewComment {
   resolvedAt: string;
 }
 
-export type ReviewAction = 'submitted' | 'approved' | 'returned' | 'reopened' | 'recalled';
+export type ReviewAction =
+  | 'submitted'
+  | 'approved'
+  | 'returned'
+  | 'reopened'
+  | 'recalled'
+  | 'handedOff';
 
 export interface ReviewEvent {
   id: UUID;
@@ -53,6 +59,7 @@ export const REVIEW_ACTION_LABEL: Record<ReviewAction, string> = {
   returned: 'Returned for correction',
   reopened: 'Reopened',
   recalled: 'Taken back by the officer',
+  handedOff: 'Handed to another officer',
 };
 
 /* ------------------------------------------------------------------ */
@@ -156,6 +163,173 @@ export function canRecall(
     };
   }
   return { ok: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* Throwing one away                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What "nothing has been written on it" means.
+ *
+ * A report is created by pressing a button, and pressing it by mistake is
+ * ordinary. What comes out is a case number and the officer's own name filled
+ * in automatically — none of which anybody typed, and none of which is a
+ * record of anything.
+ */
+export function isUntouched(report: UntouchedTarget, attachments = 0): boolean {
+  return (
+    report.offenses.length === 0 &&
+    report.persons.length === 0 &&
+    report.property.length === 0 &&
+    report.vehicles.length === 0 &&
+    !report.narrative.trim() &&
+    !report.locationId &&
+    !report.occurredFrom.trim() &&
+    attachments === 0
+  );
+}
+
+interface UntouchedTarget {
+  offenses: unknown[];
+  persons: unknown[];
+  property: unknown[];
+  vehicles: unknown[];
+  narrative: string;
+  locationId: string;
+  occurredFrom: string;
+}
+
+/**
+ * Whether a report can be thrown away rather than filed.
+ *
+ * Only one that nobody has written on. That line is the whole design: an
+ * empty report created by a misclick is litter, and making an officer file it
+ * to be rid of it puts a case number on nothing and teaches them to submit
+ * junk. A report with anything real in it is a different object — it is a
+ * record, and records in this system are destroyed under a court order with a
+ * second person watching, not by whoever has it open.
+ *
+ * So this refuses, and says which of the two it is, rather than offering a
+ * button that sometimes means "tidy up" and sometimes means "destroy
+ * evidence".
+ */
+export function canDiscard(
+  officer: User | null,
+  report: UntouchedTarget & { status: ReportStatus; createdBy: string },
+  attachments = 0,
+): TransitionCheck {
+  if (!officer) return { ok: false, reason: 'You are not signed in.' };
+  if (report.status !== 'draft') {
+    return {
+      ok: false,
+      reason:
+        report.status === 'returned'
+          ? 'This one has been through review. Fix what was asked for and send it back up.'
+          : 'This report has been filed. Only a court order removes it now.',
+    };
+  }
+  if (report.createdBy && report.createdBy !== officer.id) {
+    return { ok: false, reason: 'Only the officer who started it can throw it away.' };
+  }
+  if (!isUntouched(report, attachments)) {
+    return {
+      ok: false,
+      reason:
+        'There is something written on this report, so it is a record now. Records are destroyed under a court order, with a second person — not from here.',
+    };
+  }
+  return { ok: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* Handing it on                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether this report can be passed to somebody else to finish.
+ *
+ * The case it exists for: an officer does the scene, writes what they have,
+ * and goes off shift with the follow-up still open. Without a way to hand it
+ * over, the report waits for them to come back — or the other officer starts a
+ * second one about the same incident.
+ *
+ * Only while it is still the officer's to work on. A report waiting on a
+ * supervisor is not the author's to give away, and an approved one is finished.
+ */
+export function canHandOff(
+  officer: User | null,
+  report: { status: ReportStatus; createdBy: string },
+): TransitionCheck {
+  if (!officer) return { ok: false, reason: 'You are not signed in.' };
+  if (!isEditable(report.status)) {
+    return {
+      ok: false,
+      reason:
+        report.status === 'pending_review'
+          ? 'This report is with a supervisor. Take it back first if it needs more work.'
+          : 'This report has been approved.',
+    };
+  }
+  /*
+    A supervisor may reassign anybody's; an officer may only give away their
+    own. Reassigning somebody else's work to a third person, without either of
+    them present, is a supervisor's decision by definition.
+  */
+  if (report.createdBy && report.createdBy !== officer.id && !can(officer, 'reports.approve')) {
+    return { ok: false, reason: 'Only the officer who has it, or a supervisor, can hand it on.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * The change a handoff makes.
+ *
+ * The officer giving it up becomes a supporting officer, and that is the whole
+ * point rather than a nicety: they wrote part of this report, and a document
+ * that ends up with one name on it when two people worked it is a document
+ * that misleads everybody who reads it afterwards — including the second
+ * officer, when somebody asks them two years later what they saw.
+ *
+ * Returns the fields to change, so the caller decides how to apply them.
+ */
+export function handOffPatch<T extends HandOffTarget>(
+  report: T,
+  to: { id: string; name: string; badge: string },
+  newId: () => string,
+): Pick<T, 'reportingOfficer' | 'reportingBadge' | 'createdBy' | 'supportingOfficers'> {
+  const previous = report.reportingOfficer.trim();
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+  /*
+    Whoever is taking it comes off the supporting list, because they are now
+    the officer on the report. Reports get handed back — A to B, then B to A —
+    and without this A ends up listed twice, once as the author and once as
+    their own assistant.
+  */
+  const supporting = report.supportingOfficers.filter((officer) => !same(officer.name, to.name));
+
+  const alreadyThere = supporting.some((officer) => same(officer.name, previous));
+
+  return {
+    reportingOfficer: to.name,
+    reportingBadge: to.badge,
+    createdBy: to.id,
+    supportingOfficers:
+      previous && !alreadyThere
+        ? [
+            ...supporting,
+            { id: newId(), name: previous, badge: report.reportingBadge, role: 'Started the report' },
+          ]
+        : supporting,
+  } as Pick<T, 'reportingOfficer' | 'reportingBadge' | 'createdBy' | 'supportingOfficers'>;
+}
+
+interface HandOffTarget {
+  reportingOfficer: string;
+  reportingBadge: string;
+  createdBy: string;
+  supportingOfficers: { id: string; name: string; badge: string; role: string }[];
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,5 +1,5 @@
 import { newId } from '@/lib/id';
-import type { Incident, Offense, PropertyItem, UUID, Vehicle } from './types';
+import type { Incident, Offense, PropertyItem, SupportingOfficer, UUID, Vehicle } from './types';
 import { emptyLocation, type MasterLocation as MasterLocationType, type NoteKind, type PremiseNote } from './location';
 import {
   emptyMaster,
@@ -98,6 +98,12 @@ export function createProperty(partial: Partial<PropertyItem> = {}): PropertyIte
   };
 }
 
+export function createSupportingOfficer(
+  partial: Partial<SupportingOfficer> = {},
+): SupportingOfficer {
+  return { id: newId('sof'), name: '', badge: '', role: '', ...partial };
+}
+
 export function createVehicle(partial: Partial<Vehicle> = {}): Vehicle {
   return {
     id: newId('veh'),
@@ -154,6 +160,7 @@ export function createIncident(partial: Partial<Incident> = {}): Incident {
     locationUnit: '',
     reportingOfficer: '',
     reportingBadge: '',
+    supportingOfficers: [],
     unit: '',
     supervisor: '',
     isDomestic: false,

@@ -59,6 +59,19 @@ export const SECTION_LABEL: Record<SectionId, string> = {
 
 export type AttemptCompleted = 'A' | 'C' | '';
 
+/** An officer who worked the call but did not write it up. */
+export interface SupportingOfficer {
+  id: UUID;
+  name: string;
+  badge: string;
+  /**
+   * What they did — assisted, transported, processed the scene, translated.
+   * Free text, because agencies word this differently and a fixed list would
+   * make half of them pick "Other".
+   */
+  role: string;
+}
+
 export interface Offense {
   id: UUID;
   /** NIBRS offense code, e.g. "220" */
@@ -198,6 +211,17 @@ export interface Incident {
 
   // Who took it
   reportingOfficer: string;
+
+  /**
+   * Everybody else who worked it.
+   *
+   * One name on a report is one name a defence lawyer, an internal affairs
+   * reviewer or a records request can find. Two officers on a scene and one on
+   * the paperwork is the ordinary case, and the second officer's account of
+   * what they saw is evidence that currently exists nowhere the system can
+   * point at.
+   */
+  supportingOfficers: SupportingOfficer[];
   reportingBadge: string;
   unit: string;
   supervisor: string;
