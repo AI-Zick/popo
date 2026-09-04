@@ -68,6 +68,14 @@ export async function handle(method: string, url: string, body: unknown): Promis
     /* ---- Auth ----------------------------------------------------- */
     case 'auth': {
       if (parts[1] === 'me') return ok({ user, mustChangePassword: false });
+      if (parts[1] === 'mfa') {
+        // The status reads as a real one so the screen renders; anything that
+        // would need a phone says why it cannot.
+        if (method === 'GET') {
+          return ok({ enrolled: false, pending: false, confirmedAt: '', recoveryRemaining: 0, required: false });
+        }
+        return fail(400, 'The demo signs you straight in — a shared link has no phone to enrol, so there is nothing to set up here.');
+      }
       if (parts[1] === 'sign-in') {
         const username = text(input.username, 60).toLowerCase();
         const found = state.users.find((u) => u.username === username && u.active);
@@ -374,6 +382,9 @@ export async function handle(method: string, url: string, body: unknown): Promis
     case 'users': {
       const denied = need('users.manage');
       if (denied) return denied;
+      if (parts[2] === 'mfa') {
+        return fail(400, 'The demo has no second factor to clear — there is no phone behind a shared link. On a real installation this ends their sessions and makes them enrol again.');
+      }
       if (parts[2] === 'deactivate' || parts[2] === 'reactivate') {
         const target = state.users.find((u) => u.id === parts[1]);
         if (!target) return fail(404, 'No such account.');

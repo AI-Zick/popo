@@ -149,9 +149,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 /* Auth                                                                */
 /* ------------------------------------------------------------------ */
 
+/** Where a sign-in has got to, as the server sees it. */
+export interface SecondFactor {
+  /** This session is not finished until a code is presented. */
+  required: boolean;
+  /** Whether there is an authenticator to present one from. */
+  enrolled: boolean;
+  recoveryRemaining: number;
+}
+
 export interface Identity {
   user: User;
   mustChangePassword: boolean;
+  secondFactor?: SecondFactor;
 }
 
 export const api = {
@@ -169,6 +179,41 @@ export const api = {
     return request<Identity>('/api/auth/sign-in', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
+    });
+  },
+
+  /* ---- The second factor --------------------------------------------- */
+
+  mfaStatus(): Promise<{
+    enrolled: boolean;
+    pending: boolean;
+    confirmedAt: string;
+    recoveryRemaining: number;
+    required: boolean;
+  }> {
+    return request('/api/auth/mfa');
+  },
+
+  beginMfa(): Promise<{ secret: string; uri: string }> {
+    return request('/api/auth/mfa/begin', { method: 'POST' });
+  },
+
+  confirmMfa(code: string): Promise<{ recoveryCodes: string[] }> {
+    return request('/api/auth/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) });
+  },
+
+  verifyMfa(code: string): Promise<{ ok: true; user: User }> {
+    return request('/api/auth/mfa/verify', { method: 'POST', body: JSON.stringify({ code }) });
+  },
+
+  useRecoveryCode(code: string): Promise<{ ok: true; user: User; recoveryRemaining: number }> {
+    return request('/api/auth/mfa/recovery', { method: 'POST', body: JSON.stringify({ code }) });
+  },
+
+  resetMfa(userId: string, reason: string): Promise<{ ok: true }> {
+    return request(`/api/users/${userId}/mfa/reset`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   },
 

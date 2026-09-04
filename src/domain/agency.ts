@@ -62,6 +62,16 @@ export interface AgencyProfile {
    */
   retention: RetentionRule[];
 
+  /**
+   * Whether a second factor is required to sign in.
+   *
+   * On unless an agency deliberately turns it off, and turning it off is a
+   * choice to run outside CJIS rather than a convenience setting — the screen
+   * says so. Defaulting this to off until somebody configures it is how an
+   * installation ends up without the control it was told to have.
+   */
+  requireMfa: boolean;
+
   /** False until someone has been through setup. */
   configured: boolean;
 }
@@ -82,6 +92,7 @@ export function emptyAgency(): AgencyProfile {
     zones: null,
     checklist: DEFAULT_CHECKLIST.map((item, i) => ({ ...item, id: `chk${i + 1}` })),
     retention: DEFAULT_SCHEDULE.map((rule) => ({ ...rule })),
+    requireMfa: true,
     configured: false,
   };
 }

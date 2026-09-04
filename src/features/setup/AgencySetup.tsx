@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { Building2, Check, ChevronLeft, MapPinned, TriangleAlert, Upload } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  ChevronLeft,
+  MapPinned,
+  ShieldCheck,
+  TriangleAlert,
+  Upload,
+} from 'lucide-react';
 import { useStore } from '@/state/store';
 import { parseGeoJSON, type GeoFeatureCollection } from '@/domain/geo';
 import { ZONE_LABELS } from '@/domain/agency';
@@ -18,6 +26,7 @@ import { FleetView } from '@/features/fleet/FleetView';
 import { ChecklistEditor } from '@/features/fleet/ChecklistEditor';
 import { RetentionView } from '@/features/retention/RetentionView';
 import { cn } from '@/lib/cn';
+import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 
 /**
  * One-time configuration. Everything here is per-install, and the boundary
@@ -35,6 +44,7 @@ type Tab =
   | 'evidence'
   | 'fleet'
   | 'retention'
+  | 'security'
   | 'feedback';
 
 const SCREEN_NAME: Record<Tab, string> = {
@@ -48,6 +58,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   evidence: 'Property room',
   fleet: 'Fleet',
   retention: 'Retention',
+  security: 'Signing in',
   feedback: 'Feedback',
 };
 
@@ -131,6 +142,14 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             Activity report
           </TabButton>
           {/*
+            Everyone's own second factor, so everyone can reach it. The most
+            common thing that happens to one is a new phone, and that must not
+            need an administrator.
+          */}
+          <TabButton active={tab === 'security'} onClick={() => setTab('security')}>
+            Signing in
+          </TabButton>
+          {/*
             Open to everyone, not gated on configuration rights. An officer
             reading what their colleagues have raised, and the answers, is the
             thing that keeps people using the channel — and answering is gated
@@ -175,10 +194,50 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               {mayConfigure && <ChecklistEditor />}
             </>
           )}
+          {tab === 'security' && <YourSecondFactor />}
           {tab === 'feedback' && <FeedbackQueue />}
 
           {tab === 'jurisdiction' && mayConfigure && (
             <>
+          {/*
+            The one setting on this screen that is a compliance decision rather
+            than a preference, so it says so rather than sitting as a quiet
+            checkbox among the defaults.
+          */}
+          <Panel
+            title="Signing in"
+            description="What it takes to reach case information."
+            aside={<ShieldCheck size={17} className="text-faint" aria-hidden />}
+          >
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface p-3">
+              <input
+                type="checkbox"
+                checked={agency.requireMfa !== false}
+                onChange={(e) => updateAgency({ requireMfa: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-medium text-ink">
+                  Require a second factor
+                </span>
+                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-muted">
+                  Everybody signs in with a password and a code from an authenticator app.
+                  Officers who have not set one up are walked through it the next time they sign
+                  in, and nobody is locked out — recovery codes are issued at setup and an
+                  administrator can clear somebody's second factor.
+                </span>
+              </span>
+            </label>
+            {agency.requireMfa === false && (
+              <p className="mt-2 flex items-start gap-2 rounded-lg border border-danger/35 bg-danger-soft px-3 py-2 text-[12.5px] leading-relaxed text-danger">
+                <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
+                CJIS requires more than a password for access to criminal justice information.
+                With this off, this installation is not eligible to hold it — whatever else is
+                configured.
+              </p>
+            )}
+          </Panel>
+
           <Panel
             title="Jurisdiction"
             description="Set once. New locations default to this, so nobody types the same town four hundred times a year."

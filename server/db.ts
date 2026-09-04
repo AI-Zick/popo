@@ -53,14 +53,28 @@ CREATE TABLE IF NOT EXISTS credentials (
   failed_attempts     INTEGER NOT NULL DEFAULT 0,
   locked_until        TEXT NOT NULL DEFAULT '',
   last_sign_in_at     TEXT NOT NULL DEFAULT '',
-  password_changed_at TEXT NOT NULL DEFAULT ''
+  password_changed_at TEXT NOT NULL DEFAULT '',
+  -- The second factor. The secret is live only once confirmed_at is set:
+  -- enrolment that was started and abandoned must not lock anybody out.
+  mfa_secret          TEXT NOT NULL DEFAULT '',
+  mfa_confirmed_at    TEXT NOT NULL DEFAULT '',
+  -- The last time step this account used, so the same six digits cannot be
+  -- replayed by somebody who watched them being typed.
+  mfa_last_counter    INTEGER NOT NULL DEFAULT -1,
+  mfa_failed          INTEGER NOT NULL DEFAULT 0,
+  -- Hashed, single-use, and spent as they are used.
+  recovery_codes      TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   started_at   TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL
+  last_seen_at TEXT NOT NULL,
+  -- How far this session got. A password alone buys nothing but the right to
+  -- present a second factor: 'password' reaches the enrolment and verification
+  -- routes and nothing else, 'full' is a signed-in session.
+  factor       TEXT NOT NULL DEFAULT 'full'
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
@@ -387,6 +401,18 @@ export type Row = Record<string, unknown>;
 const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ['audit_log', 'redacted_by', "TEXT NOT NULL DEFAULT ''"],
   ['audit_log', 'redacted_at', "TEXT NOT NULL DEFAULT ''"],
+  ['credentials', 'mfa_secret', "TEXT NOT NULL DEFAULT ''"],
+  ['credentials', 'mfa_confirmed_at', "TEXT NOT NULL DEFAULT ''"],
+  ['credentials', 'mfa_last_counter', 'INTEGER NOT NULL DEFAULT -1'],
+  ['credentials', 'mfa_failed', 'INTEGER NOT NULL DEFAULT 0'],
+  ['credentials', 'recovery_codes', "TEXT NOT NULL DEFAULT '[]'"],
+  /*
+    Existing sessions default to 'full' rather than 'password'. They were
+    issued before there was a second factor and their holders are signed in;
+    invalidating them on upgrade would sign out an entire department at once
+    with no explanation. New sessions are issued under the new rules.
+  */
+  ['sessions', 'factor', "TEXT NOT NULL DEFAULT 'full'"],
 ];
 
 function addMissingColumns(db: DatabaseSync): void {

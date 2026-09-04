@@ -20,11 +20,22 @@ export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 export const MAX_FAILED_ATTEMPTS = 5;
 export const LOCKOUT_MS = 15 * 60 * 1000;
 
+/**
+ * How far a session got.
+ *
+ * A password alone buys the right to present a second factor and nothing
+ * else. Keeping that in the session rather than inferring it from the user
+ * means a half-finished sign-in cannot reach a report by taking a different
+ * route through the API.
+ */
+export type SessionFactor = 'password' | 'full';
+
 export interface Session {
   id: UUID;
   userId: UUID;
   startedAt: string;
   lastSeenAt: string;
+  factor: SessionFactor;
 }
 
 /** Per-account sign-in state. Separate from the user record on purpose. */
@@ -39,6 +50,17 @@ export interface Credential {
   lockedUntil: string;
   lastSignInAt: string;
   passwordChangedAt: string;
+
+  /* ---- Second factor ------------------------------------------------ */
+  /** Base32 TOTP secret. Live only once `mfaConfirmedAt` is set. */
+  mfaSecret: string;
+  mfaConfirmedAt: string;
+  /** The last time step used, so the same code cannot be replayed. */
+  mfaLastCounter: number;
+  /** Failed second-factor attempts, locked on the same terms as a password. */
+  mfaFailed: number;
+  /** Hashed recovery codes, removed as they are spent. */
+  recoveryCodes: string[];
 }
 
 export function createCredential(userId: UUID, partial: Partial<Credential> = {}): Credential {
@@ -50,6 +72,11 @@ export function createCredential(userId: UUID, partial: Partial<Credential> = {}
     lockedUntil: '',
     lastSignInAt: '',
     passwordChangedAt: '',
+    mfaSecret: '',
+    mfaConfirmedAt: '',
+    mfaLastCounter: -1,
+    mfaFailed: 0,
+    recoveryCodes: [],
     ...partial,
   };
 }
@@ -96,9 +123,14 @@ export function registerSuccess(credential: Credential, now = Date.now()): Crede
 /* Session lifetime                                                    */
 /* ------------------------------------------------------------------ */
 
-export function createSession(userId: UUID, id: UUID, now = Date.now()): Session {
+export function createSession(
+  userId: UUID,
+  id: UUID,
+  now = Date.now(),
+  factor: SessionFactor = 'full',
+): Session {
   const at = new Date(now).toISOString();
-  return { id, userId, startedAt: at, lastSeenAt: at };
+  return { id, userId, startedAt: at, lastSeenAt: at, factor };
 }
 
 export type SessionState = 'active' | 'idle-expired' | 'expired';

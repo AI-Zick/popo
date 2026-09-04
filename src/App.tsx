@@ -10,6 +10,7 @@ import { SendFeedback } from '@/features/feedback/SendFeedback';
 import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
+import { SecondFactor } from '@/features/auth/SecondFactor';
 import { DEMO } from '@/state/api';
 import { DemoBar } from '@/features/demo/DemoBar';
 
@@ -60,6 +61,8 @@ export default function App() {
     arrest,
     isAuthenticated,
     mustChangePassword,
+    secondFactor,
+    recoveryCodes,
     loading,
     connectionError,
   } = useStore();
@@ -99,6 +102,18 @@ export default function App() {
   }
 
   if (!isAuthenticated) return <SignIn />;
+  /*
+    Before the password change, not after: an officer who has only proved a
+    password cannot be allowed to set a new one, or the second factor would
+    protect nothing on an account whose password had just been stolen.
+  */
+  /*
+    `recoveryCodes` keeps this screen up after the sign-in has finished. They
+    are readable exactly once and confirming enrolment is what finishes the
+    sign-in, so without this the app would render over the top of the only
+    chance anybody gets to write them down.
+  */
+  if (secondFactor || recoveryCodes) return <SecondFactor />;
   // An issued password cannot become the permanent one.
   if (mustChangePassword) return <ChangePassword />;
 

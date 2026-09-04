@@ -189,17 +189,98 @@ function AccountRow({ user, onDeactivate }: { user: User; onDeactivate: () => vo
       </div>
 
       {canManageUser(currentUser, user) && (
-        <Button
-          size="sm"
-          variant="danger"
-          disabled={!guard.ok}
-          title={guard.reason}
-          onClick={() => void onDeactivate()}
-        >
-          <UserMinus size={13} aria-hidden />
-          Deactivate
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!guard.ok}
+            title={guard.reason}
+            onClick={() => void onDeactivate()}
+          >
+            <UserMinus size={13} aria-hidden />
+            Deactivate
+          </Button>
+          <ResetSecondFactor user={user} />
+        </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Clearing somebody's second factor.
+ *
+ * The unavoidable back door — an officer whose phone is at the bottom of a
+ * lake still has to be able to write a report — so it is made deliberate
+ * rather than convenient: a reason is required, it ends their sessions, they
+ * enrol again at their next sign-in, and the whole thing is a security event
+ * in the audit log.
+ *
+ * The screen cannot say whether this person is enrolled, and deliberately does
+ * not guess: enrolment state lives with the credential, which no route hands
+ * out for somebody else's account. An administrator doing this is responding
+ * to an officer standing in front of them, not browsing.
+ */
+function ResetSecondFactor({ user }: { user: User }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (done) {
+    return (
+      <span className="text-[11.5px] text-ok">Cleared. They will set it up again next time.</span>
+    );
+  }
+
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAsking(true)}
+        className="text-[11.5px] text-muted underline-offset-2 transition hover:text-ink hover:underline"
+      >
+        Clear second factor
+      </button>
+    );
+  }
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { api } = await import('@/state/api');
+      await api.resetMfa(user.id, reason.trim());
+      setDone(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That did not work.');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="w-[260px] rounded-lg border border-warn/45 bg-warn-soft p-2.5">
+      <p className="text-[11.5px] leading-relaxed text-ink">
+        {user.name} will sign in with a password only until they set one up again. Their sessions
+        end now.
+      </p>
+      <input
+        autoFocus
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Why — this goes in the audit log"
+        className="mt-2 w-full rounded border border-line bg-surface px-2 py-1 text-[12px] text-ink placeholder:text-faint"
+      />
+      {error && <p className="mt-1 text-[11.5px] text-danger">{error}</p>}
+      <div className="mt-2 flex gap-1.5">
+        <Button size="sm" variant="danger" disabled={busy || !reason.trim()} onClick={() => void submit()}>
+          Clear it
+        </Button>
+        <Button size="sm" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

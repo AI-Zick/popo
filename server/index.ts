@@ -30,6 +30,7 @@ import { registerTaskRoutes } from './tasks';
 import { registerPhotoRoutes } from './photos';
 import { registerFleetRoutes } from './fleet';
 import { registerRetentionRoutes, listSeals } from './retention';
+import { registerMfaRoutes } from './mfa';
 import {
   createRateLimiter,
   installGracefulShutdown,
@@ -53,6 +54,7 @@ import {
   setSessionCookie,
 } from './auth';
 import { readAuditLog, recordAudit, verifyAuditLog } from './audit';
+import { mfaState } from '../src/domain/mfa';
 import { seedDatabase } from './seed';
 import { checkPassword, hashPassword, verifyPassword } from '../src/domain/credentials';
 import {
@@ -122,9 +124,21 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       return;
     }
     const credential = getCredential(db, req.user.id);
+    const state = mfaState(credential ?? {});
     res.json({
       user: req.user,
       mustChangePassword: credential?.mustChangePassword ?? false,
+      /*
+        Reported on every identity check, not only at sign-in: a session
+        restored from a cookie has to know whether it is finished. Without
+        this a browser reopened mid-sign-in would render the app around a
+        session that cannot fetch anything.
+      */
+      secondFactor: {
+        required: req.session?.factor !== 'full',
+        enrolled: state.enrolled,
+        recoveryRemaining: state.recoveryRemaining,
+      },
     });
   });
 
@@ -470,6 +484,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerPhotoRoutes(app, db, config.dataDir);
   registerFleetRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
+  registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {
     forwardUrl: config.feedbackUrl,
     signingKey: config.feedbackKey,

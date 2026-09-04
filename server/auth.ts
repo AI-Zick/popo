@@ -25,8 +25,10 @@ import {
   SIGN_IN_FAILURE_MESSAGE,
   type Credential,
   type Session,
+  type SessionFactor,
 } from '../src/domain/session';
 import { can, type Permission, type User } from '../src/domain/auth';
+import { mfaState } from '../src/domain/mfa';
 import { recordAudit } from './audit';
 
 export const SESSION_COOKIE = 'aegis.sid';
@@ -106,20 +108,42 @@ function getCredential(db: DatabaseSync, userId: string): Credential | null {
     lockedUntil: String(row.locked_until),
     lastSignInAt: String(row.last_sign_in_at),
     passwordChangedAt: String(row.password_changed_at),
+    mfaSecret: String(row.mfa_secret ?? ''),
+    mfaConfirmedAt: String(row.mfa_confirmed_at ?? ''),
+    mfaLastCounter: Number(row.mfa_last_counter ?? -1),
+    mfaFailed: Number(row.mfa_failed ?? 0),
+    recoveryCodes: parseCodes(row.recovery_codes),
   };
+}
+
+/** Stored as JSON in one column; a malformed value means no codes, not a crash. */
+function parseCodes(raw: unknown): string[] {
+  try {
+    const parsed = JSON.parse(String(raw ?? '[]')) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 function saveCredential(db: DatabaseSync, credential: Credential): void {
   db.prepare(
-    `INSERT INTO credentials (user_id, password_hash, must_change, failed_attempts, locked_until, last_sign_in_at, password_changed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO credentials (user_id, password_hash, must_change, failed_attempts, locked_until,
+       last_sign_in_at, password_changed_at, mfa_secret, mfa_confirmed_at, mfa_last_counter,
+       mfa_failed, recovery_codes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        password_hash = excluded.password_hash,
        must_change = excluded.must_change,
        failed_attempts = excluded.failed_attempts,
        locked_until = excluded.locked_until,
        last_sign_in_at = excluded.last_sign_in_at,
-       password_changed_at = excluded.password_changed_at`,
+       password_changed_at = excluded.password_changed_at,
+       mfa_secret = excluded.mfa_secret,
+       mfa_confirmed_at = excluded.mfa_confirmed_at,
+       mfa_last_counter = excluded.mfa_last_counter,
+       mfa_failed = excluded.mfa_failed,
+       recovery_codes = excluded.recovery_codes`,
   ).run(
     credential.userId,
     credential.passwordHash,
@@ -128,6 +152,11 @@ function saveCredential(db: DatabaseSync, credential: Credential): void {
     credential.lockedUntil,
     credential.lastSignInAt,
     credential.passwordChangedAt,
+    credential.mfaSecret,
+    credential.mfaConfirmedAt,
+    credential.mfaLastCounter,
+    credential.mfaFailed,
+    JSON.stringify(credential.recoveryCodes),
   );
 }
 
@@ -145,13 +174,30 @@ function newSessionId(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export function createServerSession(db: DatabaseSync, userId: string): Session {
+export function createServerSession(
+  db: DatabaseSync,
+  userId: string,
+  factor: SessionFactor = 'full',
+): Session {
   const at = new Date().toISOString();
-  const session: Session = { id: newSessionId(), userId, startedAt: at, lastSeenAt: at };
+  const session: Session = { id: newSessionId(), userId, startedAt: at, lastSeenAt: at, factor };
   db.prepare(
-    'INSERT INTO sessions (id, user_id, started_at, last_seen_at) VALUES (?, ?, ?, ?)',
-  ).run(session.id, session.userId, session.startedAt, session.lastSeenAt);
+    'INSERT INTO sessions (id, user_id, started_at, last_seen_at, factor) VALUES (?, ?, ?, ?, ?)',
+  ).run(session.id, session.userId, session.startedAt, session.lastSeenAt, session.factor);
   return session;
+}
+
+/**
+ * Promotes a half-finished sign-in to a real one.
+ *
+ * A new id, not an updated row: the id the browser held while it was only
+ * password-authenticated must not be the id it holds afterwards, or an
+ * attacker who obtained it during the gap keeps a session that has since been
+ * upgraded on their behalf.
+ */
+export function upgradeSession(db: DatabaseSync, session: Session): Session {
+  destroySession(db, session.id);
+  return createServerSession(db, session.userId, 'full');
 }
 
 export function destroySession(db: DatabaseSync, id: string): void {
@@ -168,6 +214,7 @@ function readSession(db: DatabaseSync, id: string): Session | null {
     userId: row.user_id,
     startedAt: row.started_at,
     lastSeenAt: row.last_seen_at,
+    factor: row.factor === 'password' ? 'password' : 'full',
   };
 }
 
@@ -226,11 +273,33 @@ export function sessionMiddleware(req: Request, res: Response, next: NextFunctio
 /* Guards                                                              */
 /* ------------------------------------------------------------------ */
 
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+/**
+ * Whether this request is a finished sign-in.
+ *
+ * A password on its own reaches nothing. The session exists so the second
+ * factor can be presented and for no other purpose, which is why this lives in
+ * the guards every route already uses rather than in the sign-in handler,
+ * where it would only cover the front door.
+ *
+ * Shared by both guards because it was not, once: `requirePermission` checked
+ * the permission and not the factor, so a supervisor who had typed a password
+ * and nothing else could read the audit log. Anything that answers "is this
+ * request allowed" has to ask this question, so there is one place to ask it.
+ */
+function unfinished(req: Request, res: Response): boolean {
   if (!req.user) {
     res.status(401).json({ error: 'Not signed in.' });
-    return;
+    return true;
   }
+  if (req.session?.factor !== 'full') {
+    res.status(401).json({ error: 'Finish signing in.', needsSecondFactor: true });
+    return true;
+  }
+  return false;
+}
+
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (unfinished(req, res)) return;
   next();
 }
 
@@ -240,11 +309,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  */
 export function requirePermission(permission: Permission) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({ error: 'Not signed in.' });
-      return;
-    }
-    if (!can(req.user, permission)) {
+    if (unfinished(req, res)) return;
+    if (!can(req.user!, permission)) {
       res.status(403).json({ error: 'You do not have permission to do that.' });
       return;
     }
@@ -327,8 +393,49 @@ export async function attemptSignIn(
   }
 
   saveCredential(db, registerSuccess(credential));
-  // A new session id on every sign-in, so a pre-set one cannot be fixated.
-  const session = createServerSession(db, user.id);
+
+  /*
+    The password was right, and that is all it was.
+
+    Where a second factor is required the session issued here reaches nothing
+    but the routes that present one — see `requireAuth`. It is a real session
+    with a real cookie because the alternative, holding the password in the
+    browser until the code arrives, is worse.
+
+    Enrolment is not a way out of this. Somebody who has never set up a second
+    factor gets the same half-session and is sent to enrol; they cannot open a
+    report on the way past.
+  */
+  const state = mfaState(credential);
+  const required = mfaRequired(db);
+  const needsSecondFactor = required || state.enrolled;
+
+  const session = createServerSession(
+    db,
+    user.id,
+    // A new session id on every sign-in, so a pre-set one cannot be fixated.
+    needsSecondFactor ? 'password' : 'full',
+  );
+
+  if (needsSecondFactor) {
+    return {
+      ok: true,
+      status: 200,
+      session,
+      body: {
+        user,
+        mustChangePassword: credential.mustChangePassword,
+        secondFactor: {
+          required: true,
+          enrolled: state.enrolled,
+          // Nothing about the secret, and nothing an unauthenticated caller
+          // could use: only whether there is a code to be asked for.
+          recoveryRemaining: state.recoveryRemaining,
+        },
+      },
+    };
+  }
+
   await recordAudit(db, {
     actorId: user.id,
     actorName: user.name,
@@ -341,6 +448,29 @@ export async function attemptSignIn(
     ok: true,
     status: 200,
     session,
-    body: { user, mustChangePassword: credential.mustChangePassword },
+    body: {
+      user,
+      mustChangePassword: credential.mustChangePassword,
+      secondFactor: { required: false, enrolled: false, recoveryRemaining: 0 },
+    },
   };
+}
+
+/**
+ * Whether this agency insists on a second factor.
+ *
+ * Default on. An agency that has not been through setup has not turned this
+ * off — it has not turned anything on, and defaulting a CJIS control to
+ * "disabled until configured" is how installations end up without it.
+ */
+export function mfaRequired(db: DatabaseSync): boolean {
+  const row = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
+    | { doc: string }
+    | undefined;
+  if (!row) return true;
+  try {
+    return (JSON.parse(row.doc) as { requireMfa?: boolean }).requireMfa !== false;
+  } catch {
+    return true;
+  }
 }

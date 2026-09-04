@@ -70,6 +70,7 @@ import {
   type EvidenceDetail,
   type EvidenceSummary,
   type LockHolder,
+  type SecondFactor,
 } from './api';
 import { runRules, type Issue, type ValidationResult } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -210,6 +211,30 @@ interface StoreValue {
   /** Set when the API cannot be reached at all. */
   connectionError: string | null;
   mustChangePassword: boolean;
+  /**
+   * Set while a sign-in has passed a password and nothing more.
+   *
+   * The app renders the second-factor step instead of itself while this is
+   * present. It is not a client-side gate — the server refuses every other
+   * route for that session — it is what stops the app from rendering around
+   * a session that cannot fetch anything.
+   */
+  secondFactor: SecondFactor | null;
+  verifySecondFactor: (code: string) => Promise<GuardResult>;
+  useRecoveryCode: (code: string) => Promise<GuardResult & { remaining?: number }>;
+  beginEnrolment: () => Promise<{ secret: string; uri: string } | { failed: string }>;
+  confirmEnrolment: (code: string) => Promise<GuardResult>;
+  /**
+   * The recovery codes from an enrolment that has just happened.
+   *
+   * They live here rather than inside the enrolment screen because confirming
+   * enrolment finishes the sign-in, which is exactly what would otherwise
+   * unmount that screen — and these are readable once, in the response that
+   * issued them. Holding them out here keeps the app on the one screen that
+   * can show them until somebody says they have written them down.
+   */
+  recoveryCodes: string[] | null;
+  acknowledgeRecoveryCodes: () => void;
   auditLog: AuditEntry[];
 
   signIn: (username: string, password: string) => Promise<SignInOutcome>;
@@ -571,8 +596,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [feedbackForwarding, setFeedbackForwarding] = useState(false);
 
-  const [identity, setIdentity] = useState<{ user: User; mustChangePassword: boolean } | null>(null);
+  const [identity, setIdentity] = useState<{
+    user: User;
+    mustChangePassword: boolean;
+    secondFactor?: SecondFactor;
+  } | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<{ id: string; message: string } | null>(null);
@@ -585,6 +615,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const currentUser = identity?.user ?? createUser({ id: 'anonymous', name: 'Not signed in' });
   const isAuthenticated = Boolean(identity);
   const mustChangePassword = Boolean(identity?.mustChangePassword);
+  const secondFactor = identity?.secondFactor?.required ? identity.secondFactor : null;
 
   /**
    * Audit entries are written by the server, from the session it resolved.
@@ -2782,7 +2813,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setIdentity(me);
         // Display-only mirror; the server holds the session that counts.
         setSession(createSession(me.user.id, 'local'));
-        await refresh();
+        /*
+          Not yet. A password-only session is refused by every route that
+          matters, so pulling state here would fail and read as a broken app
+          rather than an unfinished sign-in.
+        */
+        if (!me.secondFactor?.required) await refresh();
         setConnectionError(null);
         return { ok: true, mustChangePassword: me.mustChangePassword };
       } catch (error) {
@@ -2791,6 +2827,79 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [refresh],
   );
+
+  /** Finishes a sign-in that stopped at the password. */
+  const completeSignIn = useCallback(
+    async (user: User, remaining?: number) => {
+      setIdentity((prev) =>
+        prev
+          ? { ...prev, user, secondFactor: { required: false, enrolled: true, recoveryRemaining: remaining ?? 0 } }
+          : prev,
+      );
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const verifySecondFactor = useCallback(
+    async (code: string): Promise<GuardResult> => {
+      try {
+        const result = await api.verifyMfa(code);
+        await completeSignIn(result.user);
+        return { ok: true };
+      } catch (error) {
+        return failed(error, 'That code was not accepted.');
+      }
+    },
+    [completeSignIn],
+  );
+
+  const useRecoveryCode = useCallback(
+    async (code: string) => {
+      try {
+        const result = await api.useRecoveryCode(code);
+        await completeSignIn(result.user, result.recoveryRemaining);
+        return { ok: true as const, remaining: result.recoveryRemaining };
+      } catch (error) {
+        return failed(error, 'That code was not accepted.');
+      }
+    },
+    [completeSignIn],
+  );
+
+  const beginEnrolment = useCallback(async () => {
+    try {
+      return await api.beginMfa();
+    } catch (error) {
+      // The reason travels with the failure. A screen that only knows "no
+      // setup key" can do nothing but spin.
+      return {
+        failed: failed(error, 'Could not start setting this up.').reason ?? 'Could not start setting this up.',
+      };
+    }
+  }, []);
+
+  const confirmEnrolment = useCallback(
+    async (code: string) => {
+      try {
+        const { recoveryCodes: issued } = await api.confirmMfa(code);
+        /*
+          Order matters. The codes are put somewhere that outlives this screen
+          before the sign-in is finished, because finishing it is what takes
+          the screen away.
+        */
+        setRecoveryCodes(issued);
+        const me = await api.me();
+        if (me) await completeSignIn(me.user);
+        return { ok: true as const };
+      } catch (error) {
+        return failed(error, 'That code was not accepted.');
+      }
+    },
+    [completeSignIn],
+  );
+
+  const acknowledgeRecoveryCodes = useCallback(() => setRecoveryCodes(null), []);
 
   const signOut = useCallback(() => {
     void api.signOut().catch(() => undefined);
@@ -3016,6 +3125,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     retractAttachment,
     verifyAttachment: verifyAttachmentFile,
     mustChangePassword,
+    secondFactor,
+    recoveryCodes,
+    acknowledgeRecoveryCodes,
+    verifySecondFactor,
+    useRecoveryCode,
+    beginEnrolment,
+    confirmEnrolment,
     auditLog,
     signIn,
     signOut,

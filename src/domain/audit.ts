@@ -25,6 +25,10 @@ export type AuditAction =
   | 'auth.lockout'
   | 'auth.signOut'
   | 'auth.passwordChanged'
+  | 'auth.mfaEnrolled'
+  | 'auth.mfaFailed'
+  | 'auth.mfaRecoveryUsed'
+  | 'auth.mfaReset'
   | 'user.created'
   | 'user.updated'
   | 'user.deactivated'
@@ -87,6 +91,10 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'auth.lockout': 'Account locked',
   'auth.signOut': 'Signed out',
   'auth.passwordChanged': 'Password changed',
+  'auth.mfaEnrolled': 'Second factor set up',
+  'auth.mfaFailed': 'Failed second factor',
+  'auth.mfaRecoveryUsed': 'Recovery code used',
+  'auth.mfaReset': 'Second factor cleared by an administrator',
   'user.created': 'Account created',
   'user.updated': 'Account changed',
   'user.deactivated': 'Account deactivated',
@@ -148,6 +156,11 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
 export const SECURITY_ACTIONS: AuditAction[] = [
   'auth.signInFailed',
   'auth.lockout',
+  // Somebody got past the second factor another way, or an administrator
+  // removed it. Both are worth a reviewer's attention on their own.
+  'auth.mfaFailed',
+  'auth.mfaRecoveryUsed',
+  'auth.mfaReset',
   'note.retracted',
   'photo.removed',
   // Destroying records, and looking at ones a court has sealed. The two
