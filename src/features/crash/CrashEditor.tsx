@@ -286,6 +286,22 @@ export function CrashEditor() {
                 </div>
               </Panel>
 
+              {/*
+                "Unit" is the word the state crash form uses, and it is the
+                right word on the form — a unit is a vehicle *or* a pedestrian
+                or a cyclist, which is why the section cannot just be called
+                Vehicles. But somebody looking for where the cars and the people
+                go does not search for "unit", so the heading says both.
+              */}
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-[15px] font-semibold text-ink">Vehicles and people involved</h2>
+                <span className="text-[12px] text-faint">
+                  {crash.units.length === 0
+                    ? 'The state form calls each one a unit'
+                    : `${crash.units.length} ${crash.units.length === 1 ? 'unit' : 'units'} — a vehicle, a pedestrian or a cyclist, and whoever was in or on it`}
+                </span>
+              </div>
+
               {crash.units.map((unit) => (
                 <UnitPanel
                   key={unit.id}
@@ -300,7 +316,7 @@ export function CrashEditor() {
 
               <Button onClick={addUnit}>
                 <Plus size={15} aria-hidden />
-                Add a unit
+                {crash.units.length === 0 ? 'Add a vehicle or person' : 'Add another unit'}
               </Button>
 
               <Panel
