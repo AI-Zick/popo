@@ -11,6 +11,7 @@ import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 import { SecondFactor } from '@/features/auth/SecondFactor';
+import { RecordFile } from '@/features/file/RecordFile';
 import { DEMO } from '@/state/api';
 import { DemoBar } from '@/features/demo/DemoBar';
 
@@ -128,6 +129,12 @@ export default function App() {
 
       {/* Reachable from every screen, because searching is not a screen. */}
       <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/*
+        Nor is reading a record. It opens over whatever is on screen, so a
+        lookup in the middle of writing a narrative costs nothing.
+      */}
+      <RecordFile />
 
       {/*
         Same reasoning, and more so. Feedback that has to be found is feedback

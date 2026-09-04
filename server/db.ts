@@ -330,6 +330,44 @@ CREATE INDEX IF NOT EXISTS person_photos_removal ON person_photos(removal);
 -- What is left to do on a case. Deliberately not part of the report document:
 -- an approved report is locked, and "still waiting on the video" is exactly the
 -- item that outlives approval.
+-- The Master Vehicle Index. One row per vehicle of record, not per sighting.
+-- Plate is indexed but deliberately not unique: plates move between cars, and
+-- a uniqueness constraint here would reject the second car to wear one.
+CREATE TABLE IF NOT EXISTS vehicles (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  vin         TEXT NOT NULL DEFAULT '',
+  plate       TEXT NOT NULL DEFAULT '',
+  plate_state TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vehicles_vin ON vehicles(vin);
+CREATE INDEX IF NOT EXISTS vehicles_plate ON vehicles(plate, plate_state);
+
+-- Trespass notices. Read from both ends — everything one person is barred
+-- from, and everybody barred from one place — so both directions are indexed.
+--
+-- The expiry column is empty for an indefinite notice, and the lifted column
+-- is empty until somebody withdraws one. That is what makes "in force"
+-- answerable in SQL without a job that walks the table rewriting a status.
+CREATE TABLE IF NOT EXISTS trespasses (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  person_id   TEXT NOT NULL DEFAULT '',
+  location_id TEXT NOT NULL DEFAULT '',
+  served_on   TEXT NOT NULL DEFAULT '',
+  expires_on  TEXT NOT NULL DEFAULT '',
+  lifted_at   TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+-- The list for one place, which is the read that has to stay fast when a
+-- shopping centre has eight hundred of these.
+CREATE INDEX IF NOT EXISTS trespasses_location ON trespasses(location_id, lifted_at, expires_on);
+-- Everything one person is barred from, for their record.
+CREATE INDEX IF NOT EXISTS trespasses_person ON trespasses(person_id, lifted_at, expires_on);
+
 CREATE TABLE IF NOT EXISTS case_tasks (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -452,7 +490,9 @@ export interface DocTable {
     | 'cruisers'
     | 'cruiser_checks'
     | 'maintenance_requests'
-    | 'disposal_orders';
+    | 'disposal_orders'
+    | 'vehicles'
+    | 'trespasses';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -553,6 +593,24 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       taken_on: String(doc.takenOn ?? ''),
       removal: String(doc.removal ?? ''),
+    }),
+  },
+  vehicles: {
+    name: 'vehicles',
+    columns: (doc) => ({
+      vin: String(doc.vin ?? ''),
+      plate: String(doc.plate ?? ''),
+      plate_state: String(doc.plateState ?? ''),
+    }),
+  },
+  trespasses: {
+    name: 'trespasses',
+    columns: (doc) => ({
+      person_id: String(doc.personId ?? ''),
+      location_id: String(doc.locationId ?? ''),
+      served_on: String(doc.servedOn ?? ''),
+      expires_on: String(doc.expiresOn ?? ''),
+      lifted_at: String(doc.liftedAt ?? ''),
     }),
   },
   caseTasks: {

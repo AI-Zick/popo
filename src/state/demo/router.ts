@@ -15,6 +15,41 @@ import { canReopen, canReview, canSubmit } from '@/domain/review';
 import { checkArrest, blockingProblems as arrestBlocking, createArrest, createCharge, nextArrestNumber } from '@/domain/arrest';
 import { createTask, sortTasks } from '@/domain/caseTask';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
+import { displayName } from '@/domain/person';
+import {
+  checkLift,
+  checkTrespass,
+  createTrespass,
+  existingFor,
+  isActive,
+  sortForPerson,
+  today,
+  trespassState,
+  type Trespass,
+} from '@/domain/trespass';
+import {
+  createMasterVehicle,
+  isIdentifiable,
+  vehicleName,
+  vinCheckDigit,
+} from '@/domain/vehicle';
+import {
+  autoLinkVehicle,
+  findVehicleMatches,
+  mergeObservation,
+  type VehicleQuery,
+} from '@/domain/vehicleMatching';
+
+/** The fields the vehicle routes read, trimmed the way the server trims them. */
+const vehicleQuery = (input: Record<string, unknown>): VehicleQuery => ({
+  vin: text(input.vin, 32).trim(),
+  plate: text(input.plate, 16).trim(),
+  plateState: text(input.plateState, 2).trim(),
+  year: text(input.year, 4).trim(),
+  make: text(input.make, 40).trim(),
+  model: text(input.model, 40).trim(),
+  color: text(input.color, 30).trim(),
+});
 import {
   appendCustody, canRecord, checkItem, custodyState, findingsFor, nextTagNumber, verifyCustody,
   type CustodyAction, type EvidenceItem,
@@ -110,6 +145,7 @@ export async function handle(method: string, url: string, body: unknown): Promis
         seals: maySeeSealed ? state.seals : [],
         people: state.people,
         locations: state.locations,
+        vehicles: state.vehicles,
         versions: {},
         locks: state.locks,
         attachments: state.attachments,
@@ -336,6 +372,16 @@ export async function handle(method: string, url: string, body: unknown): Promis
     /* ---- Photographs -------------------------------------------------- */
     case 'people': {
       const masterId = parts[1];
+      if (parts[2] === 'trespasses') {
+        const mine = state.trespasses.filter((t) => t.personId === masterId);
+        return ok({
+          trespasses: sortForPerson(mine).map((trespass: Trespass) => ({
+            trespass,
+            location: state.locations[trespass.locationId] ?? null,
+            state: trespassState(trespass),
+          })),
+        });
+      }
       if (method === 'GET') return ok({ photos: photosFor(state.photos, masterId) });
       return fail(400, 'Use the Add button — uploads go through a different path in the demo.');
     }
@@ -397,6 +443,188 @@ export async function handle(method: string, url: string, body: unknown): Promis
       state.users.push(created);
       await audit({ actorId: user.id, actorName: user.name, action: 'user.created', target: created.name, detail: created.role });
       return ok({ user: created, temporaryPassword: password });
+    }
+
+    /* ---- Trespass notices ----------------------------------------------- */
+    /*
+      The same filtering, ordering and paging the server does in SQL, done here
+      over an array. It is the same contract because it is the same screen: a
+      demo whose list behaves differently teaches the wrong thing about how the
+      real one behaves.
+    */
+    case 'locations': {
+      if (parts[2] !== 'trespasses') return fail(404, 'Not found.');
+      const locationId = parts[1];
+      const search = text(query.get('q'), 80).trim().toUpperCase();
+      const showAll = query.get('state') === 'all';
+      const direction = query.get('dir') === 'desc' ? -1 : 1;
+      const sort = text(query.get('sort'), 20) || 'name';
+      const limit = Math.min(Math.max(Number(query.get('limit')) || 50, 1), 200);
+      const offset = Math.max(Number(query.get('offset')) || 0, 0);
+      const on = today();
+
+      const here = state.trespasses.filter((t) => t.locationId === locationId);
+      const active = here.filter((t) => isActive(t, on)).length;
+
+      const named = here.map((trespass) => ({
+        trespass,
+        person: state.people[trespass.personId] ?? null,
+      }));
+      const matching = named.filter(({ trespass, person }) => {
+        if (!showAll && !isActive(trespass, on)) return false;
+        if (!search) return true;
+        const last = (person?.lastName ?? '').toUpperCase();
+        const first = (person?.firstName ?? '').toUpperCase();
+        return last.startsWith(search) || first.startsWith(search) || (person?.dob ?? '').startsWith(search);
+      });
+
+      matching.sort((a, b) => {
+        if (sort === 'served') {
+          return direction * a.trespass.servedOn.localeCompare(b.trespass.servedOn);
+        }
+        if (sort === 'expires') {
+          // An indefinite notice has no date to sort by, so it goes last
+          // rather than appearing to have run out in the year zero.
+          const left = a.trespass.expiresOn || '\uffff';
+          const right = b.trespass.expiresOn || '\uffff';
+          return direction * left.localeCompare(right);
+        }
+        const byLast = (a.person?.lastName ?? '').localeCompare(b.person?.lastName ?? '');
+        if (byLast !== 0) return direction * byLast;
+        return direction * (a.person?.firstName ?? '').localeCompare(b.person?.firstName ?? '');
+      });
+
+      return ok({
+        total: matching.length,
+        active,
+        limit,
+        offset,
+        rows: matching.slice(offset, offset + limit).map(({ trespass, person }) => ({
+          trespass,
+          person: person
+            ? { id: person.id, name: displayName(person), dob: person.dob, cautions: person.cautions }
+            : null,
+          state: trespassState(trespass, on),
+        })),
+      });
+    }
+
+    case 'trespasses': {
+      if (method === 'POST' && !parts[1]) {
+        const draft = {
+          personId: text(input.personId, 64),
+          locationId: text(input.locationId, 64),
+          servedOn: text(input.servedOn, 10),
+          expiresOn: text(input.expiresOn, 10),
+          requestedBy: text(input.requestedBy, 120).trim(),
+          requestedByPhone: text(input.requestedByPhone, 40).trim(),
+          caseNumber: text(input.caseNumber, 40).trim(),
+          notes: text(input.notes, 2000).trim(),
+          source: (text(input.source, 20) || 'officer') as 'officer' | 'dispatch',
+        };
+        const check = checkTrespass(draft);
+        if (!check.ok) return fail(400, check.reason);
+        if (!state.people[draft.personId]) return fail(404, 'No such person on file.');
+        const place = state.locations[draft.locationId];
+        if (!place) return fail(404, 'No such location on file.');
+
+        const renewalOf = existingFor(state.trespasses, draft.personId, draft.locationId);
+        const trespass = createTrespass({
+          ...draft,
+          id: newId('tr'),
+          issuedById: user.id,
+          issuedByName: user.name,
+        });
+        state.trespasses.push(trespass);
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'trespass.recorded',
+          target: place.commonName || place.address,
+          detail: draft.expiresOn ? `Until ${draft.expiresOn}` : 'No end date',
+        });
+        return { status: 201, body: { trespass, renewalOf } };
+      }
+
+      const trespass = state.trespasses.find((t) => t.id === parts[1]);
+      if (!trespass) return fail(404, 'No such notice.');
+
+      if (parts[2] === 'lift') {
+        const denied = need('trespass.lift');
+        if (denied) return denied;
+        if (trespass.liftedAt) return fail(409, 'That notice has already been lifted.');
+        const reason = text(input.reason, 500).trim();
+        const check = checkLift(reason);
+        if (!check.ok) return fail(400, check.reason);
+        Object.assign(trespass, {
+          liftedAt: at(),
+          liftedBy: user.name,
+          liftReason: reason,
+          updatedAt: at(),
+        });
+        const place = state.locations[trespass.locationId];
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'trespass.lifted',
+          target: place?.commonName || place?.address || trespass.locationId,
+          detail: reason,
+        });
+        return ok({ trespass });
+      }
+      return fail(404, 'Not found.');
+    }
+
+    /* ---- The Master Vehicle Index ---------------------------------------- */
+    case 'vehicles': {
+      if (method === 'GET' && !parts[1]) return ok({ vehicles: Object.values(state.vehicles) });
+      if (parts[1] === 'resolve') {
+        const q = vehicleQuery(input);
+        const matches = findVehicleMatches(q, state.vehicles, { limit: 10 });
+        return ok({ matches, autoLink: autoLinkVehicle(matches), vin: vinCheckDigit(q.vin ?? '') });
+      }
+      if (method === 'GET' && parts[1]) {
+        const vehicle = state.vehicles[parts[1]];
+        if (!vehicle) return fail(404, 'No such vehicle.');
+        return ok({
+          vehicle,
+          registeredOwner: vehicle.registeredOwnerId
+            ? (state.people[vehicle.registeredOwnerId] ?? null)
+            : null,
+        });
+      }
+      if (method === 'POST') {
+        const q = vehicleQuery(input);
+        if (!isIdentifiable(q)) {
+          return fail(400, 'A vehicle needs a plate or a VIN. A make and a colour describes a thousand cars.');
+        }
+        const matches = findVehicleMatches(q, state.vehicles, { limit: 10 });
+        const automatic = autoLinkVehicle(matches);
+        if (automatic && !input.forceNew) {
+          const merged = mergeObservation(automatic.master, q, at());
+          state.vehicles[merged.id] = merged;
+          return ok({ vehicle: merged, linkedToExisting: true, reasons: automatic.reasons, vin: vinCheckDigit(q.vin ?? '') });
+        }
+        const vehicle = createMasterVehicle({ ...q, id: newId('veh'), notes: text(input.notes, 2000).trim() });
+        state.vehicles[vehicle.id] = vehicle;
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'vehicle.created',
+          target: vehicleName(vehicle),
+          detail: vehicle.vin || vehicle.plate,
+        });
+        return {
+          status: 201,
+          body: {
+            vehicle,
+            linkedToExisting: false,
+            nearMatches: matches.filter((m) => m.tier !== 'certain'),
+            vin: vinCheckDigit(q.vin ?? ''),
+          },
+        };
+      }
+      return fail(404, 'Not found.');
     }
 
     /* ---- The fleet ------------------------------------------------------ */

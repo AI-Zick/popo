@@ -89,7 +89,21 @@ export type Permission =
    * destroy anything until it has two. An agency wanting it narrower revokes
    * it from the administrators and grants it to named people.
    */
-  | 'records.expunge';
+  | 'records.expunge'
+  /**
+   * Lift a trespass notice before it runs out.
+   *
+   * Recording one is open to everybody who takes calls, because the notice is
+   * somebody else's decision that the police are writing down. Undoing one is
+   * not: it is deciding that a property owner's instruction no longer stands,
+   * and an officer who arrests somebody on a notice that was quietly lifted an
+   * hour earlier has been let down by the system. Same line as withdrawing a
+   * location note, held by the same people.
+   *
+   * A notice reaching its end date needs nobody's authority. That is not a
+   * decision, it is a date.
+   */
+  | 'trespass.lift';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -104,6 +118,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'audit.view': 'Read the audit log',
   'records.seal': 'Seal records and record court orders',
   'records.expunge': 'Carry out destruction orders',
+  'trespass.lift': 'Lift a trespass notice early',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -113,6 +128,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRestricted',
     'notes.retract',
     'notes.viewRetracted',
+    'trespass.lift',
     'reports.approve',
     'evidence.manage',
     'audit.view',
@@ -122,6 +138,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRestricted',
     'notes.retract',
     'notes.viewRetracted',
+    'trespass.lift',
     'evidence.manage',
     'audit.view',
     'records.seal',
@@ -131,6 +148,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRestricted',
     'notes.retract',
     'notes.viewRetracted',
+    'trespass.lift',
     'agency.configure',
     'reports.approve',
     'users.manage',
@@ -149,6 +167,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRestricted',
     'notes.retract',
     'notes.viewRetracted',
+    'trespass.lift',
     'agency.configure',
     'reports.approve',
     'users.manage',

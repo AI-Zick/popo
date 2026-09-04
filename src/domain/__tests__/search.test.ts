@@ -4,6 +4,7 @@ import { createIncident, createIncidentPerson, createLocation, createMasterPerso
 import { createCrashReport, createUnit } from '../crash';
 import type { PersonIndex } from '../person';
 import type { LocationIndex } from '../location';
+import { createMasterVehicle } from '../vehicle';
 
 const whitfield = createMasterPerson({
   id: 'mp-1',
@@ -198,12 +199,19 @@ describe('query terms are not index terms', () => {
 });
 
 describe('finding vehicles', () => {
+  /*
+    A vehicle written on a report is found *through the report*. It is not a
+    vehicle of record until somebody puts it in the index, and giving it a row
+    under "Vehicles" that opened a report put two different kinds of thing
+    under one heading — an officer running a plate could not tell from looking
+    which rows opened a car and which opened a burglary.
+  */
   it('finds a plate written with a dash', () => {
-    expect(keys('4AC7821')).toContain('vehicle:veh-1');
+    expect(keys('4AC7821')).toContain('incident:inc-1');
   });
 
   it('finds a plate written without one', () => {
-    expect(keys('4AC-7821')).toContain('vehicle:veh-1');
+    expect(keys('4AC-7821')).toContain('incident:inc-1');
   });
 
   it('finds a plate stored unpunctuated when it is typed with a dash', () => {
@@ -217,16 +225,49 @@ describe('finding vehicles', () => {
   });
 
   it('finds a VIN', () => {
-    expect(keys('3GCPKSE31BG104457')).toContain('vehicle:veh-1');
+    expect(keys('3GCPKSE31BG104457')).toContain('incident:inc-1');
   });
 
   it('finds a vehicle on a crash unit', () => {
     expect(keys('JHK4402')).toContain('crash:crash-1');
   });
 
-  it('points at the report the vehicle is on', () => {
-    const hit = find('4AC7821').find((r) => r.kind === 'vehicle');
+  it('says it is opening a report, because that is what it opens', () => {
+    const hit = find('4AC7821').find((r) => r.target.id === 'inc-1');
+    expect(hit?.kind).toBe('incident');
     expect(hit?.target).toEqual({ kind: 'incident', id: 'inc-1' });
+  });
+
+  /*
+    A vehicle in the index is its own row, and opens its own record. The plate
+    it used to carry is indexed too — running an old plate and being told
+    nothing is the failure the index exists to prevent.
+  */
+  it('finds a vehicle of record, and opens the vehicle', () => {
+    const index = buildIndex({
+      people: {},
+      locations: {},
+      incidents: [],
+      crashes: [],
+      vehicles: {
+        v1: createMasterVehicle({
+          id: 'v1',
+          vin: '1HGCM82633A004352',
+          plate: 'NEW999',
+          plateState: 'AL',
+          year: '2019',
+          make: 'Toyota',
+          model: 'Camry',
+          formerPlates: [{ plate: '4AC7821', state: 'AL', seenUntil: '2026-03-02' }],
+        }),
+      },
+    });
+    const byPlate = search(index, 'NEW999');
+    expect(byPlate[0].target).toEqual({ kind: 'vehicle', id: 'v1' });
+    expect(byPlate[0].title).toBe('2019 Toyota Camry');
+
+    expect(search(index, '4AC7821')[0]?.target).toEqual({ kind: 'vehicle', id: 'v1' });
+    expect(search(index, '1HGCM82633A004352')[0]?.target).toEqual({ kind: 'vehicle', id: 'v1' });
   });
 });
 
@@ -304,8 +345,9 @@ describe('grouping for display', () => {
 
 describe('the index itself', () => {
   it('covers every entity kind', () => {
-    // 2 people + 2 locations + 1 incident + 1 vehicle + 1 crash
-    expect(index.size).toBe(7);
+    // 2 people + 2 locations + 1 incident + 1 crash. The vehicle on that
+    // incident is findable through it rather than as a row of its own.
+    expect(index.size).toBe(6);
   });
 
   it('builds postings so a keystroke is a lookup, not a scan', () => {

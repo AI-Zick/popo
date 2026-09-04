@@ -22,6 +22,8 @@ import { seedState, DEMO_PASSWORD } from '@/state/seed';
 import type { Incident } from '@/domain/types';
 import type { MasterPerson, PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
+import type { VehicleIndex } from '@/domain/vehicle';
+import type { Trespass } from '@/domain/trespass';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, AuditDraft } from '@/domain/audit';
@@ -82,6 +84,8 @@ export interface DemoState {
   files: Record<string, string>;
   people: PersonIndex;
   locations: LocationIndex;
+  vehicles: VehicleIndex;
+  trespasses: Trespass[];
   agency: AgencyProfile;
   users: User[];
   auditLog: AuditEntry[];
@@ -142,6 +146,8 @@ export function fresh(): DemoState {
     files: {},
     people: seed.people,
     locations: seed.locations,
+    vehicles: seed.vehicles,
+    trespasses: seed.trespasses,
     agency: seed.agency,
     users,
     auditLog: [],

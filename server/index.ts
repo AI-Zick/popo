@@ -29,6 +29,8 @@ import { registerArrestRoutes } from './arrests';
 import { registerTaskRoutes } from './tasks';
 import { registerPhotoRoutes } from './photos';
 import { registerFleetRoutes } from './fleet';
+import { registerTrespassRoutes } from './trespass';
+import { registerVehicleRoutes } from './vehicles';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -204,6 +206,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const arrests = readDocsWithVersions(db, DOC_TABLES.arrests);
     const caseTasks = readDocsWithVersions(db, DOC_TABLES.caseTasks);
     const photos = readDocsWithVersions(db, DOC_TABLES.personPhotos);
+    const vehicles = readDocsWithVersions(db, DOC_TABLES.vehicles);
 
     /*
       Sealed records.
@@ -261,6 +264,13 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       seals: maySeeSealed ? seals : [],
       people: Object.fromEntries(people.map((p) => [String(p.doc.id), p.doc])),
       locations: Object.fromEntries(locations.map((l) => [String(l.doc.id), l.doc])),
+      /*
+        Vehicles travel with the payload the way people and places do, because
+        they are the same kind of thing: a few thousand records that every
+        search touches. Trespass notices deliberately do not — one place can
+        hold hundreds and nobody needs another place's list to be here.
+      */
+      vehicles: Object.fromEntries(vehicles.map((v) => [String(v.doc.id), v.doc])),
       versions,
       locks: listLocks(db),
       attachments: listAttachments(db),
@@ -483,6 +493,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerTaskRoutes(app, db);
   registerPhotoRoutes(app, db, config.dataDir);
   registerFleetRoutes(app, db);
+  registerTrespassRoutes(app, db);
+  registerVehicleRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {

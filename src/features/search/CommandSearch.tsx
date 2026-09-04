@@ -32,15 +32,16 @@ const ICON: Record<ResultKind, typeof User> = {
  * scan of every record on every character.
  */
 export function CommandSearch({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { people, locations, incidents, crashes, openIncident, openCrash, setSection } = useStore();
+  const { people, locations, vehicles, incidents, crashes, openIncident, openCrash, showFile } =
+    useStore();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Rebuilt only when the data behind it changes, not on every keystroke.
   const index = useMemo(
-    () => buildIndex({ people, locations, incidents, crashes }),
-    [people, locations, incidents, crashes],
+    () => buildIndex({ people, locations, vehicles, incidents, crashes }),
+    [people, locations, vehicles, incidents, crashes],
   );
 
   const results = useMemo(() => search(index, query), [index, query]);
@@ -64,15 +65,14 @@ export function CommandSearch({ open, onClose }: { open: boolean; onClose: () =>
         break;
       case 'person':
       case 'location':
+      case 'vehicle':
         /*
-          Neither has a screen of its own yet, so a hit opens the most recent
-          report it appears on and lands on the relevant section. The row says
-          which report that is, so the jump is never a surprise.
+          The record itself, over whatever is on screen. It used to open the
+          most recent report the record appeared on, which answered a
+          different question from the one being asked — somebody searching a
+          name at 2am wants the person, not the last burglary they witnessed.
         */
-        if (result.target.parentId) {
-          openIncident(result.target.parentId);
-          setSection(result.kind === 'person' ? 'persons' : 'incident');
-        }
+        showFile({ kind: result.target.kind, id: result.target.id });
         break;
     }
     onClose();

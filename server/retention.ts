@@ -189,6 +189,26 @@ const HOLDERS: Holder[] = [
     purge: del('attachments'),
   },
   {
+    /*
+      Trespass notices naming this person.
+
+      Person-scoped only. A notice is a fact about somebody, not about a case,
+      and a case-scoped order that swept up the notices served at the same
+      address would destroy other people's records.
+    */
+    kind: 'Trespass notices',
+    byCase: () => [],
+    byPerson: (db, masterId) =>
+      query(
+        db,
+        'trespasses',
+        'person_id',
+        masterId,
+        (d) => `Barred from ${String(d.locationId ?? '')} from ${String(d.servedOn ?? '')}`,
+      ),
+    purge: del('trespasses'),
+  },
+  {
     kind: 'Photographs',
     byCase: () => [],
     byPerson: (db, masterId) =>

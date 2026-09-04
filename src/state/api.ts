@@ -22,7 +22,10 @@ import type {
 } from '@/domain/fleet';
 import type { QueryReturn } from '@/domain/inbound';
 import type { PersonIndex } from '@/domain/person';
-import type { LocationIndex } from '@/domain/location';
+import type { LocationIndex, MasterLocation } from '@/domain/location';
+import type { MasterVehicle, VehicleIndex } from '@/domain/vehicle';
+import type { VehicleMatchResult, VehicleQuery } from '@/domain/vehicleMatching';
+import type { Trespass, TrespassState } from '@/domain/trespass';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
@@ -34,6 +37,43 @@ import type {
   Finding as EvidenceFinding,
 } from '@/domain/evidence';
 import type { ChainStatus as CustodyStatus } from '@/domain/chain';
+
+/** One notice on a person's record, with the place it names. */
+export interface TrespassRow {
+  trespass: Trespass;
+  location: MasterLocation | null;
+  state: TrespassState;
+}
+
+/** One row of a place's list — a notice and just enough of the person. */
+export interface TrespassPageRow {
+  trespass: Trespass;
+  person: { id: string; name: string; dob: string; cautions: string[] } | null;
+  state: TrespassState;
+}
+
+export interface TrespassPage {
+  rows: TrespassPageRow[];
+  /** Matching the current filter and search. */
+  total: number;
+  /** In force at this place, whatever is currently being looked at. */
+  active: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TrespassDraft {
+  personId: string;
+  locationId: string;
+  servedOn: string;
+  /** Blank means indefinite. */
+  expiresOn: string;
+  requestedBy: string;
+  requestedByPhone: string;
+  caseNumber: string;
+  notes: string;
+  source: 'officer' | 'dispatch';
+}
 
 /** An item plus everything a list needs, computed on the server. */
 export interface EvidenceSummary {
@@ -578,6 +618,90 @@ export const api = {
     });
   },
 
+  /* ---- Trespass notices ---------------------------------------------- */
+
+  /**
+   * Everywhere one person is barred from. Small enough to fetch whole.
+   */
+  personTrespasses(personId: string): Promise<{ trespasses: TrespassRow[] }> {
+    return request(`/api/people/${personId}/trespasses`);
+  },
+
+  /**
+   * Everybody barred from one place.
+   *
+   * Paged and searched on the server. A shopping centre can hold hundreds of
+   * these, and the whole reason this is not part of the bulk payload is that
+   * nobody should be paying for another place's list on every page load.
+   */
+  locationTrespasses(
+    locationId: string,
+    options: {
+      q?: string;
+      sort?: 'name' | 'served' | 'expires';
+      dir?: 'asc' | 'desc';
+      state?: 'active' | 'all';
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<TrespassPage> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(options)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const query = params.toString();
+    return request(`/api/locations/${locationId}/trespasses${query ? `?${query}` : ''}`);
+  },
+
+  recordTrespass(draft: TrespassDraft): Promise<{ trespass: Trespass; renewalOf: Trespass | null }> {
+    return request('/api/trespasses', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  liftTrespass(id: string, reason: string): Promise<{ trespass: Trespass }> {
+    return request(`/api/trespasses/${id}/lift`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  correctTrespass(id: string, patch: Partial<TrespassDraft>): Promise<{ trespass: Trespass }> {
+    return request(`/api/trespasses/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  /* ---- The Master Vehicle Index -------------------------------------- */
+
+  vehicle(id: string): Promise<{ vehicle: MasterVehicle; registeredOwner: unknown }> {
+    return request(`/api/vehicles/${id}`);
+  },
+
+  /** What this vehicle might already be. Reads only; decides nothing. */
+  resolveVehicle(query: VehicleQuery): Promise<{
+    matches: VehicleMatchResult[];
+    autoLink: VehicleMatchResult | null;
+    vin: { ok: boolean; reason: string; expected: string };
+  }> {
+    return request('/api/vehicles/resolve', { method: 'POST', body: JSON.stringify(query) });
+  },
+
+  addVehicle(
+    draft: VehicleQuery & { registeredOwnerId?: string; notes?: string; forceNew?: boolean },
+  ): Promise<{
+    vehicle: MasterVehicle;
+    linkedToExisting: boolean;
+    reasons?: string[];
+    nearMatches?: VehicleMatchResult[];
+    vin: { ok: boolean; reason: string; expected: string };
+  }> {
+    return request('/api/vehicles', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  updateVehicle(
+    id: string,
+    patch: Partial<MasterVehicle>,
+  ): Promise<{ vehicle: MasterVehicle; vin: { ok: boolean; reason: string; expected: string } }> {
+    return request(`/api/vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
   /* ---- State ------------------------------------------------------- */
 
   state(): Promise<{
@@ -592,6 +716,7 @@ export const api = {
     seals: { subjectId: string; scope: string; orderRef: string; sealedAt: string; sealedBy: string }[];
     people: PersonIndex;
     locations: LocationIndex;
+    vehicles: VehicleIndex;
     agency: AgencyProfile | null;
     users: User[];
     auditLog: AuditEntry[];

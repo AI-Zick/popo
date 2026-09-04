@@ -17,6 +17,7 @@
 import type { MasterPerson, PersonIndex } from './person';
 import { displayName } from './person';
 import type { LocationIndex, MasterLocation } from './location';
+import { vehicleName, vehicleTag, type VehicleIndex } from './vehicle';
 import { locationLabel } from './location';
 import type { Incident } from './types';
 import type { CrashReport } from './crash';
@@ -136,6 +137,8 @@ export interface IndexInput {
   locations: LocationIndex;
   incidents: Incident[];
   crashes: CrashReport[];
+  /** The Master Vehicle Index. Absent on older callers, which is fine. */
+  vehicles?: VehicleIndex;
 }
 
 export function buildIndex(input: IndexInput): SearchIndex {
@@ -180,34 +183,58 @@ export function buildIndex(input: IndexInput): SearchIndex {
     });
   }
 
-  /* ---- Reports and the vehicles on them ------------------------------ */
+  /* ---- Vehicles of record --------------------------------------------- */
+  /*
+    One entry per vehicle, not per sighting. The plate a vehicle used to carry
+    is indexed too, so running an old plate still finds the car — which is the
+    single most useful thing an index of vehicles does that a list of vehicles
+    on reports cannot.
+  */
+  for (const vehicle of Object.values(input.vehicles ?? {})) {
+    const tokens = new Map<string, number>();
+    addTokens(tokens, vehicle.plate, W.identifier);
+    addTokens(tokens, vehicle.vin, W.identifier);
+    for (const former of vehicle.formerPlates ?? []) {
+      addTokens(tokens, former.plate, W.identifier);
+    }
+    addTokens(
+      tokens,
+      `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.color}`,
+      W.secondary,
+    );
+    entries.push({
+      result: {
+        key: `vehicle:${vehicle.id}`,
+        kind: 'vehicle',
+        title: vehicleName(vehicle),
+        subtitle: [vehicleTag(vehicle), vehicle.color].filter(Boolean).join(' · '),
+        detail: vehicle.formerPlates?.length
+          ? `Previously ${vehicle.formerPlates[0].plate}`
+          : 'Vehicle of record',
+        cautions: vehicle.cautions ?? [],
+        target: { kind: 'vehicle', id: vehicle.id },
+      },
+      tokens,
+    });
+  }
+
+  /* ---- Reports ------------------------------------------------------- */
+  /*
+    A vehicle written on a report is findable *through the report*, not as a
+    vehicle in its own right. It used to be its own row under "Vehicles", which
+    put two different kinds of thing under one heading: rows that opened a
+    vehicle record, and rows that opened a report. An officer running a plate
+    got both and could not tell which was which from looking.
+
+    The tokens still travel — the plate, the VIN and the description all reach
+    the report — so a plate search still finds the burglary it was written on.
+    It just says "report" now, because that is what it opens.
+  */
   for (const incident of input.incidents) {
     entries.push({
       result: incidentResult(incident, input.locations),
       tokens: incidentTokens(incident, input.people),
     });
-
-    for (const vehicle of incident.vehicles) {
-      if (!vehicle.plate && !vehicle.vin) continue;
-      const tokens = new Map<string, number>();
-      addTokens(tokens, vehicle.plate, W.identifier);
-      addTokens(tokens, vehicle.vin, W.identifier);
-      addTokens(tokens, `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.color}`, W.secondary);
-      entries.push({
-        result: {
-          key: `vehicle:${vehicle.id}`,
-          kind: 'vehicle',
-          title: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle',
-          subtitle: [vehicle.plate && `${vehicle.plate} ${vehicle.plateState}`.trim(), vehicle.vin]
-            .filter(Boolean)
-            .join(' · '),
-          detail: `On report ${incident.caseNumber}`,
-          cautions: [],
-          target: { kind: 'incident', id: incident.id },
-        },
-        tokens,
-      });
-    }
   }
 
   /* ---- Crash reports and their units ---------------------------------- */
@@ -334,6 +361,12 @@ function incidentTokens(incident: Incident, people: PersonIndex): Map<string, nu
   for (const link of incident.persons) {
     const master = people[link.masterId];
     if (master) addTokens(tokens, `${master.firstName} ${master.lastName} ${master.businessName}`, W.secondary);
+  }
+  // So are the vehicles on it, the same way a crash report carries its units.
+  for (const vehicle of incident.vehicles) {
+    addTokens(tokens, vehicle.plate, W.identifier);
+    addTokens(tokens, vehicle.vin, W.identifier);
+    addTokens(tokens, `${vehicle.year} ${vehicle.make} ${vehicle.model}`, W.secondary);
   }
   return tokens;
 }

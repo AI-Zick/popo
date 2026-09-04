@@ -8,6 +8,8 @@ import type {
   PersonRole,
 } from '@/domain/person';
 import type { LocationIndex, MasterLocation } from '@/domain/location';
+import { createMasterVehicle, type VehicleIndex } from '@/domain/vehicle';
+import { createTrespass, type Trespass } from '@/domain/trespass';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
@@ -202,6 +204,8 @@ export function seedState(): {
   returns: QueryReturn[];
   people: PersonIndex;
   locations: LocationIndex;
+  vehicles: VehicleIndex;
+  trespasses: Trespass[];
   agency: AgencyProfile;
   users: User[];
   credentials: Record<string, never>;
@@ -729,12 +733,74 @@ export function seedState(): {
     }),
   ];
 
+  /* ---- Vehicles of record --------------------------------------------- */
+  /*
+    Two records that make the index's one rule visible: the plate on the Camry
+    today was on the pickup until March, so running 4AC-7821 finds both and the
+    screen has to say which is which. A demo where every plate resolves cleanly
+    teaches nothing about why a plate is not a car.
+  */
+  const camry = createMasterVehicle({
+    id: 'veh_seed_camry',
+    vin: '1HGCM82633A004352',
+    plate: '4AC7821',
+    plateState: 'AL',
+    plateYear: '2026',
+    year: '2019',
+    make: 'Toyota',
+    model: 'Camry',
+    style: '4-door sedan',
+    color: 'Silver',
+    registeredOwnerId: Object.values(PEOPLE)[0]?.id ?? '',
+  });
+  const pickup = createMasterVehicle({
+    id: 'veh_seed_pickup',
+    vin: '1M8GDM9AXKP042788',
+    plate: 'CF29104',
+    plateState: 'AL',
+    year: '2012',
+    make: 'Ford',
+    model: 'F-150',
+    color: 'White',
+    formerPlates: [{ plate: '4AC7821', state: 'AL', seenUntil: '2026-03-02' }],
+    cautions: ['Owner has a caution flag on their name record'],
+  });
+  const VEHICLES: VehicleIndex = { [camry.id]: camry, [pickup.id]: pickup };
+
+  /* ---- Trespass notices ------------------------------------------------ */
+  /*
+    Three against the storage facility, chosen to put every state on screen at
+    once: one indefinite, one that runs out shortly, and one that already has.
+    The expired one is the point — it is still here, because a notice that was
+    in force is evidence long after it stops being one.
+  */
+  const barred = Object.values(PEOPLE).slice(0, 3);
+  const TRESPASSES: Trespass[] = barred.map((who, index) =>
+    createTrespass({
+      id: `tr_seed_${index + 1}`,
+      personId: who.id,
+      locationId: storage.id,
+      servedOn: ['2025-11-04', '2026-02-18', '2024-06-01'][index] ?? '2026-01-01',
+      expiresOn: ['', '2026-09-30', '2025-06-01'][index] ?? '',
+      requestedBy: 'Renee Ortiz, manager',
+      requestedByPhone: '(205) 555-0121',
+      issuedByName: index === 1 ? 'Dispatch' : 'M. Reyes',
+      source: index === 1 ? 'dispatch' : 'officer',
+      notes:
+        index === 0
+          ? 'Covers the whole site including the drive lanes and the office.'
+          : '',
+    }),
+  );
+
   return {
     incidents: [incomplete, complete, approved],
     stops: STOPS,
     returns: RETURNS,
     people: PEOPLE,
     locations: LOCATIONS,
+    vehicles: VEHICLES,
+    trespasses: TRESPASSES,
     agency: AGENCY,
     users: USERS,
     // Password hashing is async, so demo credentials are provisioned by a

@@ -134,6 +134,13 @@ import {
   type Supplement,
   type SupplementProblem,
 } from '@/domain/supplement';
+import type { VehicleIndex } from '@/domain/vehicle';
+
+/** What a record lookup points at. */
+export interface FileRef {
+  kind: 'person' | 'location' | 'vehicle';
+  id: string;
+}
 import {
   applySuggestion,
   mergeFindings,
@@ -173,6 +180,26 @@ interface StoreValue {
   people: PersonIndex;
   /** Every place the agency has been, with the notes left on it. */
   locations: LocationIndex;
+  /**
+   * The Master Vehicle Index — one record per car, not per sighting.
+   *
+   * Here rather than fetched per screen because it is the same kind of thing
+   * as the two indexes above: a few thousand records that search reads on
+   * every keystroke.
+   */
+  vehicles: VehicleIndex;
+
+  /**
+   * The record currently being looked up, if any.
+   *
+   * A person, a place or a vehicle, shown over whatever is on screen rather
+   * than instead of it. Looking somebody up is something you do *while*
+   * writing a report, and a lookup that navigates away from a half-typed
+   * narrative is one officers learn not to use.
+   */
+  openFile: FileRef | null;
+  showFile: (ref: FileRef) => void;
+  closeFile: () => void;
   /** Jurisdiction and boundary configuration, set once at install. */
   agency: AgencyProfile;
   /** Everyone with a login at this agency. */
@@ -589,6 +616,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [activeSupplementId, setActiveSupplementId] = useState<string | null>(null);
   const [people, setPeople] = useState<PersonIndex>({});
   const [locations, setLocations] = useState<LocationIndex>({});
+  const [vehicles, setVehicles] = useState<VehicleIndex>({});
+  const [openFile, setOpenFile] = useState<FileRef | null>(null);
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
   const [users, setUsers] = useState<User[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
@@ -719,6 +748,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSeals(state.seals ?? []);
     setPeople(state.people);
     setLocations(state.locations);
+    setVehicles(state.vehicles ?? {});
     setUsers(state.users);
     setAuditLog(state.auditLog);
     /*
@@ -2910,6 +2940,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setIncidents([]);
     setPeople({});
     setLocations({});
+    setVehicles({});
     setUsers([]);
     setAuditLog([]);
   }, []);
@@ -3101,6 +3132,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     incidents,
     people,
     locations,
+    vehicles,
+    openFile,
+    showFile: setOpenFile,
+    closeFile: useCallback(() => setOpenFile(null), []),
     agency,
     users,
     currentUser,
