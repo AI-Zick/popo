@@ -1073,10 +1073,11 @@ that integration exists a stop nobody logs is a stop that never happened as far
 as the report is concerned — which the printed footer says plainly.
 
 Deployment is covered in `DEPLOYMENT.md`, including what it deliberately does
-not do. The short version: **no MFA**, which CJIS requires for access to
-criminal justice information, and **no encryption at rest**. Both are called
-out rather than approximated — bolting on TOTP without enrolment and recovery
-would look like compliance without being it.
+not do. The short version now: **no encryption at rest**, and the second factor
+is **TOTP rather than a passkey** — codes from an authenticator app, which every
+agency's phones already support, but which a convincing fake sign-in page can
+still capture and replay within the thirty seconds they live. WebAuthn is the
+follow-on. Both are called out rather than approximated.
 
 Narrative reading by a model is written and wired but **has not been run
 against a live key** — the offline pattern reader is what has been exercised

@@ -118,10 +118,14 @@ Read this part.
   who has access, and how they were screened — not of the code. Expect AWS
   GovCloud, Azure Government, or on-premises, with a signed CJIS addendum from
   whoever holds the hardware.
-- **No MFA.** CJIS requires advanced authentication for access to criminal
-  justice information. Passwords alone do not satisfy it. This is the largest
-  remaining gap and it is deliberate — bolting on TOTP without an enrolment and
-  recovery process would look like compliance without being it.
+- **MFA is TOTP, not phishing-resistant.** Time-based codes from an
+  authenticator app, with enrolment and recovery built rather than bolted on:
+  the agency-wide requirement is a setting, a password-only session is refused
+  by every route, and clearing somebody's factor needs account-management
+  authority, a written reason, and lands in the audit log. What that does not
+  give you is phishing resistance — a code typed into a convincing fake sign-in
+  page can be replayed inside its thirty seconds. WebAuthn is the follow-on, and
+  a CJIS assessor may ask for it depending on how the access is characterised.
 - **No encryption at rest.** SQLite writes plaintext. Use full-disk or
   volume-level encryption that is FIPS 140-2 validated; do not assume the
   filesystem default qualifies.
