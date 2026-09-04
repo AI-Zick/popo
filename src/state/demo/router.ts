@@ -1112,6 +1112,21 @@ export async function handle(method: string, url: string, body: unknown): Promis
     }
 
 
+    /* ---- County GIS -------------------------------------------------------- */
+    case 'gis': {
+      /*
+        There is no county to reach. This demo runs entirely in the browser
+        with no network at all — which is the point of it — so rather than
+        inventing addresses that would look like a working connection, it says
+        what it is.
+      */
+      if (parts[1] === 'search') return ok({ candidates: [], configured: false });
+      return fail(
+        400,
+        'The demo runs in your browser with no network, so there is no county service to reach. On a real installation this asks the county’s layer through the agency’s own server.',
+      );
+    }
+
     /* ---- Public records ---------------------------------------------------- */
     case 'public-requests': {
       const policy = state.agency.publicRecords ?? defaultPolicy();

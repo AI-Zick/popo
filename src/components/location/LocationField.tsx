@@ -1,6 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, KeyRound, MapPin, Plus, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, KeyRound, MapPin, MapPinned, Plus, Search, X } from 'lucide-react';
 import { useStore } from '@/state/store';
+import { api, ApiError } from '@/state/api';
+import type { AddressCandidate } from '@/domain/gis';
 import { locationLabel, type MasterLocation } from '@/domain/location';
 import { formatDistance } from '@/domain/geo';
 import { LOCATION_TYPES, STATES } from '@/domain/codes';
@@ -225,6 +227,15 @@ function LocationSearchDialog({
                   ))}
                 </ul>
               )}
+
+              {/*
+                The county's own address layer, under the agency's index rather
+                than mixed into it. A place the department has been before —
+                with its gate code, its dog, its history — is a different and
+                better answer than a point on a map, so it is never pushed down
+                the page by one.
+              */}
+              <CountyAddresses query={query} onPicked={onPick} />
             </div>
 
             <footer className="border-t border-line p-3">
@@ -236,6 +247,121 @@ function LocationSearchDialog({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Addresses from the county, offered under whatever the agency already knows.
+ *
+ * Picking one makes a location record with the coordinates already set — which
+ * is the whole point. Dropping a pin by hand is the one piece of manual work a
+ * map was meant to remove, and an officer doing it forty times a week gets it
+ * roughly right forty times.
+ *
+ * Quiet when no county is configured, and quiet while it is thinking. An
+ * agency without a county connection sees exactly what it saw before.
+ */
+function CountyAddresses({ query, onPicked }: { query: string; onPicked: (id: string) => void }) {
+  const { createAndSetLocation, agency } = useStore();
+  const [found, setFound] = useState<AddressCandidate[]>([]);
+  const [attribution, setAttribution] = useState('');
+  const [failed, setFailed] = useState('');
+
+  const configured = Boolean(agency.gis?.kind);
+
+  useEffect(() => {
+    if (!configured || query.trim().length < 3) {
+      setFound([]);
+      setFailed('');
+      return;
+    }
+    /*
+      Debounced, and the late reply from an abandoned search is thrown away.
+      Without that, typing "612 marion" fast enough leaves the results for
+      "612 mar" on screen underneath — an officer picking the wrong address
+      because a slower request landed second.
+    */
+    let live = true;
+    const timer = window.setTimeout(() => {
+      void api
+        .gisSearch(query.trim())
+        .then((reply) => {
+          if (!live) return;
+          setFound(reply.candidates);
+          setAttribution(reply.attribution ?? '');
+          setFailed('');
+        })
+        .catch((error) => {
+          if (!live) return;
+          setFound([]);
+          setFailed(error instanceof ApiError ? error.message : 'Could not reach the county.');
+        });
+    }, 250);
+
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, configured]);
+
+  if (!configured) return null;
+  if (found.length === 0 && !failed) return null;
+
+  return (
+    <div className="mt-3 border-t border-line pt-2">
+      <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-faint">
+        From the county’s address layer
+      </p>
+
+      {failed ? (
+        <p className="px-3 py-2 text-[12px] leading-relaxed text-warn">
+          {failed} The agency index above is unaffected.
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {found.map((candidate, index) => (
+            <li key={`${candidate.address}-${index}`}>
+              <button
+                type="button"
+                onClick={() =>
+                  /*
+                    Closed the same way picking from the agency index closes it.
+                    Making the record and leaving the dialog open reads as the
+                    click not having worked, and an officer clicks again.
+                  */
+                  onPicked(
+                    createAndSetLocation({
+                      address: candidate.address,
+                      city: candidate.city || agency.city,
+                      state: candidate.state || agency.state,
+                      zip: candidate.zip,
+                      longitude: candidate.longitude,
+                      latitude: candidate.latitude,
+                      geoSource: 'gis',
+                    }),
+                  )
+                }
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-raised"
+              >
+                <MapPinned size={15} className="shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] text-ink">
+                    {candidate.address}
+                    {candidate.unit && ` ${candidate.unit}`}
+                  </span>
+                  <span className="block truncate text-[11.5px] text-faint">
+                    {[candidate.city, candidate.state, candidate.zip].filter(Boolean).join(' ')} ·
+                    already placed on the map
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {attribution && <p className="px-3 pt-1 text-[10.5px] text-faint">{attribution}</p>}
     </div>
   );
 }

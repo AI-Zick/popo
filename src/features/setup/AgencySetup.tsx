@@ -28,6 +28,7 @@ import { RetentionView } from '@/features/retention/RetentionView';
 import { PublicRecordsView } from '@/features/records/PublicRecordsView';
 import { ExemptionRules } from '@/features/records/ExemptionRules';
 import { StatuteTable } from '@/features/statutes/StatuteTable';
+import { GisSetup } from '@/features/setup/GisSetup';
 import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
@@ -51,6 +52,7 @@ type Tab =
   | 'publicRecords'
   | 'exemptions'
   | 'statutes'
+  | 'gis'
   | 'security'
   | 'feedback';
 
@@ -68,6 +70,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   publicRecords: 'Public records',
   exemptions: 'Exemptions',
   statutes: 'Statutes',
+  gis: 'County GIS',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -150,6 +153,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Statutes
             </TabButton>
           )}
+          {mayConfigure && (
+            <TabButton active={tab === 'gis'} onClick={() => setTab('gis')}>
+              County GIS
+            </TabButton>
+          )}
           {/*
             Open to every officer: seizing property and signing it in or out is
             police work. What a clerk may do beyond that is gated inside.
@@ -223,6 +231,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'publicRecords' && <PublicRecordsView />}
           {tab === 'exemptions' && mayConfigure && <ExemptionRules />}
           {tab === 'statutes' && mayConfigure && <StatuteTable />}
+          {tab === 'gis' && mayConfigure && <GisSetup />}
           {tab === 'fleet' && (
             <>
               <FleetView />

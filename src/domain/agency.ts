@@ -13,6 +13,7 @@ import { DEFAULT_SCHEDULE, type RetentionRule } from './retention';
 import { DEFAULT_RULES, type ExemptionRule } from './exemption';
 import { defaultPolicy, type PublicRecordsPolicy } from './publicRecords';
 import type { Statute } from './statute';
+import { emptyGisSource, type GisSource } from './gis';
 import { statutePack } from './statutes';
 
 export interface AgencyProfile {
@@ -77,6 +78,17 @@ export interface AgencyProfile {
    * wrong thing.
    */
   exemptions: ExemptionRule[];
+
+  /**
+   * The county GIS this agency reads addresses from.
+   *
+   * Blank until somebody sets it up, and an agency without one loses nothing
+   * it has today — the pin still drops by hand. What it gains is the county's
+   * own address layer, which is better data than a commercial geocoder for the
+   * addresses that matter and never leaves the agreement the agency already
+   * has.
+   */
+  gis: GisSource;
 
   /**
    * The state's offence statutes, keyed to the NIBRS codes they answer to.
@@ -155,6 +167,7 @@ export function emptyAgency(): AgencyProfile {
     retention: DEFAULT_SCHEDULE.map((rule) => ({ ...rule })),
     exemptions: DEFAULT_RULES.map((rule) => ({ ...rule })),
     statutes: [],
+    gis: emptyGisSource(),
     publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,

@@ -88,7 +88,7 @@ export interface MasterLocation {
   latitude: number | null;
   longitude: number | null;
   /** How the coordinates were arrived at. */
-  geoSource: 'pin' | 'typed' | 'import' | '';
+  geoSource: 'pin' | 'typed' | 'import' | 'gis' | '';
 
   notes: PremiseNote[];
 

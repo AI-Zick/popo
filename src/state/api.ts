@@ -30,6 +30,7 @@ import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
 import type { FieldContact } from '@/domain/fieldContact';
 import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
+import type { AddressCandidate, GisSource } from '@/domain/gis';
 import type { Proposal } from '@/domain/redaction';
 import type {
   AttachmentDecision,
@@ -936,6 +937,28 @@ export const api = {
 
   publicRelease(id: string): Promise<{ releases: ReleaseBundle[] }> {
     return request(`/api/public-requests/${id}/release`);
+  },
+
+  /* ---- County GIS ------------------------------------------------------ */
+
+  /** Addresses from the county's layer, fetched by our server rather than here. */
+  gisSearch(query: string): Promise<{
+    candidates: AddressCandidate[];
+    configured: boolean;
+    attribution?: string;
+  }> {
+    return request(`/api/gis/search?q=${encodeURIComponent(query)}`);
+  },
+
+  /** Does this connection work, and what does the county call its fields? */
+  testGis(source: GisSource): Promise<{
+    ok: true;
+    fields: string[];
+    guess: GisSource['fields'];
+    sample: AddressCandidate[];
+    reached: boolean;
+  }> {
+    return request('/api/gis/test', { method: 'POST', body: JSON.stringify({ source }) });
   },
 
   /* ---- Warrants ------------------------------------------------------- */
