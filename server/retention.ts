@@ -190,6 +190,59 @@ const HOLDERS: Holder[] = [
   },
   {
     /*
+      Warrants naming this person.
+
+      Person-scoped only, like the trespass notices. A warrant is a fact about
+      somebody, and a case-scoped order that swept up warrants would destroy
+      court records that have nothing to do with the case.
+    */
+    kind: 'Warrants',
+    byCase: () => [],
+    byPerson: (db, masterId) =>
+      query(
+        db,
+        'warrants',
+        'person_id',
+        masterId,
+        (d) => `${String(d.kind ?? 'warrant')} ${String(d.number ?? '')} (${String(d.court ?? '')})`.trim(),
+      ),
+    purge: del('warrants'),
+  },
+  {
+    /*
+      Field contacts naming this person.
+
+      These do not have a person_id column — a contact can name several people,
+      and a subject may be a description rather than an identity — so the match
+      is on the documents. A person-scoped order destroys the whole contact
+      only when this person is the only subject on it; otherwise it would
+      destroy somebody else's record along with theirs, and a contact naming
+      three people is three people's record.
+    */
+    kind: 'Field contacts',
+    byCase: () => [],
+    byPerson: (db, masterId) => {
+      const rows = db.prepare('SELECT id, doc FROM field_contacts').all() as {
+        id: string;
+        doc: string;
+      }[];
+      return rows
+        .map((row) => ({ id: row.id, doc: JSON.parse(row.doc) as Record<string, unknown> }))
+        .filter(({ doc }) => {
+          const subjects = (doc.subjects ?? []) as { masterId?: string }[];
+          const named = subjects.filter((s) => s.masterId);
+          return named.length > 0 && named.every((s) => s.masterId === masterId);
+        })
+        .map(({ id, doc }) => ({
+          id,
+          label: `Field contact ${String(doc.number ?? '')} on ${String(doc.occurredAt ?? '').slice(0, 10)}`,
+          files: [],
+        }));
+    },
+    purge: del('field_contacts'),
+  },
+  {
+    /*
       Trespass notices naming this person.
 
       Person-scoped only. A notice is a fact about somebody, not about a case,

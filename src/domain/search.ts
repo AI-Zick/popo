@@ -139,6 +139,15 @@ export interface IndexInput {
   crashes: CrashReport[];
   /** The Master Vehicle Index. Absent on older callers, which is fine. */
   vehicles?: VehicleIndex;
+  /**
+   * Who is wanted, keyed by master id.
+   *
+   * Only the count and whether any of them travel nationally. A search result
+   * has to be able to say somebody is wanted; it does not need to say what
+   * for, and putting the charge here would put an agency's warrant file into
+   * every browser's memory to save one click.
+   */
+  wanted?: Record<string, { count: number; national: boolean }>;
 }
 
 export function buildIndex(input: IndexInput): SearchIndex {
@@ -170,7 +179,7 @@ export function buildIndex(input: IndexInput): SearchIndex {
   /* ---- People ------------------------------------------------------- */
   for (const person of Object.values(input.people)) {
     entries.push({
-      result: personResult(person, latestByPerson.get(person.id)),
+      result: personResult(person, latestByPerson.get(person.id), input.wanted?.[person.id]),
       tokens: personTokens(person),
     });
   }
@@ -295,7 +304,26 @@ function personTokens(person: MasterPerson): Map<string, number> {
   return tokens;
 }
 
-function personResult(person: MasterPerson, latest?: Incident): Omit<SearchResult, 'score'> {
+function personResult(
+  person: MasterPerson,
+  latest?: Incident,
+  wanted?: { count: number; national: boolean },
+): Omit<SearchResult, 'score'> {
+  /*
+    The warrant alert goes in front of the person's own cautions, because it is
+    the more urgent of the two and because a caution list is read top down. It
+    carries the confirmation instruction with it: a search result is exactly
+    where somebody decides what to do next, and a bare "WANTED" reads like a
+    fact rather than like something to check.
+  */
+  const alert = wanted
+    ? [
+        wanted.count === 1
+          ? `OUTSTANDING WARRANT${wanted.national ? ' — extraditable nationally' : ''} — confirm with the issuing court before acting`
+          : `${wanted.count} OUTSTANDING WARRANTS${wanted.national ? ' — one extraditable nationally' : ''} — confirm with the issuing court before acting`,
+      ]
+    : [];
+
   return {
     key: `person:${person.id}`,
     kind: 'person',
@@ -309,7 +337,7 @@ function personResult(person: MasterPerson, latest?: Incident): Omit<SearchResul
     ]
       .filter(Boolean)
       .join(' · '),
-    cautions: person.cautions,
+    cautions: [...alert, ...person.cautions],
     target: { kind: 'person', id: person.id, parentId: latest?.id },
   };
 }

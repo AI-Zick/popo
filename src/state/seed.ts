@@ -10,6 +10,8 @@ import type {
 import type { LocationIndex, MasterLocation } from '@/domain/location';
 import { createMasterVehicle, type VehicleIndex } from '@/domain/vehicle';
 import { createTrespass, type Trespass } from '@/domain/trespass';
+import { createWarrant, createWarrantCharge, type Warrant } from '@/domain/warrant';
+import { createFieldContact, createSubject, type FieldContact } from '@/domain/fieldContact';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
@@ -206,6 +208,8 @@ export function seedState(): {
   locations: LocationIndex;
   vehicles: VehicleIndex;
   trespasses: Trespass[];
+  warrants: Warrant[];
+  contacts: FieldContact[];
   agency: AgencyProfile;
   users: User[];
   credentials: Record<string, never>;
@@ -793,6 +797,129 @@ export function seedState(): {
     }),
   );
 
+  /* ---- Warrants -------------------------------------------------------- */
+  /*
+    Two, arranged so the extradition rule is visible rather than described: a
+    felony the court will collect on from anywhere, and a bench warrant for a
+    missed court date that they will not leave the county for. An officer
+    reading both should be able to see, without being told, that they are not
+    the same thing to act on.
+  */
+  const wantedPerson = Object.values(PEOPLE)[1] ?? Object.values(PEOPLE)[0];
+  const WARRANTS: Warrant[] = wantedPerson
+    ? [
+        createWarrant({
+          id: 'war_seed_1',
+          personId: wantedPerson.id,
+          number: 'CF-2026-0148',
+          kind: 'arrest',
+          court: 'Cedar Falls Municipal Court',
+          docket: 'CR-2026-00311',
+          judge: 'Hon. M. Alvarez',
+          issuedOn: '2026-02-11',
+          extradition: 'national',
+          bond: '$25,000 cash or surety',
+          cautions: ['Endorsed by the court as a flight risk'],
+          charges: [
+            createWarrantCharge({
+              id: 'wc_seed_1',
+              statute: '13A-7-5',
+              description: 'Burglary, first degree',
+              severity: 'felony',
+              counts: '1',
+            }),
+          ],
+          enteredByName: 'Records',
+          attempts: [
+            {
+              id: 'att_seed_1',
+              at: '2026-02-20T07:40:00Z',
+              address: '1142 Ashwood Ln',
+              byId: '',
+              byName: 'M. Reyes',
+              outcome: 'notHome',
+              notes: 'Mother says he works nights and is usually there mornings.',
+            },
+            {
+              id: 'att_seed_2',
+              at: '2026-03-04T06:15:00Z',
+              address: '1142 Ashwood Ln',
+              byId: '',
+              byName: 'D. Tam',
+              outcome: 'moved',
+              notes: 'New tenant. Forwarding address unknown.',
+            },
+          ],
+        }),
+        createWarrant({
+          id: 'war_seed_2',
+          personId: wantedPerson.id,
+          number: 'CF-2025-1902',
+          kind: 'bench',
+          court: 'Cedar Falls Municipal Court',
+          issuedOn: '2025-11-30',
+          extradition: 'county',
+          bond: '$500',
+          charges: [
+            createWarrantCharge({
+              id: 'wc_seed_2',
+              statute: '13A-10-40',
+              description: 'Failure to appear',
+              severity: 'misdemeanor',
+              counts: '1',
+            }),
+          ],
+          enteredByName: 'Records',
+        }),
+      ]
+    : [];
+
+  /* ---- Field contacts --------------------------------------------------- */
+  /*
+    One of each basis, because the distinction is the point. The detention
+    carries an account of what the officer saw; the consensual one carries no
+    reason at all, and is not missing anything by carrying none.
+  */
+  const CONTACTS: FieldContact[] = [
+    createFieldContact({
+      id: 'fc_seed_1',
+      number: '2026-FC00001',
+      occurredAt: '2026-03-02T02:15:00Z',
+      locationId: storage.id,
+      address: '612 N Marion St',
+      basis: 'detention',
+      reason:
+        'Walking the drive lanes between buildings C and D at 0215 pulling on unit door handles.',
+      disposition: 'released',
+      narrative:
+        'Said he was looking for a unit he rents. Could not give a unit number. No property on him. Manager confirmed next morning he has no unit here.',
+      officerName: 'M. Reyes',
+      subjects: [
+        createSubject({
+          id: 'sub_seed_1',
+          givenName: 'Would not give a surname',
+          description: 'Grey hooded top, red rucksack, mid-twenties',
+          declinedToIdentify: true,
+        }),
+      ],
+    }),
+    createFieldContact({
+      id: 'fc_seed_2',
+      number: '2026-FC00002',
+      occurredAt: '2026-02-14T18:40:00Z',
+      locationId: storage.id,
+      address: '612 N Marion St',
+      basis: 'consensual',
+      disposition: 'advised',
+      narrative:
+        'Spoke to the manager about the lighting between C and D. She is chasing the electrician.',
+      officerName: 'M. Reyes',
+      subjects: [
+        createSubject({ id: 'sub_seed_2', givenName: 'Renee Ortiz', description: 'Site manager' }),
+      ],
+    }),
+  ];
+
   return {
     incidents: [incomplete, complete, approved],
     stops: STOPS,
@@ -801,6 +928,8 @@ export function seedState(): {
     locations: LOCATIONS,
     vehicles: VEHICLES,
     trespasses: TRESPASSES,
+    warrants: WARRANTS,
+    contacts: CONTACTS,
     agency: AGENCY,
     users: USERS,
     // Password hashing is async, so demo credentials are provisioned by a

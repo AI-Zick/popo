@@ -24,6 +24,8 @@ import type { MasterPerson, PersonIndex } from '@/domain/person';
 import type { LocationIndex } from '@/domain/location';
 import type { VehicleIndex } from '@/domain/vehicle';
 import type { Trespass } from '@/domain/trespass';
+import type { Warrant } from '@/domain/warrant';
+import type { FieldContact } from '@/domain/fieldContact';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, AuditDraft } from '@/domain/audit';
@@ -86,6 +88,8 @@ export interface DemoState {
   locations: LocationIndex;
   vehicles: VehicleIndex;
   trespasses: Trespass[];
+  warrants: Warrant[];
+  contacts: FieldContact[];
   agency: AgencyProfile;
   users: User[];
   auditLog: AuditEntry[];
@@ -148,6 +152,8 @@ export function fresh(): DemoState {
     locations: seed.locations,
     vehicles: seed.vehicles,
     trespasses: seed.trespasses,
+    warrants: seed.warrants,
+    contacts: seed.contacts,
     agency: seed.agency,
     users,
     auditLog: [],

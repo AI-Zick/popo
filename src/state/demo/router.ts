@@ -17,6 +17,26 @@ import { createTask, sortTasks } from '@/domain/caseTask';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
 import { displayName } from '@/domain/person';
 import {
+  CONFIRMATION_NOTICE,
+  checkAttempt,
+  checkRecall,
+  sortWarrants,
+  warrantState,
+  type ServiceAttempt,
+  type Warrant,
+} from '@/domain/warrant';
+import {
+  DEFAULT_RETENTION_YEARS,
+  NOT_EVIDENCE,
+  adviseContact,
+  checkContact,
+  createFieldContact,
+  createSubject,
+  nextContactNumber,
+  sortContacts,
+  type FieldContact,
+} from '@/domain/fieldContact';
+import {
   checkLift,
   checkTrespass,
   createTrespass,
@@ -146,6 +166,19 @@ export async function handle(method: string, url: string, body: unknown): Promis
         people: state.people,
         locations: state.locations,
         vehicles: state.vehicles,
+        wanted: Object.fromEntries(
+          Object.entries(
+            state.warrants
+              .filter((w) => warrantState(w) === 'active')
+              .reduce<Record<string, { count: number; national: boolean }>>((acc, w) => {
+                const entry = acc[w.personId] ?? { count: 0, national: false };
+                entry.count += 1;
+                entry.national = entry.national || w.extradition === 'national';
+                acc[w.personId] = entry;
+                return acc;
+              }, {}),
+          ),
+        ),
         versions: {},
         locks: state.locks,
         attachments: state.attachments,
@@ -372,6 +405,29 @@ export async function handle(method: string, url: string, body: unknown): Promis
     /* ---- Photographs -------------------------------------------------- */
     case 'people': {
       const masterId = parts[1];
+      if (parts[2] === 'warrants') {
+        const mine = state.warrants.filter((w) => w.personId === masterId);
+        return ok({
+          warrants: sortWarrants(mine).map((warrant: Warrant) => ({
+            warrant,
+            state: warrantState(warrant),
+          })),
+          notice: CONFIRMATION_NOTICE,
+        });
+      }
+      if (parts[2] === 'contacts') {
+        const all = state.contacts.filter((c) =>
+          c.subjects.some((sub) => sub.masterId === masterId),
+        );
+        const seeAll = can(user, 'audit.view') || can(user, 'reports.approve');
+        const visible = seeAll ? all : all.filter((c) => c.officerId === user.id);
+        return ok({
+          contacts: sortContacts(visible),
+          hidden: all.length - visible.length,
+          retentionYears: DEFAULT_RETENTION_YEARS,
+          notice: NOT_EVIDENCE,
+        });
+      }
       if (parts[2] === 'trespasses') {
         const mine = state.trespasses.filter((t) => t.personId === masterId);
         return ok({
@@ -571,6 +627,152 @@ export async function handle(method: string, url: string, body: unknown): Promis
           detail: reason,
         });
         return ok({ trespass });
+      }
+      return fail(404, 'Not found.');
+    }
+
+    /* ---- Warrants --------------------------------------------------------- */
+    case 'warrants': {
+      if (method === 'GET' && !parts[1]) {
+        const showAll = query.get('state') === 'all';
+        const rows = state.warrants.filter((w) => showAll || warrantState(w) === 'active');
+        return ok({
+          total: rows.length,
+          outstanding: state.warrants.filter((w) => warrantState(w) === 'active').length,
+          limit: 50,
+          offset: 0,
+          notice: CONFIRMATION_NOTICE,
+          rows: rows.map((warrant) => {
+            const person = state.people[warrant.personId];
+            return {
+              warrant,
+              person: person
+                ? { id: person.id, name: displayName(person), dob: person.dob, cautions: person.cautions }
+                : null,
+              state: warrantState(warrant),
+            };
+          }),
+        });
+      }
+
+      const warrant = state.warrants.find((w) => w.id === parts[1]);
+
+      if (method === 'POST' && !parts[1]) {
+        return fail(400, 'Entering a warrant needs the court paperwork in front of you — not something the demo can stand in for.');
+      }
+      if (!warrant) return fail(404, 'No such warrant.');
+
+      if (parts[2] === 'attempts') {
+        if (warrantState(warrant) !== 'active') {
+          return fail(409, 'That warrant is no longer outstanding, so there is nothing to serve.');
+        }
+        const attempt = {
+          id: newId('att'),
+          at: at(),
+          address: text(input.address, 200).trim(),
+          byId: user.id,
+          byName: user.name,
+          outcome: text(input.outcome, 20) as ServiceAttempt['outcome'],
+          notes: text(input.notes, 1000).trim(),
+        };
+        const check = checkAttempt(attempt);
+        if (!check.ok) return fail(400, check.reason);
+        warrant.attempts = [...warrant.attempts, attempt];
+        if (attempt.outcome === 'served') {
+          warrant.servedOn = at().slice(0, 10);
+          warrant.servedByName = user.name;
+        }
+        warrant.updatedAt = at();
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: attempt.outcome === 'served' ? 'warrant.served' : 'warrant.attempted',
+          target: warrant.number,
+          detail: attempt.outcome,
+        });
+        return ok({ warrant });
+      }
+
+      if (parts[2] === 'recall') {
+        const denied = need('notes.retract');
+        if (denied) return fail(403, 'Taking a warrant out of circulation needs the same authority as withdrawing a note.');
+        if (warrant.recalledOn) return fail(409, 'That warrant has already been recalled.');
+        if (warrant.servedOn) return fail(409, 'That warrant was served. A served warrant is not recalled.');
+        const reason = text(input.reason, 500).trim();
+        const check = checkRecall(reason);
+        if (!check.ok) return fail(400, check.reason);
+        warrant.recalledOn = at().slice(0, 10);
+        warrant.recalledReason = reason;
+        warrant.updatedAt = at();
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'warrant.recalled',
+          target: warrant.number,
+          detail: reason,
+        });
+        return ok({ warrant });
+      }
+      return fail(404, 'Not found.');
+    }
+
+    /* ---- Field contacts ---------------------------------------------------- */
+    case 'contacts': {
+      if (method === 'GET') {
+        const mine = query.get('scope') !== 'all';
+        const seeAll = can(user, 'audit.view') || can(user, 'reports.approve');
+        if (!mine && !seeAll) {
+          return fail(403, 'Reading everybody’s field contacts is a supervisor and records function.');
+        }
+        const list = mine ? state.contacts.filter((c) => c.officerId === user.id) : state.contacts;
+        return ok({
+          contacts: sortContacts(list),
+          retentionYears: DEFAULT_RETENTION_YEARS,
+          notice: NOT_EVIDENCE,
+        });
+      }
+
+      if (method === 'POST' && !parts[1]) {
+        const draft = {
+          occurredAt: text(input.occurredAt, 40).trim(),
+          locationId: text(input.locationId, 64),
+          address: text(input.address, 200).trim(),
+          basis: text(input.basis, 20) as FieldContact['basis'],
+          reason: text(input.reason, 2000).trim(),
+          subjects: (Array.isArray(input.subjects) ? input.subjects : []).slice(0, 12).map((raw: Record<string, unknown>) =>
+            createSubject({
+              id: newId('sub'),
+              masterId: text(raw?.masterId, 64),
+              givenName: text(raw?.givenName, 120).trim(),
+              description: text(raw?.description, 500).trim(),
+              declinedToIdentify: Boolean(raw?.declinedToIdentify),
+            }),
+          ),
+          disposition: text(input.disposition, 20) as FieldContact['disposition'],
+          narrative: text(input.narrative, 20000).trim(),
+          caseNumber: text(input.caseNumber, 40).trim(),
+        };
+        const check = checkContact(draft);
+        if (!check.ok) return fail(400, check.reason);
+        const contact = createFieldContact({
+          ...draft,
+          id: newId('fc'),
+          number: nextContactNumber(state.contacts.map((c) => c.number)),
+          officerId: user.id,
+          officerName: user.name,
+        });
+        state.contacts.push(contact);
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'contact.recorded',
+          target: contact.number,
+          detail: draft.basis,
+        });
+        return {
+          status: 201,
+          body: { contact, advice: adviseContact(draft), retentionYears: DEFAULT_RETENTION_YEARS },
+        };
       }
       return fail(404, 'Not found.');
     }

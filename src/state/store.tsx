@@ -190,6 +190,15 @@ interface StoreValue {
   vehicles: VehicleIndex;
 
   /**
+   * Who has an outstanding warrant, keyed by master id.
+   *
+   * The count and whether any of them travel nationally, and nothing else.
+   * Enough for a name search to raise the alert without the warrants
+   * themselves being in every browser.
+   */
+  wanted: Record<string, { count: number; national: boolean }>;
+
+  /**
    * The record currently being looked up, if any.
    *
    * A person, a place or a vehicle, shown over whatever is on screen rather
@@ -618,6 +627,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [locations, setLocations] = useState<LocationIndex>({});
   const [vehicles, setVehicles] = useState<VehicleIndex>({});
   const [openFile, setOpenFile] = useState<FileRef | null>(null);
+  const [wanted, setWanted] = useState<Record<string, { count: number; national: boolean }>>({});
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
   const [users, setUsers] = useState<User[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
@@ -749,6 +759,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPeople(state.people);
     setLocations(state.locations);
     setVehicles(state.vehicles ?? {});
+    setWanted(state.wanted ?? {});
     setUsers(state.users);
     setAuditLog(state.auditLog);
     /*
@@ -2941,6 +2952,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPeople({});
     setLocations({});
     setVehicles({});
+    setWanted({});
     setUsers([]);
     setAuditLog([]);
   }, []);
@@ -3133,6 +3145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     people,
     locations,
     vehicles,
+    wanted,
     openFile,
     showFile: setOpenFile,
     closeFile: useCallback(() => setOpenFile(null), []),

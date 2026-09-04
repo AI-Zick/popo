@@ -45,6 +45,8 @@ export type RecordKind =
   | 'crash'
   | 'stop'
   | 'evidence'
+  | 'warrant'
+  | 'fieldContact'
   | 'audit';
 
 export const RECORD_KIND_LABEL: Record<RecordKind, string> = {
@@ -53,6 +55,8 @@ export const RECORD_KIND_LABEL: Record<RecordKind, string> = {
   crash: 'Crash reports',
   stop: 'Traffic stops',
   evidence: 'Property and evidence',
+  warrant: 'Warrants',
+  fieldContact: 'Field contacts',
   audit: 'The audit log',
 };
 
@@ -98,6 +102,13 @@ export const DEFAULT_SCHEDULE: RetentionRule[] = [
   { kind: 'crash', years: 5, basis: 'created', permanent: false, authority: '' },
   { kind: 'stop', years: 3, basis: 'created', permanent: false, authority: '' },
   { kind: 'evidence', years: 0, basis: 'closed', permanent: true, authority: '' },
+  { kind: 'warrant', years: 5, basis: 'closed', permanent: false, authority: '' },
+  /*
+    The shortest period on this list, and deliberately so. A field contact is
+    a record of somebody who was not charged with anything, and it should not
+    outlive the reason for making it.
+  */
+  { kind: 'fieldContact', years: 2, basis: 'created', permanent: false, authority: '' },
   { kind: 'audit', years: 0, basis: 'created', permanent: true, authority: '' },
 ];
 

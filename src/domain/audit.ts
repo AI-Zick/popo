@@ -45,6 +45,12 @@ export type AuditAction =
   | 'fleet.checked'
   | 'fleet.requested'
   | 'fleet.requestUpdated'
+  | 'warrant.entered'
+  | 'warrant.attempted'
+  | 'warrant.served'
+  | 'warrant.recalled'
+  | 'contact.recorded'
+  | 'contact.corrected'
   | 'trespass.recorded'
   | 'trespass.lifted'
   | 'trespass.corrected'
@@ -113,6 +119,12 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'records.sealed': 'Record sealed or unsealed',
   'records.expunged': 'Records destroyed under court order',
   'records.sealedViewed': 'Sealed record opened',
+  'warrant.entered': 'Warrant entered',
+  'warrant.attempted': 'Warrant service attempted',
+  'warrant.served': 'Warrant served',
+  'warrant.recalled': 'Warrant recalled',
+  'contact.recorded': 'Field contact recorded',
+  'contact.corrected': 'Field contact corrected',
   'trespass.recorded': 'Trespass notice recorded',
   'trespass.lifted': 'Trespass notice lifted',
   'trespass.corrected': 'Trespass notice corrected',

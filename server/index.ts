@@ -31,6 +31,8 @@ import { registerPhotoRoutes } from './photos';
 import { registerFleetRoutes } from './fleet';
 import { registerTrespassRoutes } from './trespass';
 import { registerVehicleRoutes } from './vehicles';
+import { registerWarrantRoutes, outstandingWarrants } from './warrants';
+import { registerFieldContactRoutes } from './fieldContacts';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -271,6 +273,16 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
         hold hundreds and nobody needs another place's list to be here.
       */
       vehicles: Object.fromEntries(vehicles.map((v) => [String(v.doc.id), v.doc])),
+      /*
+        Who is wanted, and nothing else about it.
+
+        Just enough for a name search to say so — the id, how many, and whether
+        any of them will be extradited nationally. The warrants themselves are
+        fetched when somebody opens the record, because this exists to make an
+        alert appear on a search result, not to ship the agency's warrant file
+        to every browser.
+      */
+      wanted: outstandingWarrants(db),
       versions,
       locks: listLocks(db),
       attachments: listAttachments(db),
@@ -495,6 +507,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerFleetRoutes(app, db);
   registerTrespassRoutes(app, db);
   registerVehicleRoutes(app, db);
+  registerWarrantRoutes(app, db);
+  registerFieldContactRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {

@@ -32,7 +32,7 @@ const ICON: Record<ResultKind, typeof User> = {
  * scan of every record on every character.
  */
 export function CommandSearch({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { people, locations, vehicles, incidents, crashes, openIncident, openCrash, showFile } =
+  const { people, locations, vehicles, wanted, incidents, crashes, openIncident, openCrash, showFile } =
     useStore();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -40,8 +40,8 @@ export function CommandSearch({ open, onClose }: { open: boolean; onClose: () =>
 
   // Rebuilt only when the data behind it changes, not on every keystroke.
   const index = useMemo(
-    () => buildIndex({ people, locations, vehicles, incidents, crashes }),
-    [people, locations, vehicles, incidents, crashes],
+    () => buildIndex({ people, locations, vehicles, wanted, incidents, crashes }),
+    [people, locations, vehicles, wanted, incidents, crashes],
   );
 
   const results = useMemo(() => search(index, query), [index, query]);

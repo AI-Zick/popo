@@ -330,6 +330,44 @@ CREATE INDEX IF NOT EXISTS person_photos_removal ON person_photos(removal);
 -- What is left to do on a case. Deliberately not part of the report document:
 -- an approved report is locked, and "still waiting on the video" is exactly the
 -- item that outlives approval.
+-- Warrants. Indexed by person because "is this person wanted" is the question
+-- asked of it, and by number because confirming a hit starts from the number
+-- the court gave it.
+--
+-- The served, recalled and expiry columns are empty while a warrant stands,
+-- which is what makes "outstanding" answerable in SQL without a status column
+-- somebody has to remember to update.
+CREATE TABLE IF NOT EXISTS warrants (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  person_id   TEXT NOT NULL DEFAULT '',
+  number      TEXT NOT NULL DEFAULT '',
+  issued_on   TEXT NOT NULL DEFAULT '',
+  expires_on  TEXT NOT NULL DEFAULT '',
+  served_on   TEXT NOT NULL DEFAULT '',
+  recalled_on TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS warrants_person ON warrants(person_id, served_on, recalled_on);
+CREATE INDEX IF NOT EXISTS warrants_number ON warrants(number);
+
+-- Field contacts. The subjects live inside the document because a contact is
+-- read whole, but the officer and the date are lifted out: "what did I write
+-- last night" and "what is due for disposal" are both column scans.
+CREATE TABLE IF NOT EXISTS field_contacts (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  number      TEXT NOT NULL DEFAULT '',
+  occurred_at TEXT NOT NULL DEFAULT '',
+  officer_id  TEXT NOT NULL DEFAULT '',
+  basis       TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS field_contacts_when ON field_contacts(occurred_at);
+CREATE INDEX IF NOT EXISTS field_contacts_officer ON field_contacts(officer_id, occurred_at);
+
 -- The Master Vehicle Index. One row per vehicle of record, not per sighting.
 -- Plate is indexed but deliberately not unique: plates move between cars, and
 -- a uniqueness constraint here would reject the second car to wear one.
@@ -492,7 +530,9 @@ export interface DocTable {
     | 'maintenance_requests'
     | 'disposal_orders'
     | 'vehicles'
-    | 'trespasses';
+    | 'trespasses'
+    | 'warrants'
+    | 'field_contacts';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -593,6 +633,26 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       taken_on: String(doc.takenOn ?? ''),
       removal: String(doc.removal ?? ''),
+    }),
+  },
+  warrants: {
+    name: 'warrants',
+    columns: (doc) => ({
+      person_id: String(doc.personId ?? ''),
+      number: String(doc.number ?? ''),
+      issued_on: String(doc.issuedOn ?? ''),
+      expires_on: String(doc.expiresOn ?? ''),
+      served_on: String(doc.servedOn ?? ''),
+      recalled_on: String(doc.recalledOn ?? ''),
+    }),
+  },
+  fieldContacts: {
+    name: 'field_contacts',
+    columns: (doc) => ({
+      number: String(doc.number ?? ''),
+      occurred_at: String(doc.occurredAt ?? ''),
+      officer_id: String(doc.officerId ?? ''),
+      basis: String(doc.basis ?? ''),
     }),
   },
   vehicles: {

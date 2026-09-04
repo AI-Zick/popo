@@ -26,6 +26,8 @@ import type { LocationIndex, MasterLocation } from '@/domain/location';
 import type { MasterVehicle, VehicleIndex } from '@/domain/vehicle';
 import type { VehicleMatchResult, VehicleQuery } from '@/domain/vehicleMatching';
 import type { Trespass, TrespassState } from '@/domain/trespass';
+import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
+import type { FieldContact } from '@/domain/fieldContact';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
@@ -37,6 +39,32 @@ import type {
   Finding as EvidenceFinding,
 } from '@/domain/evidence';
 import type { ChainStatus as CustodyStatus } from '@/domain/chain';
+
+/** One warrant, with the state worked out on the server. */
+export interface WarrantRow {
+  warrant: Warrant;
+  state: WarrantState;
+}
+
+export interface WarrantPage {
+  rows: (WarrantRow & {
+    person: { id: string; name: string; dob: string; cautions: string[] } | null;
+  })[];
+  total: number;
+  /** Outstanding across the agency, whatever is currently being looked at. */
+  outstanding: number;
+  limit: number;
+  offset: number;
+  notice: string;
+}
+
+export interface ContactList {
+  contacts: FieldContact[];
+  /** How many this reader is not being shown. Absent on the officer's own list. */
+  hidden?: number;
+  retentionYears: number;
+  notice: string;
+}
 
 /** One notice on a person's record, with the place it names. */
 export interface TrespassRow {
@@ -668,6 +696,74 @@ export const api = {
     return request(`/api/trespasses/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   },
 
+  /* ---- Warrants ------------------------------------------------------- */
+
+  personWarrants(personId: string): Promise<{ warrants: WarrantRow[]; notice: string }> {
+    return request(`/api/people/${personId}/warrants`);
+  },
+
+  /** The warrant clerk's screen. Paged, because this number only goes up. */
+  warrants(
+    options: { q?: string; state?: 'active' | 'all'; limit?: number; offset?: number } = {},
+  ): Promise<WarrantPage> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(options)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const query = params.toString();
+    return request(`/api/warrants${query ? `?${query}` : ''}`);
+  },
+
+  enterWarrant(draft: Partial<Warrant>): Promise<{
+    warrant: Warrant;
+    duplicateOf: Warrant | null;
+    notice: string;
+  }> {
+    return request('/api/warrants', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  attemptWarrant(
+    id: string,
+    attempt: Pick<ServiceAttempt, 'address' | 'outcome' | 'notes'>,
+  ): Promise<{ warrant: Warrant }> {
+    return request(`/api/warrants/${id}/attempts`, {
+      method: 'POST',
+      body: JSON.stringify(attempt),
+    });
+  },
+
+  recallWarrant(id: string, reason: string): Promise<{ warrant: Warrant }> {
+    return request(`/api/warrants/${id}/recall`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /* ---- Field contacts -------------------------------------------------- */
+
+  personContacts(personId: string): Promise<ContactList> {
+    return request(`/api/people/${personId}/contacts`);
+  },
+
+  myContacts(scope: 'mine' | 'all' = 'mine'): Promise<ContactList> {
+    return request(`/api/contacts?scope=${scope}`);
+  },
+
+  recordContact(draft: Partial<FieldContact>): Promise<{
+    contact: FieldContact;
+    advice: string;
+    retentionYears: number;
+  }> {
+    return request('/api/contacts', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  correctContact(
+    id: string,
+    patch: Partial<FieldContact>,
+  ): Promise<{ contact: FieldContact; advice: string }> {
+    return request(`/api/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
   /* ---- The Master Vehicle Index -------------------------------------- */
 
   vehicle(id: string): Promise<{ vehicle: MasterVehicle; registeredOwner: unknown }> {
@@ -717,6 +813,7 @@ export const api = {
     people: PersonIndex;
     locations: LocationIndex;
     vehicles: VehicleIndex;
+    wanted: Record<string, { count: number; national: boolean }>;
     agency: AgencyProfile | null;
     users: User[];
     auditLog: AuditEntry[];

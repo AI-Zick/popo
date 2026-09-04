@@ -6,6 +6,8 @@ import { displayName, formalName } from '@/domain/person';
 import { vehicleName, vehicleTag } from '@/domain/vehicle';
 import { PersonPhotos } from '@/components/person/PersonPhotos';
 import { PersonTrespasses } from '@/features/trespass/PersonTrespasses';
+import { PersonWarrants } from '@/features/warrants/PersonWarrants';
+import { PersonContacts } from '@/features/contacts/PersonContacts';
 import { LocationTrespassList } from '@/features/trespass/LocationTrespassList';
 
 /**
@@ -118,13 +120,19 @@ export function RecordFile() {
               )}
 
               {/*
-                Above the photographs on purpose. Whether somebody is barred
-                from where you are standing is a more urgent question than what
-                they look like, and it is the one this screen was built for.
+                Ordered by how urgently somebody standing in front of this
+                person needs it. Whether they are wanted comes first and is
+                never folded away; whether they are barred from where you are
+                standing comes next; what they look like and who has spoken to
+                them can wait for a click.
               */}
+              <PersonWarrants masterId={person.id} personName={displayName(person)} />
+
               <PersonTrespasses masterId={person.id} personName={displayName(person)} />
 
               <PersonPhotos masterId={person.id} personName={displayName(person)} />
+
+              <PersonContacts masterId={person.id} personName={displayName(person)} />
             </>
           )}
 
