@@ -103,7 +103,26 @@ export type Permission =
    * A notice reaching its end date needs nobody's authority. That is not a
    * decision, it is a date.
    */
-  | 'trespass.lift';
+  | 'trespass.lift'
+  /**
+   * Approve a redaction and issue a public records release.
+   *
+   * Logging a request is open to everybody, because writing down that somebody
+   * asked is not a decision and a request that goes unlogged because the only
+   * clerk was at lunch is a statutory clock that never started. Deciding what
+   * leaves the building is a decision, and it is one somebody has to answer
+   * for: releasing something exempt cannot be taken back, and withholding
+   * something releasable is the thing agencies are actually sued over.
+   *
+   * Held by records and administrators. A supervisor does not get it by rank —
+   * in a small agency the sergeant often *is* the records clerk, and the way
+   * to say that is to designate them, which leaves a name against the
+   * decision rather than a job title.
+   *
+   * Not held by the vendor. Standing up an agency's software is not authority
+   * to send that agency's records to a member of the public.
+   */
+  | 'records.release';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -118,6 +137,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'audit.view': 'Read the audit log',
   'records.seal': 'Seal records and record court orders',
   'records.expunge': 'Carry out destruction orders',
+  'records.release': 'Approve redactions and issue public records releases',
   'trespass.lift': 'Lift a trespass notice early',
 };
 
@@ -142,6 +162,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'evidence.manage',
     'audit.view',
     'records.seal',
+    'records.release',
   ],
   admin: [
     'notes.add',
@@ -155,6 +176,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'evidence.manage',
     'audit.view',
     'records.seal',
+    'records.release',
     'records.expunge',
   ],
   /*

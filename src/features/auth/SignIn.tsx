@@ -128,6 +128,7 @@ function DemoNotice() {
           ['mreyes', 'Patrol officer — writes reports, cannot withdraw notes'],
           ['dtam', 'Patrol officer designated to withdraw notes'],
           ['aboone', 'Supervisor — reads the audit log'],
+          ['jokafor', 'Records clerk — approves redactions and public releases'],
           ['rvance', 'Agency administrator — manages accounts and setup'],
           ['platform', 'Vendor — provisions agency administrators'],
         ].map(([username, description]) => (

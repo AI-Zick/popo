@@ -10,6 +10,8 @@
 import type { GeoFeatureCollection } from './geo';
 import { DEFAULT_CHECKLIST, type ChecklistItem } from './fleet';
 import { DEFAULT_SCHEDULE, type RetentionRule } from './retention';
+import { DEFAULT_RULES, type ExemptionRule } from './exemption';
+import { defaultPolicy, type PublicRecordsPolicy } from './publicRecords';
 
 export interface AgencyProfile {
   name: string;
@@ -63,6 +65,27 @@ export interface AgencyProfile {
   retention: RetentionRule[];
 
   /**
+   * What may be withheld from a public records release, and on what authority.
+   *
+   * Configuration rather than code for the same reason the retention schedule
+   * is: the exemptions are state law and no two states agree. Federal rules
+   * arrive switched on and cited because they are not the agency's to change;
+   * the state templates arrive switched off with blank citations, because a
+   * rule nobody has read against their own statute is a rule that redacts the
+   * wrong thing.
+   */
+  exemptions: ExemptionRule[];
+
+  /**
+   * How long the state gives the agency to answer, and how it counts.
+   *
+   * The number that decides whether a request is late, which is the failure
+   * agencies are actually sued for. Ships at ten business days with a blank
+   * authority — a starting point, not a policy, and the setup screen says so.
+   */
+  publicRecords: PublicRecordsPolicy;
+
+  /**
    * Whether a second factor is required to sign in.
    *
    * On unless an agency deliberately turns it off, and turning it off is a
@@ -92,6 +115,8 @@ export function emptyAgency(): AgencyProfile {
     zones: null,
     checklist: DEFAULT_CHECKLIST.map((item, i) => ({ ...item, id: `chk${i + 1}` })),
     retention: DEFAULT_SCHEDULE.map((rule) => ({ ...rule })),
+    exemptions: DEFAULT_RULES.map((rule) => ({ ...rule })),
+    publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,
   };

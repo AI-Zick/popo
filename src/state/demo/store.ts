@@ -29,6 +29,8 @@ import type { FieldContact } from '@/domain/fieldContact';
 import type { Investigation } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
 import type { AgencyProfile } from '@/domain/agency';
+import type { PublicRequest } from '@/domain/publicRecords';
+import type { ReleaseBundle } from '@/state/api';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, AuditDraft } from '@/domain/audit';
 import { sealEntry } from '@/domain/audit';
@@ -94,6 +96,8 @@ export interface DemoState {
   contacts: FieldContact[];
   investigations: Investigation[];
   citations: Citation[];
+  publicRequests: PublicRequest[];
+  publicReleases: ReleaseBundle[];
   agency: AgencyProfile;
   users: User[];
   auditLog: AuditEntry[];
@@ -160,6 +164,8 @@ export function fresh(): DemoState {
     contacts: seed.contacts,
     investigations: [],
     citations: seed.citations,
+    publicRequests: seed.publicRequests,
+    publicReleases: [],
     agency: seed.agency,
     users,
     auditLog: [],

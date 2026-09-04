@@ -366,6 +366,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS citations_number ON citations(number);
 CREATE INDEX IF NOT EXISTS citations_person ON citations(person_id, issued_at);
 CREATE INDEX IF NOT EXISTS citations_officer ON citations(officer_id, issued_at);
 
+-- Public records requests.
+--
+-- The statutory clock is not a column here, and that is deliberate: it is
+-- worked out from the received date, the agency's period, the extensions and
+-- the pauses every time anybody looks. A stored due date is one a nightly job
+-- has to keep honest, and the day that job does not run is the day a clerk is
+-- told a late request is fine.
+--
+-- What is lifted out is what a queue is filtered by: closed_at empty means
+-- open, which is the only read this table gets in volume.
+CREATE TABLE IF NOT EXISTS public_requests (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  number      TEXT NOT NULL DEFAULT '',
+  received_at TEXT NOT NULL DEFAULT '',
+  assigned_to TEXT NOT NULL DEFAULT '',
+  closed_at   TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS public_requests_number ON public_requests(number);
+-- The open queue, oldest first, which is the screen this exists for.
+CREATE INDEX IF NOT EXISTS public_requests_open ON public_requests(closed_at, received_at);
+
+-- What was actually released, kept apart from the request.
+--
+-- The released text is stored rather than rebuilt on demand, because the
+-- question a year later is "what did we send them", and rebuilding it from
+-- today's record would answer a different question: the record may have been
+-- supplemented, corrected or sealed since. This is the copy that went out.
+CREATE TABLE IF NOT EXISTS public_releases (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  request_id  TEXT NOT NULL DEFAULT '',
+  released_at TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS public_releases_request ON public_releases(request_id, released_at);
+
 -- Warrants. Indexed by person because "is this person wanted" is the question
 -- asked of it, and by number because confirming a hit starts from the number
 -- the court gave it.
@@ -570,7 +610,9 @@ export interface DocTable {
     | 'warrants'
     | 'field_contacts'
     | 'investigations'
-    | 'citations';
+    | 'citations'
+    | 'public_requests'
+    | 'public_releases';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -691,6 +733,22 @@ export const DOC_TABLES: Record<string, DocTable> = {
       officer_id: String(doc.officerId ?? ''),
       stop_id: String(doc.stopId ?? ''),
       voided_at: String(doc.voidedAt ?? ''),
+    }),
+  },
+  publicRequests: {
+    name: 'public_requests',
+    columns: (doc) => ({
+      number: String(doc.number ?? ''),
+      received_at: String(doc.receivedAt ?? ''),
+      assigned_to: String(doc.assignedTo ?? ''),
+      closed_at: String((doc.closure as { at?: string } | null)?.at ?? ''),
+    }),
+  },
+  publicReleases: {
+    name: 'public_releases',
+    columns: (doc) => ({
+      request_id: String(doc.requestId ?? ''),
+      released_at: String(doc.releasedAt ?? ''),
     }),
   },
   warrants: {

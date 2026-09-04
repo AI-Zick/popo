@@ -13,6 +13,7 @@ import { createTrespass, type Trespass } from '@/domain/trespass';
 import { createWarrant, createWarrantCharge, type Warrant } from '@/domain/warrant';
 import { createFieldContact, createSubject, type FieldContact } from '@/domain/fieldContact';
 import { createCitation, createViolation, type Citation } from '@/domain/citation';
+import { createRequest, type PublicRequest } from '@/domain/publicRecords';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { createStopCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
@@ -21,7 +22,9 @@ import { createUser, type User } from '@/domain/auth';
 /**
  * Demo logins. The third is the "and those designated" case: a patrol officer
  * who maintains the location index, given the one permission that needs,
- * without being made a supervisor.
+ * without being made a supervisor. The fourth is the records clerk, who is the
+ * only one of them who can decide what leaves the building on a public records
+ * request.
  */
 const USERS: User[] = [
   createUser({
@@ -47,6 +50,14 @@ const USERS: User[] = [
     username: 'dtam',
     role: 'officer',
     grants: ['notes.retract', 'notes.viewRetracted'],
+    createdBy: 'R. Vance',
+  }),
+  createUser({
+    id: 'u-okafor',
+    name: 'J. Okafor',
+    badge: '5502',
+    username: 'jokafor',
+    role: 'records',
     createdBy: 'R. Vance',
   }),
   createUser({
@@ -124,6 +135,22 @@ const AGENCY: AgencyProfile = {
   zoneLabel: 'Beat',
   boundary: BOUNDARY,
   zones: ZONES,
+  /*
+    A demonstration agency partway through setting its exemptions up, which is
+    the state a real one is in for its first few weeks.
+
+    Three of the state templates are switched on so the redaction screen has
+    something to show. Their citations are left blank on purpose: that is the
+    department's research to do, and it is what puts the "name the statute
+    before this goes out" gate in front of anybody clicking through the demo.
+    Inventing a plausible-looking Alabama citation here would be worse than
+    showing an empty field — somebody would believe it.
+  */
+  exemptions: emptyAgency().exemptions.map((rule) =>
+    ['st-juvenile', 'st-victim-identity', 'st-reporting-party'].includes(rule.id)
+      ? { ...rule, enabled: true }
+      : rule,
+  ),
   configured: true,
 };
 import {
@@ -212,6 +239,7 @@ export function seedState(): {
   warrants: Warrant[];
   contacts: FieldContact[];
   citations: Citation[];
+  publicRequests: PublicRequest[];
   agency: AgencyProfile;
   users: User[];
   credentials: Record<string, never>;
@@ -979,6 +1007,58 @@ export function seedState(): {
       ]
     : [];
 
+  /*
+    Two requests waiting, because an empty queue teaches nothing and the clock
+    is the most distinctive thing on this screen. One arrived this week and has
+    time in hand; the other came in three weeks ago and is past its deadline —
+    which is the failure agencies are actually sued for, and the reason the due
+    date is worked out on every read rather than stored.
+
+    Neither has any records attached. Finding what is responsive is the clerk's
+    first job, and starting from that is what the screen is for.
+  */
+  /*
+    Relative, so the demo reads the same whenever somebody opens it. A seeded
+    date typed as a literal is a request that is fourteen days overdue this
+    week and four hundred next year.
+  */
+  const daysAgo = (days: number) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+
+  const PUBLIC_REQUESTS: PublicRequest[] = [
+    createRequest({
+      id: 'prr_seed_1',
+      number: 'PR-2026-00014',
+      receivedAt: `${daysAgo(2)}T09:12:00Z`,
+      channel: 'email',
+      description:
+        'Copies of the incident report and any photographs from the burglary on Ashwood Lane earlier this month.',
+      requester: {
+        name: 'H. Okonjo',
+        organization: 'Cedar Falls Ledger',
+        email: 'hokonjo@example.com',
+        phone: '',
+        address: '',
+        collect: '',
+      },
+    }),
+    createRequest({
+      id: 'prr_seed_2',
+      number: 'PR-2026-00013',
+      receivedAt: `${daysAgo(24)}T16:40:00Z`,
+      channel: 'counter',
+      description:
+        'Every traffic citation issued on US-411 in the last twelve months, with the officer who issued each one.',
+      requester: {
+        name: '',
+        organization: '',
+        email: '',
+        phone: '',
+        address: '',
+        collect: 'Said they would collect it at the counter. Gave no name.',
+      },
+    }),
+  ];
+
   return {
     incidents: [incomplete, complete, approved],
     stops: STOPS,
@@ -990,6 +1070,7 @@ export function seedState(): {
     warrants: WARRANTS,
     contacts: CONTACTS,
     citations: CITATIONS,
+    publicRequests: PUBLIC_REQUESTS,
     agency: AGENCY,
     users: USERS,
     // Password hashing is async, so demo credentials are provisioned by a

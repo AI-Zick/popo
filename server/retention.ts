@@ -123,6 +123,55 @@ const del = (table: string) => (db: DatabaseSync, ids: string[]) => {
 };
 
 /**
+ * Responsive items across every public records request, as `requestId::itemId`.
+ *
+ * A compound id because the unit being destroyed is one record on one request,
+ * not the request — see the holder below.
+ */
+function publicRecordRows(
+  db: DatabaseSync,
+  matches: (item: { kind: string; recordId: string }) => boolean,
+): Row[] {
+  const rows = db.prepare('SELECT id, doc FROM public_requests').all() as { id: string; doc: string }[];
+  const out: Row[] = [];
+  for (const row of rows) {
+    const request = JSON.parse(row.doc) as {
+      number?: string;
+      items?: { id: string; kind: string; recordId: string; label: string }[];
+    };
+    for (const item of request.items ?? []) {
+      if (matches(item)) {
+        out.push({ id: `${row.id}::${item.id}`, label: `${request.number ?? ''} · ${item.label}`, files: [] });
+      }
+    }
+  }
+  return out;
+}
+
+function purgePublicRecords(db: DatabaseSync, ids: string[]): void {
+  const read = db.prepare('SELECT doc FROM public_requests WHERE id = ?');
+  const write = db.prepare('UPDATE public_requests SET doc = ?, updated_at = ? WHERE id = ?');
+  const readReleases = db.prepare('SELECT id, doc FROM public_releases WHERE request_id = ?');
+  const writeRelease = db.prepare('UPDATE public_releases SET doc = ?, updated_at = ? WHERE id = ?');
+  const now = new Date().toISOString();
+
+  for (const compound of ids) {
+    const [requestId, itemId] = compound.split('::');
+    const row = read.get(requestId) as { doc: string } | undefined;
+    if (!row) continue;
+    const request = JSON.parse(row.doc) as { items?: { id: string }[] };
+    request.items = (request.items ?? []).filter((item) => item.id !== itemId);
+    write.run(JSON.stringify(request), now, requestId);
+
+    for (const stored of readReleases.all(requestId) as { id: string; doc: string }[]) {
+      const bundle = JSON.parse(stored.doc) as { records?: { itemId: string }[] };
+      bundle.records = (bundle.records ?? []).filter((record) => record.itemId !== itemId);
+      writeRelease.run(JSON.stringify(bundle), now, stored.id);
+    }
+  }
+}
+
+/**
  * Every collection that can hold something about a case or a person.
  *
  * Read this as the answer to "what does the agency actually have on him". If a
@@ -387,6 +436,33 @@ const HOLDERS: Holder[] = [
         .map(({ row, doc }) => ({ id: row.id, label: `${doc.kind ?? 'return'} ${doc.query ?? ''}`.trim() }));
     },
     purge: del('returns'),
+  },
+  {
+    /*
+      What the agency sent to a member of the public about this case.
+
+      Two collections, one entry, because they are one thing: the responsive
+      item on the request and the copy of the text that actually went out. The
+      released copy is the part that matters here — it holds the narrative as
+      it read on the day, so an expungement that skipped it would leave the
+      whole record sitting in the file room under a different name.
+
+      Removed record by record rather than request by request. One request
+      often covers several cases, and destroying an entire year-old response
+      because one case on it was expunged would destroy the agency's account of
+      what it released about the others.
+    */
+    kind: 'Public records released',
+    byCase: (db, id) => publicRecordRows(db, (item) => item.recordId === id),
+    byPerson: (db, masterId) => {
+      const cases = new Set(
+        (incidents.all(db) as Incident[])
+          .filter((incident) => incident.persons.some((person) => person.masterId === masterId))
+          .map((incident) => incident.id),
+      );
+      return publicRecordRows(db, (item) => cases.has(item.recordId));
+    },
+    purge: purgePublicRecords,
   },
   {
     kind: 'Case to-do items',

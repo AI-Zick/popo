@@ -25,6 +25,8 @@ import { PropertyRoom } from '@/features/evidence/PropertyRoom';
 import { FleetView } from '@/features/fleet/FleetView';
 import { ChecklistEditor } from '@/features/fleet/ChecklistEditor';
 import { RetentionView } from '@/features/retention/RetentionView';
+import { PublicRecordsView } from '@/features/records/PublicRecordsView';
+import { ExemptionRules } from '@/features/records/ExemptionRules';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 
@@ -44,6 +46,8 @@ type Tab =
   | 'evidence'
   | 'fleet'
   | 'retention'
+  | 'publicRecords'
+  | 'exemptions'
   | 'security'
   | 'feedback';
 
@@ -58,6 +62,8 @@ const SCREEN_NAME: Record<Tab, string> = {
   evidence: 'Property room',
   fleet: 'Fleet',
   retention: 'Retention',
+  publicRecords: 'Public records',
+  exemptions: 'Exemptions',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -122,6 +128,20 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             </TabButton>
           )}
           {/*
+            Open to everybody, because logging a request is open to everybody:
+            one that goes unlogged because the only clerk was at lunch is a
+            statutory clock that never started. Deciding what leaves the
+            building is gated inside.
+          */}
+          <TabButton active={tab === 'publicRecords'} onClick={() => setTab('publicRecords')}>
+            Public records
+          </TabButton>
+          {mayConfigure && (
+            <TabButton active={tab === 'exemptions'} onClick={() => setTab('exemptions')}>
+              Exemptions
+            </TabButton>
+          )}
+          {/*
             Open to every officer: seizing property and signing it in or out is
             police work. What a clerk may do beyond that is gated inside.
           */}
@@ -175,6 +195,8 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             tab === 'feedback' ||
             tab === 'evidence' ||
             tab === 'fleet' ||
+            tab === 'publicRecords' ||
+            tab === 'exemptions' ||
             tab === 'retention'
               ? 'max-w-5xl'
               : 'max-w-3xl',
@@ -188,6 +210,8 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'import' && mayConfigure && <ImportWizard />}
           {tab === 'evidence' && <PropertyRoom />}
           {tab === 'retention' && mayHandleRecords && <RetentionView />}
+          {tab === 'publicRecords' && <PublicRecordsView />}
+          {tab === 'exemptions' && mayConfigure && <ExemptionRules />}
           {tab === 'fleet' && (
             <>
               <FleetView />

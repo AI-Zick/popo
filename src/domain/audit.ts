@@ -60,6 +60,11 @@ export type AuditAction =
   | 'warrant.recalled'
   | 'contact.recorded'
   | 'contact.corrected'
+  | 'publicRecords.logged'
+  | 'publicRecords.paused'
+  | 'publicRecords.extended'
+  | 'publicRecords.approved'
+  | 'publicRecords.closed'
   | 'trespass.recorded'
   | 'trespass.lifted'
   | 'trespass.corrected'
@@ -143,6 +148,11 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'warrant.recalled': 'Warrant recalled',
   'contact.recorded': 'Field contact recorded',
   'contact.corrected': 'Field contact corrected',
+  'publicRecords.logged': 'Public records request logged',
+  'publicRecords.paused': 'Public records clock stopped',
+  'publicRecords.extended': 'Public records deadline extended',
+  'publicRecords.approved': 'Redactions approved for release',
+  'publicRecords.closed': 'Public records request answered',
   'trespass.recorded': 'Trespass notice recorded',
   'trespass.lifted': 'Trespass notice lifted',
   'trespass.corrected': 'Trespass notice corrected',

@@ -127,6 +127,28 @@ import {
   needsTwoPeople, nextOrderReference, type DisposalOrder, type ManifestLine,
 } from '@/domain/retention';
 import { isRedacted, redactEntry, verifyChain } from '@/domain/audit';
+import { DEFAULT_RULES } from '@/domain/exemption';
+import { propose, type RecordContext, type TextFields } from '@/domain/redaction';
+import {
+  buildRelease,
+  checkClosure,
+  checkExtension,
+  checkRequest as checkPublicRequest,
+  createRequest as createPublicRequest,
+  defaultPolicy,
+  impliedOutcome,
+  releaseBlockers,
+  sortQueue,
+  stage,
+  stampAuthorities,
+  standing,
+  type AttachmentDecision,
+  type DecidedSpan,
+  type ItemReview,
+  type Outcome,
+  type PublicRequest,
+  type RequestChannel,
+} from '@/domain/publicRecords';
 import { createSupplement, nextNumber } from '@/domain/supplement';
 import { createCrashReport } from '@/domain/crash';
 import { audit, currentUser, db, newId, password, reset, seedHistory } from './store';
@@ -147,6 +169,166 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 
 const need = (permission: Permission): Reply | null =>
   can(currentUser(), permission) ? null : fail(403, 'You do not have permission to do that.');
+
+
+/* ------------------------------------------------------------------ */
+/* Public records                                                      */
+/* ------------------------------------------------------------------ */
+
+const CHANNELS: RequestChannel[] = ['counter', 'email', 'post', 'portal', 'phone'];
+const OUTCOMES: Outcome[] = ['released', 'partial', 'denied', 'noRecords', 'withdrawn'];
+
+function nextPublicRequestNumber(existing: { number: string }[], now = new Date()): string {
+  const prefix = `PR-${now.getFullYear()}-`;
+  const used = existing
+    .map((entry) => entry.number)
+    .filter((number) => number.startsWith(prefix))
+    .map((number) => Number(number.slice(prefix.length)))
+    .filter((number) => Number.isFinite(number));
+  return `${prefix}${String((used.length > 0 ? Math.max(...used) : 0) + 1).padStart(5, '0')}`;
+}
+
+/** Eighteen, the same line the server draws and for the same reason. */
+function demoJuvenile(dob: string, occurredAt: string): boolean {
+  if (!dob || !occurredAt) return false;
+  const born = new Date(`${dob.slice(0, 10)}T00:00:00Z`);
+  const when = new Date(occurredAt.slice(0, 10) || occurredAt);
+  if (Number.isNaN(born.getTime()) || Number.isNaN(when.getTime())) return false;
+  const years = (when.getTime() - born.getTime()) / (365.2425 * 86_400_000);
+  return years >= 0 && years < 18;
+}
+
+/**
+ * A record as the redaction engine needs to see it.
+ *
+ * The same shape the server builds, from the same domain types — this is
+ * wiring, not a second implementation of the rules.
+ */
+function demoReadable(
+  state: ReturnType<typeof db>,
+  kind: string,
+  recordId: string,
+): { label: string; fields: TextFields; context: RecordContext } | null {
+  if (kind === 'supplement') {
+    const supplement = state.supplements.find((entry) => entry.id === recordId);
+    if (!supplement) return null;
+    const report = state.incidents.find((entry) => entry.id === supplement.caseId) ?? null;
+    return {
+      label: `${supplement.caseNumber} supplement ${supplement.number}`,
+      fields: { narrative: supplement.narrative ?? '' },
+      context: report
+        ? demoContext(state, report)
+        : { subjects: [], plates: [], offenseCodes: [], hasDmvReturn: false, hasCriminalHistory: false, attachments: [] },
+    };
+  }
+  const report = state.incidents.find((entry) => entry.id === recordId);
+  if (!report) return null;
+  return {
+    label: report.caseNumber,
+    fields: {
+      narrative: report.narrative ?? '',
+      ...Object.fromEntries(
+        report.persons
+          .filter((person) => person.notes?.trim())
+          .map((person) => [`person:${person.id}`, person.notes]),
+      ),
+    },
+    context: demoContext(state, report),
+  };
+}
+
+function demoContext(state: ReturnType<typeof db>, report: Incident): RecordContext {
+  const occurred = report.occurredFrom || report.reportedAt;
+  const kinds = state.returns
+    .filter((entry) => entry.callNumber === report.caseNumber)
+    .map((entry) => entry.kind);
+  return {
+    subjects: report.persons.map((person) => {
+      const master = person.masterId ? state.people[person.masterId] : undefined;
+      return {
+        id: person.id,
+        firstName: master?.firstName ?? '',
+        lastName: master?.lastName ?? master?.businessName ?? '',
+        aliases: master?.aliases ?? [],
+        dob: master?.dob ?? '',
+        address: master?.address ?? '',
+        driverLicense: master?.driverLicense ?? '',
+        role: person.role,
+        juvenile: demoJuvenile(master?.dob ?? '', occurred),
+      };
+    }),
+    plates: report.vehicles.map((vehicle) => vehicle.plate).filter(Boolean),
+    offenseCodes: report.offenses.map((offense) => offense.code).filter(Boolean),
+    hasDmvReturn: kinds.some((kind) => kind === 'registration' || kind === 'license'),
+    hasCriminalHistory: kinds.includes('person'),
+    attachments: state.attachments
+      .filter((file) => file.incidentId === report.id && !file.retractedAt)
+      .map((file) => ({ id: file.id, filename: file.filename, mime: file.mime })),
+  };
+}
+
+/**
+ * The clerk's decisions, checked against the record as it stands.
+ *
+ * A span that no longer covers the text it claims to is refused rather than
+ * adjusted — guessing where it moved to is how a redactor covers the wrong
+ * words with confidence.
+ */
+function demoDecisions(input: unknown, fields: TextFields): { spans: DecidedSpan[]; bad: number } {
+  const spans: DecidedSpan[] = [];
+  let bad = 0;
+  if (!Array.isArray(input)) return { spans, bad };
+  for (const raw of input.slice(0, 2000)) {
+    const span = (raw ?? {}) as Record<string, unknown>;
+    const field = text(span.field, 120);
+    const start = Number(span.start);
+    const end = Number(span.end);
+    const source = fields[field];
+    if (
+      source === undefined ||
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end <= start ||
+      end > source.length ||
+      (text(span.text, 4000) && text(span.text, 4000) !== source.slice(start, end))
+    ) {
+      bad += 1;
+      continue;
+    }
+    spans.push({
+      id: text(span.id, 64) || newId('sp'),
+      field,
+      start,
+      end,
+      text: source.slice(start, end),
+      ruleId: text(span.ruleId, 64),
+      ruleLabel: text(span.ruleLabel, 200),
+      authority: text(span.authority, 300),
+      detector: text(span.detector, 40) as DecidedSpan['detector'],
+      confidence: span.confidence === 'medium' ? 'medium' : 'high',
+      because: text(span.because, 600),
+      decision: span.decision === 'rejected' ? 'rejected' : 'accepted',
+      addedByClerk: Boolean(span.addedByClerk),
+      note: text(span.note, 600),
+    });
+  }
+  return { spans, bad };
+}
+
+function demoAttachments(input: unknown): AttachmentDecision[] {
+  if (!Array.isArray(input)) return [];
+  return input.slice(0, 200).map((raw) => {
+    const decision = (raw ?? {}) as Record<string, unknown>;
+    return {
+      attachmentId: text(decision.attachmentId, 64),
+      filename: text(decision.filename, 300),
+      outcome: oneOf(decision.outcome, ['released', 'withheld', 'replaced'] as const, 'released'),
+      authority: text(decision.authority, 300).trim(),
+      note: text(decision.note, 600).trim(),
+    };
+  });
+}
 
 /* ------------------------------------------------------------------ */
 
@@ -874,6 +1056,286 @@ export async function handle(method: string, url: string, body: unknown): Promis
         await audit({ actorId: user.id, actorName: user.name, action: 'citation.voided', target: citation.number, detail: reason });
         return ok({ citation });
       }
+      return fail(404, 'Not found.');
+    }
+
+
+    /* ---- Public records ---------------------------------------------------- */
+    case 'public-requests': {
+      const policy = state.agency.publicRecords ?? defaultPolicy();
+      const exemptions = state.agency.exemptions?.length ? state.agency.exemptions : DEFAULT_RULES;
+      const row = (request: PublicRequest) => ({
+        request,
+        standing: standing(request, policy),
+        stage: stage(request),
+      });
+
+      if (method === 'GET' && !parts[1]) {
+        const open = query.get('scope') !== 'all';
+        const list = state.publicRequests.filter((request) => !open || !request.closure);
+        return ok({
+          requests: sortQueue(list, policy).map(row),
+          total: list.length,
+          limit: 50,
+          offset: 0,
+          policy,
+        });
+      }
+
+      if (method === 'POST' && !parts[1]) {
+        const from = (input.requester ?? {}) as Record<string, unknown>;
+        const draft = createPublicRequest({
+          id: newId('prr'),
+          number: nextPublicRequestNumber(state.publicRequests),
+          receivedAt: text(input.receivedAt, 40).trim() || at(),
+          channel: oneOf(input.channel, CHANNELS, 'email'),
+          description: text(input.description, 4000).trim(),
+          requester: {
+            name: text(from.name, 160).trim(),
+            organization: text(from.organization, 160).trim(),
+            email: text(from.email, 200).trim(),
+            phone: text(from.phone, 40).trim(),
+            address: text(from.address, 300).trim(),
+            collect: text(from.collect, 300).trim(),
+          },
+        });
+        const check = checkPublicRequest(draft);
+        if (!check.ok) {
+          return { status: 400, body: { error: check.reason, field: check.field, advice: check.advice } };
+        }
+        state.publicRequests.push(draft);
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'publicRecords.logged',
+          target: draft.number,
+          detail: '',
+        });
+        return { status: 201, body: row(draft) };
+      }
+
+      const request = state.publicRequests.find((entry) => entry.id === parts[1]);
+      if (!request) return fail(404, 'No such request.');
+
+      if (method === 'GET' && !parts[2]) {
+        return ok({ ...row(request), policy, implied: impliedOutcome(request), mayRelease: can(user, 'records.release') });
+      }
+
+      if (method === 'POST' && parts[2] === 'correspondence') {
+        const message = text(input.text, 8000).trim();
+        if (!message) return fail(400, 'There is nothing to record.');
+        request.correspondence.push({
+          id: newId('cor'),
+          at: at(),
+          by: user.id,
+          byName: user.name,
+          direction: input.direction === 'in' ? 'in' : 'out',
+          text: message,
+        });
+        return ok(row(request));
+      }
+
+      // Everything past here decides what leaves the building.
+      const denied = need('records.release');
+      if (denied) return denied;
+
+      if (method === 'PATCH' && !parts[2]) {
+        if ('assignedTo' in input) {
+          request.assignedTo = text(input.assignedTo, 64);
+          request.assignedToName = text(input.assignedToName, 160);
+        }
+        if ('description' in input) request.description = text(input.description, 4000).trim();
+        return ok(row(request));
+      }
+
+      if (method === 'POST' && parts[2] === 'pause') {
+        if (request.closure) return fail(409, 'This request is closed.');
+        if (request.pauses.some((pause) => !pause.until)) {
+          return fail(409, 'The clock is already stopped on this request.');
+        }
+        const reason = input.reason === 'fee' ? 'fee' : 'clarification';
+        const note = text(input.note, 1000).trim();
+        if (reason === 'clarification' && !note) {
+          return {
+            status: 400,
+            body: {
+              error: 'Say what was asked of them.',
+              field: 'note',
+              advice:
+                'The clock stops because the request is with them, so what was asked has to be on the record — and it is usually what an appeal turns on if they say they were never asked.',
+            },
+          };
+        }
+        request.pauses.push({ id: newId('pau'), reason, from: at(), until: '', note });
+        return ok(row(request));
+      }
+
+      if (method === 'POST' && parts[2] === 'resume') {
+        const open = request.pauses.find((pause) => !pause.until);
+        if (!open) return fail(409, 'The clock is already running.');
+        open.until = at();
+        return ok(row(request));
+      }
+
+      if (method === 'POST' && parts[2] === 'extensions') {
+        const days = Math.floor(Number(input.days) || 0);
+        const reason = text(input.reason, 2000).trim();
+        const check = checkExtension(request, policy, days, reason);
+        if (!check.ok) {
+          return { status: 400, body: { error: check.reason, field: check.field, advice: check.advice } };
+        }
+        request.extensions.push({ id: newId('ext'), at: at(), by: user.id, days, reason });
+        return ok(row(request));
+      }
+
+      /*
+        Attaching one, and only that. Without the `!parts[3]` this also swallows
+        POSTs to `items/{id}/review`, which then look like an attach with no
+        record id — the express routes on the server are exact paths and cannot
+        make this mistake, so it is one only the demo can have.
+      */
+      if (method === 'POST' && parts[2] === 'items' && !parts[3]) {
+        const kind = input.kind === 'supplement' ? 'supplement' : 'incident';
+        const recordId = text(input.recordId, 64);
+        const record = demoReadable(state, kind, recordId);
+        if (!record) return fail(404, 'That record is not on file, or has been sealed.');
+        if (request.items.some((item) => item.kind === kind && item.recordId === recordId)) {
+          return fail(409, 'That record is already attached to this request.');
+        }
+        request.items.push({
+          id: newId('pri'),
+          kind,
+          recordId,
+          label: record.label,
+          addedAt: at(),
+          addedBy: user.id,
+          review: null,
+        });
+        return { status: 201, body: row(request) };
+      }
+
+      if (parts[2] === 'items' && parts[3]) {
+        const item = request.items.find((entry) => entry.id === parts[3]);
+        if (!item) return fail(404, 'No such record on this request.');
+
+        if (method === 'DELETE' && !parts[4]) {
+          request.items = request.items.filter((entry) => entry.id !== item.id);
+          return ok(row(request));
+        }
+
+        const record = demoReadable(state, item.kind, item.recordId);
+        if (!record) return fail(404, 'That record is not on file, or has been sealed.');
+        const found = propose(record.fields, record.context, exemptions);
+
+        if (method === 'GET' && parts[4] === 'proposal') {
+          return ok({
+            item,
+            label: record.label,
+            fields: record.fields,
+            proposal: found,
+            review: item.review,
+            blockers: item.review
+              ? releaseBlockers(item.review, found.notices, found.unreadable, exemptions)
+              : [],
+          });
+        }
+
+        if (method === 'GET' && parts[4] === 'preview') {
+          if (!item.review) return fail(404, 'That record has not been reviewed yet.');
+          return ok({ release: buildRelease(item.id, record.label, record.fields, item.review) });
+        }
+
+        if (method === 'POST' && parts[4] === 'review') {
+          if (request.closure) return fail(409, 'This request is closed.');
+          const { spans, bad } = demoDecisions(input.spans, record.fields);
+          if (bad > 0) {
+            return {
+              status: 409,
+              body: {
+                error: `${bad} ${bad === 1 ? 'redaction no longer covers' : 'redactions no longer cover'} the text ${bad === 1 ? 'it was' : 'they were'} drawn on.`,
+                advice:
+                  'The record has changed since this screen was drawn — a supplement, or a correction. Reload it and go through the proposal again. Moving a redaction to where it probably went now is how a redactor covers the wrong words with confidence.',
+                field: 'spans',
+              },
+            };
+          }
+          const review: ItemReview = {
+            spans: stampAuthorities(spans, exemptions),
+            answered: Array.isArray(input.answered) ? input.answered.slice(0, 100).map((id) => text(id, 64)) : [],
+            attachments: demoAttachments(input.attachments),
+            readInFull: Boolean(input.readInFull),
+            approvedAt: '',
+            approvedBy: user.id,
+            approvedByName: user.name,
+          };
+          const blockers = releaseBlockers(review, found.notices, found.unreadable, exemptions);
+          const approving = input.approve !== false;
+          if (approving && blockers.length > 0) {
+            return { status: 400, body: { error: 'This record is not ready to go out.', blockers } };
+          }
+          if (approving) review.approvedAt = at();
+          item.review = review;
+          return ok({ ...row(request), blockers });
+        }
+        return fail(404, 'Not found.');
+      }
+
+      if (method === 'POST' && parts[2] === 'close') {
+        const outcome = oneOf(input.outcome, OUTCOMES, 'released');
+        const reason = text(input.reason, 8000).trim();
+        const check = checkClosure(request, outcome, reason);
+        if (!check.ok) {
+          return { status: 400, body: { error: check.reason, field: check.field, advice: check.advice } };
+        }
+        const implied = impliedOutcome(request);
+        if ((outcome === 'released' || outcome === 'partial') && outcome !== implied) {
+          return {
+            status: 409,
+            body: {
+              error:
+                implied === 'partial'
+                  ? 'Material was withheld from these records, so this is a release in part.'
+                  : 'Nothing was withheld from these records, so this is a release in full.',
+              field: 'outcome',
+              implied,
+            },
+          };
+        }
+        const records = [];
+        if (outcome === 'released' || outcome === 'partial') {
+          for (const item of request.items) {
+            const record = demoReadable(state, item.kind, item.recordId);
+            if (!record || !item.review) continue;
+            records.push(buildRelease(item.id, record.label, record.fields, item.review));
+          }
+          state.publicReleases.push({
+            id: newId('prl'),
+            requestId: request.id,
+            requestNumber: request.number,
+            releasedAt: at(),
+            releasedBy: user.id,
+            releasedByName: user.name,
+            outcome,
+            records,
+          });
+        }
+        request.closure = { at: at(), by: user.id, byName: user.name, outcome, reason };
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'publicRecords.closed',
+          target: request.number,
+          detail: outcome,
+        });
+        return ok({ ...row(request), records });
+      }
+
+      if (method === 'GET' && parts[2] === 'release') {
+        const list = state.publicReleases.filter((bundle) => bundle.requestId === request.id);
+        if (list.length === 0) return fail(404, 'Nothing has been released on this request.');
+        return ok({ releases: list });
+      }
+
       return fail(404, 'Not found.');
     }
 

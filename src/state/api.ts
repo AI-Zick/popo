@@ -30,6 +30,21 @@ import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
 import type { FieldContact } from '@/domain/fieldContact';
 import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
+import type { Proposal } from '@/domain/redaction';
+import type {
+  AttachmentDecision,
+  Blocker,
+  DecidedSpan,
+  ItemReview,
+  Outcome,
+  PublicRecordsPolicy,
+  PublicRequest,
+  ReleasedRecord,
+  Requester,
+  ResponsiveItem,
+  Stage,
+  Standing,
+} from '@/domain/publicRecords';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
@@ -119,6 +134,41 @@ export interface TrespassDraft {
 }
 
 /** An item plus everything a list needs, computed on the server. */
+export interface PublicRequestRow {
+  request: PublicRequest;
+  standing: Standing;
+  stage: Stage;
+}
+
+export interface PublicRequestPage {
+  requests: PublicRequestRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  policy: PublicRecordsPolicy;
+}
+
+/** What the review screen is drawn from: the record, and what was found in it. */
+export interface ProposalView {
+  item: ResponsiveItem;
+  label: string;
+  fields: Record<string, string>;
+  proposal: Proposal;
+  review: ItemReview | null;
+  blockers: Blocker[];
+}
+
+export interface ReleaseBundle {
+  id: string;
+  requestId: string;
+  requestNumber: string;
+  releasedAt: string;
+  releasedBy: string;
+  releasedByName: string;
+  outcome: Outcome;
+  records: ReleasedRecord[];
+}
+
 export interface EvidenceSummary {
   item: EvidenceItem;
   state: CustodyState;
@@ -791,6 +841,101 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ disposition }),
     });
+  },
+
+  /* ---- Public records -------------------------------------------------- */
+
+  publicRequests(scope: 'open' | 'all' = 'open', offset = 0, limit = 50): Promise<PublicRequestPage> {
+    return request(`/api/public-requests?scope=${scope}&offset=${offset}&limit=${limit}`);
+  },
+
+  publicRequest(id: string): Promise<PublicRequestRow & { policy: PublicRecordsPolicy; implied: Outcome; mayRelease: boolean }> {
+    return request(`/api/public-requests/${id}`);
+  },
+
+  logPublicRequest(draft: {
+    description: string;
+    channel: string;
+    receivedAt?: string;
+    requester: Partial<Requester>;
+  }): Promise<PublicRequestRow> {
+    return request('/api/public-requests', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  updatePublicRequest(id: string, patch: Record<string, unknown>): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  addPublicRequestNote(id: string, direction: 'in' | 'out', body: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/correspondence`, {
+      method: 'POST',
+      body: JSON.stringify({ direction, text: body }),
+    });
+  },
+
+  pausePublicRequest(id: string, reason: 'clarification' | 'fee', note: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/pause`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, note }),
+    });
+  },
+
+  resumePublicRequest(id: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/resume`, { method: 'POST' });
+  },
+
+  extendPublicRequest(id: string, days: number, reason: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/extensions`, {
+      method: 'POST',
+      body: JSON.stringify({ days, reason }),
+    });
+  },
+
+  attachPublicRecord(id: string, kind: string, recordId: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/items`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, recordId }),
+    });
+  },
+
+  detachPublicRecord(id: string, itemId: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/items/${itemId}`, { method: 'DELETE' });
+  },
+
+  redactionProposal(id: string, itemId: string): Promise<ProposalView> {
+    return request(`/api/public-requests/${id}/items/${itemId}/proposal`);
+  },
+
+  saveRedactionReview(
+    id: string,
+    itemId: string,
+    review: {
+      spans: DecidedSpan[];
+      answered: string[];
+      attachments: AttachmentDecision[];
+      readInFull: boolean;
+      approve?: boolean;
+    },
+  ): Promise<PublicRequestRow & { blockers: Blocker[] }> {
+    return request(`/api/public-requests/${id}/items/${itemId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(review),
+    });
+  },
+
+  redactionPreview(id: string, itemId: string): Promise<{ release: ReleasedRecord }> {
+    return request(`/api/public-requests/${id}/items/${itemId}/preview`);
+  },
+
+  closePublicRequest(id: string, outcome: Outcome, reason: string): Promise<PublicRequestRow> {
+    return request(`/api/public-requests/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, reason }),
+    });
+  },
+
+  publicRelease(id: string): Promise<{ releases: ReleaseBundle[] }> {
+    return request(`/api/public-requests/${id}/release`);
   },
 
   /* ---- Warrants ------------------------------------------------------- */
