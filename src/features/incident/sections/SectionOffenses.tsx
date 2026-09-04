@@ -1,4 +1,4 @@
-import { Gavel, Info } from 'lucide-react';
+import { Gavel, Info, TriangleAlert } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path } from '@/validation/engine';
 import { createOffense } from '@/domain/factory';
@@ -14,6 +14,13 @@ import {
   OFFENSE_CODES,
   WEAPONS,
 } from '@/domain/codes';
+import {
+  findStatute,
+  isVerified,
+  statuteLabel,
+  statutesFor,
+  UNVERIFIED_NOTICE,
+} from '@/domain/statute';
 
 const CATEGORY_TONE = {
   person: 'danger',
@@ -117,14 +124,7 @@ function OffenseCard({
           options={OFFENSE_OPTIONS}
           placeholder="Search offenses…"
         />
-        <TextField
-          path={at('statute')}
-          label="Statute cite"
-          placeholder="13A-7-6"
-          hint="The charge a prosecutor will file under."
-          value={offense.statute}
-          onChange={(v) => onChange({ statute: v })}
-        />
+        <StatuteField offense={offense} onChange={onChange} at={at} />
       </FieldGrid>
 
       {def && <RequirementNote def={def} />}
@@ -229,6 +229,94 @@ function OffenseCard({
 }
 
 /** Tells the officer up front what this offense choice is about to require. */
+/**
+ * Picking the state cite a prosecutor will charge under.
+ *
+ * The offence narrows the list; it never chooses from it. Three degrees of
+ * burglary come back and which one it is depends on whether anybody was home
+ * and whether the person was armed — a legal judgement about what happened,
+ * which is why each option carries the line that tells one degree from the
+ * next rather than just its number.
+ *
+ * Free text is still allowed and always will be. A municipal noise ordinance
+ * is a real charge and no state pack will ever contain it, so a cite the table
+ * does not know is kept as typed — with a quiet note that it is not on the
+ * list, which is how the table grows.
+ */
+function StatuteField({
+  offense,
+  onChange,
+  at,
+}: {
+  offense: Offense;
+  onChange: (patch: Partial<Offense>) => void;
+  at: (field: keyof Offense) => string;
+}) {
+  const { agency } = useStore();
+  const table = agency.statutes ?? [];
+  const candidates = statutesFor(offense.code, table);
+  const chosen = findStatute(offense.statute, table);
+
+  const options = candidates.map((statute) => ({
+    value: statute.cite,
+    label: statuteLabel(statute),
+    /* Searchable, and the reason each option is worth reading. */
+    hint: [statute.grade, statute.distinguishes].filter(Boolean).join(' · '),
+  }));
+
+  return (
+    <div className="min-w-0">
+      <SelectField
+        path={at('statute')}
+        label="Statute cite"
+        placeholder={
+          offense.code
+            ? candidates.length > 0
+              ? 'Type or pick a statute…'
+              : 'Type the cite'
+            : 'Choose the offence first'
+        }
+        options={options}
+        allowFree
+        value={offense.statute}
+        onChange={(v) => onChange({ statute: v })}
+        hint={
+          candidates.length > 0
+            ? undefined
+            : 'The charge a prosecutor will file under.'
+        }
+      />
+
+      {chosen && (
+        <p className="mt-1 text-[12px] leading-relaxed text-muted">
+          <span className="font-medium text-ink">{chosen.grade}</span>
+          {chosen.grade && chosen.distinguishes && ' — '}
+          {chosen.distinguishes}
+        </p>
+      )}
+
+      {/*
+        Said at the moment the cite is offered, not filed away in a settings
+        screen. The failure it prevents — a charge under a section renumbered
+        two sessions ago — is invisible when it happens and expensive later.
+      */}
+      {chosen && !isVerified(chosen) && (
+        <p className="mt-1 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-warn">
+          <TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden />
+          <span>{UNVERIFIED_NOTICE}</span>
+        </p>
+      )}
+
+      {offense.statute.trim() && !chosen && table.length > 0 && (
+        <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
+          Not in the agency’s statute table — kept as you typed it. An
+          administrator can add it so the next officer finds it.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RequirementNote({ def }: { def: NonNullable<ReturnType<typeof OFFENSE_BY_CODE.get>> }) {
   const requirements: string[] = [];
   if (def.requiresIndividualVictim) requirements.push('an individual victim with age, sex and race');

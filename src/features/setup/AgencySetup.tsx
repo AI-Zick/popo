@@ -27,6 +27,8 @@ import { ChecklistEditor } from '@/features/fleet/ChecklistEditor';
 import { RetentionView } from '@/features/retention/RetentionView';
 import { PublicRecordsView } from '@/features/records/PublicRecordsView';
 import { ExemptionRules } from '@/features/records/ExemptionRules';
+import { StatuteTable } from '@/features/statutes/StatuteTable';
+import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 
@@ -48,6 +50,7 @@ type Tab =
   | 'retention'
   | 'publicRecords'
   | 'exemptions'
+  | 'statutes'
   | 'security'
   | 'feedback';
 
@@ -64,6 +67,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   retention: 'Retention',
   publicRecords: 'Public records',
   exemptions: 'Exemptions',
+  statutes: 'Statutes',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -141,6 +145,11 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
               Exemptions
             </TabButton>
           )}
+          {mayConfigure && (
+            <TabButton active={tab === 'statutes'} onClick={() => setTab('statutes')}>
+              Statutes
+            </TabButton>
+          )}
           {/*
             Open to every officer: seizing property and signing it in or out is
             police work. What a clerk may do beyond that is gated inside.
@@ -197,6 +206,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             tab === 'fleet' ||
             tab === 'publicRecords' ||
             tab === 'exemptions' ||
+            tab === 'statutes' ||
             tab === 'retention'
               ? 'max-w-5xl'
               : 'max-w-3xl',
@@ -212,6 +222,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'retention' && mayHandleRecords && <RetentionView />}
           {tab === 'publicRecords' && <PublicRecordsView />}
           {tab === 'exemptions' && mayConfigure && <ExemptionRules />}
+          {tab === 'statutes' && mayConfigure && <StatuteTable />}
           {tab === 'fleet' && (
             <>
               <FleetView />
@@ -330,7 +341,15 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
                 <span className="mb-1.5 block text-[13px] font-medium text-ink">State</span>
                 <select
                   value={agency.state}
-                  onChange={(e) => updateAgency({ state: e.target.value })}
+                  /*
+                    Choosing the state brings its statute pack in. Additively —
+                    anything the agency has already checked or written stays,
+                    because reseeding would quietly undo somebody's afternoon.
+                  */
+                  onChange={(e) => {
+                    const next = withStatutePack({ ...agency, state: e.target.value });
+                    updateAgency({ state: next.state, statutes: next.statutes });
+                  }}
                   className={control}
                 >
                   <option value="">—</option>

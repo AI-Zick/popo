@@ -12,6 +12,8 @@ import { DEFAULT_CHECKLIST, type ChecklistItem } from './fleet';
 import { DEFAULT_SCHEDULE, type RetentionRule } from './retention';
 import { DEFAULT_RULES, type ExemptionRule } from './exemption';
 import { defaultPolicy, type PublicRecordsPolicy } from './publicRecords';
+import type { Statute } from './statute';
+import { statutePack } from './statutes';
 
 export interface AgencyProfile {
   name: string;
@@ -77,6 +79,22 @@ export interface AgencyProfile {
   exemptions: ExemptionRule[];
 
   /**
+   * The state's offence statutes, keyed to the NIBRS codes they answer to.
+   *
+   * Seeded from the state pack when the state is chosen at setup, and the
+   * agency's from then on — the same bargain as the retention schedule and the
+   * exemption rules. Every seeded entry arrives unverified, because a statute
+   * table shipped with software is out of date the session after it was
+   * written, and an officer charging under a renumbered section finds out in
+   * court.
+   *
+   * Empty for a state with no pack yet. That is not worse than today: an
+   * agency filling it in gets a list their whole department can use, instead
+   * of each officer typing the same cite from memory.
+   */
+  statutes: Statute[];
+
+  /**
    * How long the state gives the agency to answer, and how it counts.
    *
    * The number that decides whether a request is late, which is the failure
@@ -99,6 +117,26 @@ export interface AgencyProfile {
   configured: boolean;
 }
 
+/**
+ * The agency profile with its state's statute pack loaded in.
+ *
+ * Called when the state is set at setup rather than on every read, because
+ * once an agency has started checking and editing these they are the agency's
+ * table, not ours — reseeding would quietly undo somebody's afternoon.
+ *
+ * Anything already in the table wins. An agency that changes state (a merger,
+ * a correction) keeps what they have checked and gains what they do not.
+ */
+export function withStatutePack(agency: AgencyProfile): AgencyProfile {
+  const pack = statutePack(agency.state);
+  if (pack.length === 0) return agency;
+  const held = new Set(agency.statutes.map((statute) => statute.cite.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const additions = pack.filter(
+    (statute) => !held.has(statute.cite.toLowerCase().replace(/[^a-z0-9]/g, '')),
+  );
+  return additions.length > 0 ? { ...agency, statutes: [...agency.statutes, ...additions] } : agency;
+}
+
 export const ZONE_LABELS = ['Beat', 'Zone', 'District', 'Reporting District', 'Sector'];
 
 export function emptyAgency(): AgencyProfile {
@@ -116,6 +154,7 @@ export function emptyAgency(): AgencyProfile {
     checklist: DEFAULT_CHECKLIST.map((item, i) => ({ ...item, id: `chk${i + 1}` })),
     retention: DEFAULT_SCHEDULE.map((rule) => ({ ...rule })),
     exemptions: DEFAULT_RULES.map((rule) => ({ ...rule })),
+    statutes: [],
     publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,

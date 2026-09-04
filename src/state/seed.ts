@@ -15,6 +15,7 @@ import { createFieldContact, createSubject, type FieldContact } from '@/domain/f
 import { createCitation, createViolation, type Citation } from '@/domain/citation';
 import { createRequest, type PublicRequest } from '@/domain/publicRecords';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
+import { statutePack } from '@/domain/statutes';
 import { createStopCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
 import { createUser, type User } from '@/domain/auth';
@@ -146,6 +147,12 @@ const AGENCY: AgencyProfile = {
     Inventing a plausible-looking Alabama citation here would be worse than
     showing an empty field — somebody would believe it.
   */
+  /*
+    The Alabama statute table, unchecked — which is the state a real agency is
+    in on day one. A demo where every cite is already confirmed would hide the
+    one thing this screen is for.
+  */
+  statutes: statutePack('AL'),
   exemptions: emptyAgency().exemptions.map((rule) =>
     ['st-juvenile', 'st-victim-identity', 'st-reporting-party'].includes(rule.id)
       ? { ...rule, enabled: true }
