@@ -190,6 +190,46 @@ const HOLDERS: Holder[] = [
   },
   {
     /*
+      Citations issued to this person.
+
+      Person-scoped, and only where the citation is actually linked to the
+      identity — a ticket carrying only a typed name is not reliably this
+      person, and destroying it on a guess destroys somebody else's record.
+    */
+    kind: 'Citations',
+    byCase: () => [],
+    byPerson: (db, masterId) =>
+      query(
+        db,
+        'citations',
+        'person_id',
+        masterId,
+        (d) => `Citation ${String(d.number ?? '')} on ${String(d.issuedAt ?? '').slice(0, 10)}`,
+      ),
+    purge: del('citations'),
+  },
+  {
+    /*
+      The investigation record on a case.
+
+      Case-scoped only. It is the assignment, the triage and the supervisor
+      reviews — everything about how the case was worked, which goes with the
+      case and belongs to nobody else.
+    */
+    kind: 'Investigation records',
+    byCase: (db, id) =>
+      query(
+        db,
+        'investigations',
+        'case_id',
+        id,
+        (d) => `Assignment, triage and reviews for ${String(d.caseNumber ?? '')}`,
+      ),
+    byPerson: () => [],
+    purge: del('investigations'),
+  },
+  {
+    /*
       Warrants naming this person.
 
       Person-scoped only, like the trespass notices. A warrant is a fact about

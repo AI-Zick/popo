@@ -17,6 +17,49 @@ import { createTask, sortTasks } from '@/domain/caseTask';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
 import { displayName } from '@/domain/person';
 import {
+  checkAssignment,
+  checkReview,
+  checkSuspension,
+  createInvestigation,
+  investigationStatus,
+  limitationDate,
+  limitationStanding,
+  mustBeWorked,
+  reviewDue,
+  reviewOverdueBy,
+  solvabilityScore,
+  sortCaseload,
+  today as investigationToday,
+  type Investigation,
+  type ReviewDecision,
+} from '@/domain/investigation';
+import {
+  adviseCitation,
+  awaitingCourt,
+  checkCitation,
+  checkVoid,
+  createCitation,
+  createViolation,
+  sortCitations,
+} from '@/domain/citation';
+import type { Incident } from '@/domain/types';
+
+/** The same shape the server computes, so the screens cannot tell them apart. */
+function describeWork(investigation: Investigation, report: Incident | null) {
+  const codes = report?.offenses.map((o) => o.code).filter(Boolean) ?? [];
+  const on = investigationToday();
+  return {
+    investigation,
+    status: investigationStatus(investigation),
+    score: solvabilityScore(investigation.factors),
+    reviewDue: reviewDue(investigation),
+    reviewOverdueBy: reviewOverdueBy(investigation, on),
+    limitation: limitationStanding(investigation.limitationDate, on),
+    mustBeWorked: mustBeWorked(codes),
+    caseNumber: report?.caseNumber ?? investigation.caseNumber,
+  };
+}
+import {
   CONFIRMATION_NOTICE,
   checkAttempt,
   checkRecall,
@@ -365,8 +408,121 @@ export async function handle(method: string, url: string, body: unknown): Promis
     }
 
     /* ---- Case to-do -------------------------------------------------- */
+    case 'investigations': {
+      const mine = query.get('scope') !== 'all';
+      if (!mine && !can(user, 'reports.approve')) {
+        return fail(403, 'The whole caseload is a supervisor’s view.');
+      }
+      const list = mine
+        ? state.investigations.filter((i) => i.assignedToId === user.id)
+        : state.investigations;
+      return ok({
+        investigations: sortCaseload(list).map((investigation) =>
+          describeWork(investigation, state.incidents.find((c) => c.id === investigation.caseId) ?? null),
+        ),
+      });
+    }
+
     case 'cases': {
       const caseId = parts[1];
+
+      /* The investigation on a case: assignment, triage, reviews, suspension. */
+      if (parts[2] === 'investigation') {
+        const report = state.incidents.find((c) => c.id === caseId);
+        if (!report) return fail(404, 'No such case.');
+        const codes = report.offenses.map((o) => o.code).filter(Boolean);
+
+        let investigation = state.investigations.find((i) => i.caseId === caseId);
+        if (!investigation) {
+          investigation = createInvestigation({
+            id: newId('inv'),
+            caseId,
+            caseNumber: report.caseNumber,
+            limitationDate: limitationDate(codes, report.occurredFrom || report.reportedAt || report.createdAt),
+          });
+          state.investigations.push(investigation);
+        }
+
+        if (method === 'GET' && !parts[3]) return ok(describeWork(investigation, report));
+
+        if (parts[3] === 'assign') {
+          const denied = need('reports.approve');
+          if (denied) return denied;
+          const detectiveId = text(input.detectiveId, 64);
+          const check = checkAssignment(detectiveId);
+          if (!check.ok) return fail(400, check.reason);
+          const detective = state.users.find((u) => u.id === detectiveId && u.active);
+          if (!detective) return fail(404, 'No such active account.');
+          Object.assign(investigation, {
+            assignedToId: detectiveId,
+            assignedToName: detective.name,
+            assignedAt: at(),
+            assignedById: user.id,
+            assignedByName: user.name,
+            suspendedAt: '',
+            suspendedReason: '',
+            suspendedAgainstPolicy: false,
+            updatedAt: at(),
+          });
+          await audit({ actorId: user.id, actorName: user.name, action: 'case.assigned', target: investigation.caseNumber, detail: detective.name });
+          return ok(describeWork(investigation, report));
+        }
+
+        if (parts[3] === 'factors') {
+          const raw = (input.factors ?? {}) as Record<string, unknown>;
+          const factors: Record<string, boolean> = {};
+          for (const [key, value] of Object.entries(raw).slice(0, 40)) if (value) factors[key] = true;
+          Object.assign(investigation, { factors, scoredAt: at(), updatedAt: at() });
+          return ok(describeWork(investigation, report));
+        }
+
+        if (parts[3] === 'suspend') {
+          const denied = need('reports.approve');
+          if (denied) return denied;
+          if (investigation.suspendedAt) return fail(409, 'That case is already suspended.');
+          const reason = text(input.reason, 4000).trim();
+          const check = checkSuspension(reason, codes);
+          if (!check.ok) return fail(400, check.reason);
+          const against = mustBeWorked(codes);
+          Object.assign(investigation, {
+            suspendedAt: at(),
+            suspendedReason: reason,
+            suspendedAgainstPolicy: against,
+            updatedAt: at(),
+          });
+          await audit({
+            actorId: user.id,
+            actorName: user.name,
+            action: against ? 'case.suspendedAgainstPolicy' : 'case.suspended',
+            target: investigation.caseNumber,
+            detail: reason,
+          });
+          return ok({ ...describeWork(investigation, report), advice: check.advice ?? '' });
+        }
+
+        if (parts[3] === 'reviews') {
+          const denied = need('reports.approve');
+          if (denied) return denied;
+          const decision = text(input.decision, 20) as ReviewDecision;
+          const note = text(input.note, 4000).trim();
+          const check = checkReview(decision, note);
+          if (!check.ok) return fail(400, check.reason);
+          investigation.reviews = [
+            ...investigation.reviews,
+            { id: newId('rev'), at: at(), byId: user.id, byName: user.name, decision, note },
+          ];
+          if (decision === 'close') investigation.closedAt = at();
+          if (decision === 'reassign') {
+            investigation.assignedToId = '';
+            investigation.assignedToName = '';
+          }
+          investigation.updatedAt = at();
+          await audit({ actorId: user.id, actorName: user.name, action: 'case.reviewed', target: investigation.caseNumber, detail: decision });
+          return ok(describeWork(investigation, report));
+        }
+        return fail(404, 'Not found.');
+      }
+
       if (method === 'GET') return ok({ tasks: sortTasks(state.caseTasks.filter((t) => t.caseId === caseId)) });
       const what = text(input.text, 500).trim();
       if (!what) return fail(400, 'Say what needs doing.');
@@ -405,6 +561,11 @@ export async function handle(method: string, url: string, body: unknown): Promis
     /* ---- Photographs -------------------------------------------------- */
     case 'people': {
       const masterId = parts[1];
+      if (parts[2] === 'citations') {
+        return ok({
+          citations: sortCitations(state.citations.filter((c) => c.personId === masterId)),
+        });
+      }
       if (parts[2] === 'warrants') {
         const mine = state.warrants.filter((w) => w.personId === masterId);
         return ok({
@@ -627,6 +788,91 @@ export async function handle(method: string, url: string, body: unknown): Promis
           detail: reason,
         });
         return ok({ trespass });
+      }
+      return fail(404, 'Not found.');
+    }
+
+    /* ---- Citations --------------------------------------------------------- */
+    case 'citations': {
+      if (method === 'GET' && !parts[1]) {
+        const mine = query.get('scope') !== 'all';
+        const list = mine ? state.citations.filter((c) => c.officerId === user.id) : state.citations;
+        return ok({ citations: sortCitations(list), awaitingCourt: awaitingCourt(list).length });
+      }
+      if (method === 'POST' && !parts[1]) {
+        const draft = {
+          number: text(input.number, 60).trim(),
+          issuedAt: text(input.issuedAt, 40).trim(),
+          personId: text(input.personId, 64),
+          subjectName: text(input.subjectName, 160).trim(),
+          driverLicense: text(input.driverLicense, 40).trim(),
+          plate: text(input.plate, 16).trim(),
+          plateState: text(input.plateState, 2).trim(),
+          location: text(input.location, 200).trim(),
+          stopId: text(input.stopId, 64),
+          court: text(input.court, 120).trim(),
+          courtDate: text(input.courtDate, 10).trim(),
+          notes: text(input.notes, 2000).trim(),
+          violations: (Array.isArray(input.violations) ? input.violations : []).slice(0, 20).map(
+            (raw: Record<string, unknown>) =>
+              createViolation({
+                id: newId('vio'),
+                statute: text(raw?.statute, 60).trim(),
+                description: text(raw?.description, 200).trim(),
+                warningOnly: Boolean(raw?.warningOnly),
+                speed: text(raw?.speed, 4).trim(),
+                speedLimit: text(raw?.speedLimit, 4).trim(),
+                fine: text(raw?.fine, 20).trim(),
+              }),
+          ),
+        };
+        const check = checkCitation(draft);
+        if (!check.ok) return fail(400, check.reason);
+
+        // One ticket is one record, whichever path got here first.
+        const clash = state.citations.find((c) => c.number === draft.number);
+        if (clash) {
+          return {
+            status: 409,
+            body: {
+              error: `Citation ${draft.number} is already on file, entered ${clash.source === 'mdt' ? 'from the MDT' : 'here'} on ${clash.recordedAt.slice(0, 10)}.`,
+              field: 'number',
+              citation: clash,
+            },
+          };
+        }
+
+        const citation = createCitation({
+          ...draft,
+          id: newId('cit'),
+          source: 'officer',
+          recordedAt: at(),
+          officerId: user.id,
+          officerName: user.name,
+        });
+        state.citations.push(citation);
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'citation.recorded',
+          target: citation.number,
+          detail: citation.violations.map((v) => v.description || v.statute).join(', '),
+        });
+        return { status: 201, body: { citation, advice: adviseCitation(citation) } };
+      }
+
+      const citation = state.citations.find((c) => c.id === parts[1]);
+      if (!citation) return fail(404, 'No such citation.');
+      if (parts[2] === 'void') {
+        const denied = need('notes.retract');
+        if (denied) return fail(403, 'Voiding a citation needs the same authority as withdrawing a note.');
+        if (citation.voidedAt) return fail(409, 'That citation has already been voided.');
+        const reason = text(input.reason, 500).trim();
+        const check = checkVoid(reason);
+        if (!check.ok) return fail(400, check.reason);
+        Object.assign(citation, { voidedAt: at(), voidedBy: user.name, voidReason: reason, updatedAt: at() });
+        await audit({ actorId: user.id, actorName: user.name, action: 'citation.voided', target: citation.number, detail: reason });
+        return ok({ citation });
       }
       return fail(404, 'Not found.');
     }

@@ -28,7 +28,8 @@ import { SectionAttachments } from './sections/SectionAttachments';
 import { SectionReview } from './sections/SectionReview';
 import { SupplementList } from '@/features/supplements/SupplementList';
 import { CaseTasks } from './CaseTasks';
-import { EditorHeader } from './EditorHeader';
+import { CaseWorkPanel } from '@/features/investigations/CaseWorkPanel';
+import { EditorHeader, type PanelName } from './EditorHeader';
 import { PrintableReport } from '@/features/print/PrintableReport';
 
 const SECTION_ICON: Record<SectionId, typeof FileText> = {
@@ -64,7 +65,7 @@ export function IncidentEditor() {
     the form the width it needs, and a floating one would cover the field the
     officer is reading it about.
   */
-  const [rightPanel, setRightPanel] = useState<'check' | 'tasks'>('check');
+  const [rightPanel, setRightPanel] = useState<PanelName>('check');
 
   // F8 walks to the next unresolved problem, the way a spellchecker would.
   useEffect(() => {
@@ -208,7 +209,15 @@ export function IncidentEditor() {
           </div>
         </main>
 
-        {rightPanel === 'tasks' ? <CaseTasks /> : <IssuePanel />}
+        {rightPanel === 'tasks' ? (
+          <CaseTasks />
+        ) : rightPanel === 'work' ? (
+          <aside className="w-[22rem] shrink-0 overflow-y-auto border-l border-line bg-canvas p-4">
+            <CaseWorkPanel caseId={incident.id} />
+          </aside>
+        ) : (
+          <IssuePanel />
+        )}
       </div>
     </div>
   );

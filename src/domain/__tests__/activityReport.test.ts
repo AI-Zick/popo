@@ -9,7 +9,7 @@ import {
   SECTION_META,
   type ActivityInput,
 } from '../activityReport';
-import { createTrafficStop, createCitation, citationCount, warningCount } from '../activity';
+import { createTrafficStop, createStopCitation, citationCount, warningCount } from '../activity';
 import { createIncident, createIncidentPerson, createProperty } from '../factory';
 import { createSupplement } from '../supplement';
 import { createUser } from '../auth';
@@ -165,7 +165,7 @@ describe('citations', () => {
       at: '2026-03-14T21:30',
       outcome: 'citation',
       citations: Array.from({ length: n }, (_, i) =>
-        createCitation({ id: `c${i}`, statute: '32-5A-171', warningOnly }),
+        createStopCitation({ id: `c${i}`, statute: '32-5A-171', warningOnly }),
       ),
     });
 

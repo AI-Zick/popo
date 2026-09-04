@@ -330,6 +330,42 @@ CREATE INDEX IF NOT EXISTS person_photos_removal ON person_photos(removal);
 -- What is left to do on a case. Deliberately not part of the report document:
 -- an approved report is locked, and "still waiting on the video" is exactly the
 -- item that outlives approval.
+-- One investigation per case. Separate from the report so that assigning,
+-- reviewing and suspending keep working after the report is approved, which
+-- is when investigative work actually starts.
+CREATE TABLE IF NOT EXISTS investigations (
+  id           TEXT PRIMARY KEY,
+  version      INTEGER NOT NULL DEFAULT 1,
+  case_id      TEXT NOT NULL DEFAULT '',
+  assigned_to  TEXT NOT NULL DEFAULT '',
+  suspended_at TEXT NOT NULL DEFAULT '',
+  closed_at    TEXT NOT NULL DEFAULT '',
+  updated_at   TEXT NOT NULL,
+  doc          TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS investigations_case ON investigations(case_id);
+-- One detective's caseload, which is the read this exists for.
+CREATE INDEX IF NOT EXISTS investigations_assignee ON investigations(assigned_to, suspended_at, closed_at);
+
+-- Citations. The number is the court's, not ours, and it is unique because
+-- one ticket is one record however many paths it arrives by — the officer
+-- keying it in and the MDT submitting it must not produce two rows.
+CREATE TABLE IF NOT EXISTS citations (
+  id         TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL DEFAULT 1,
+  number     TEXT NOT NULL DEFAULT '',
+  issued_at  TEXT NOT NULL DEFAULT '',
+  person_id  TEXT NOT NULL DEFAULT '',
+  officer_id TEXT NOT NULL DEFAULT '',
+  stop_id    TEXT NOT NULL DEFAULT '',
+  voided_at  TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  doc        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS citations_number ON citations(number);
+CREATE INDEX IF NOT EXISTS citations_person ON citations(person_id, issued_at);
+CREATE INDEX IF NOT EXISTS citations_officer ON citations(officer_id, issued_at);
+
 -- Warrants. Indexed by person because "is this person wanted" is the question
 -- asked of it, and by number because confirming a hit starts from the number
 -- the court gave it.
@@ -532,7 +568,9 @@ export interface DocTable {
     | 'vehicles'
     | 'trespasses'
     | 'warrants'
-    | 'field_contacts';
+    | 'field_contacts'
+    | 'investigations'
+    | 'citations';
   /** Columns lifted out of the document so they can be indexed. */
   columns: (doc: Record<string, unknown>) => Record<string, string>;
 }
@@ -633,6 +671,26 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       taken_on: String(doc.takenOn ?? ''),
       removal: String(doc.removal ?? ''),
+    }),
+  },
+  investigations: {
+    name: 'investigations',
+    columns: (doc) => ({
+      case_id: String(doc.caseId ?? ''),
+      assigned_to: String(doc.assignedToId ?? ''),
+      suspended_at: String(doc.suspendedAt ?? ''),
+      closed_at: String(doc.closedAt ?? ''),
+    }),
+  },
+  citations: {
+    name: 'citations',
+    columns: (doc) => ({
+      number: String(doc.number ?? ''),
+      issued_at: String(doc.issuedAt ?? ''),
+      person_id: String(doc.personId ?? ''),
+      officer_id: String(doc.officerId ?? ''),
+      stop_id: String(doc.stopId ?? ''),
+      voided_at: String(doc.voidedAt ?? ''),
     }),
   },
   warrants: {

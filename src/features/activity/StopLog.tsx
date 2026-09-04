@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { Car, Check, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { useStore } from '@/state/store';
 import {
-  createCitation,
+  createStopCitation,
   STOP_OUTCOMES,
   STOP_REASONS,
-  type Citation,
+  type StopCitation,
   type StopOutcome,
   type StopReason,
   type TrafficStop,
@@ -128,7 +128,7 @@ function StopForm({
 
   const addCitation = (warningOnly: boolean) =>
     set({
-      citations: [...citations, createCitation({ id: `c${citations.length}${Date.now()}`, warningOnly })],
+      citations: [...citations, createStopCitation({ id: `c${citations.length}${Date.now()}`, warningOnly })],
       // The outcome and the paperwork should not disagree with each other.
       outcome: warningOnly ? draft.outcome : 'citation',
     });
@@ -259,7 +259,7 @@ function StopRow({ stop, onRemove }: { stop: TrafficStop; onRemove: () => void }
   const [confirming, setConfirming] = useState(false);
   const reason = STOP_REASONS.find((r) => r.value === stop.reason)?.label ?? stop.reason;
   const outcome = STOP_OUTCOMES.find((o) => o.value === stop.outcome)?.label ?? stop.outcome;
-  const cited = stop.citations.filter((c: Citation) => !c.warningOnly).length;
+  const cited = stop.citations.filter((c: StopCitation) => !c.warningOnly).length;
 
   return (
     <li className="flex items-center gap-3 py-2.5">

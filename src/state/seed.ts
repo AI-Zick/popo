@@ -12,8 +12,9 @@ import { createMasterVehicle, type VehicleIndex } from '@/domain/vehicle';
 import { createTrespass, type Trespass } from '@/domain/trespass';
 import { createWarrant, createWarrantCharge, type Warrant } from '@/domain/warrant';
 import { createFieldContact, createSubject, type FieldContact } from '@/domain/fieldContact';
+import { createCitation, createViolation, type Citation } from '@/domain/citation';
 import { emptyAgency, type AgencyProfile } from '@/domain/agency';
-import { createCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
+import { createStopCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
 import { createUser, type User } from '@/domain/auth';
 
@@ -210,6 +211,7 @@ export function seedState(): {
   trespasses: Trespass[];
   warrants: Warrant[];
   contacts: FieldContact[];
+  citations: Citation[];
   agency: AgencyProfile;
   users: User[];
   credentials: Record<string, never>;
@@ -542,10 +544,10 @@ export function seedState(): {
       outcome: outcome as TrafficStop['outcome'],
       citations: [
         ...Array.from({ length: Number(cited) }, (_, i) =>
-          createCitation({ id: `cit_${index}_${i}`, statute: '32-5A-171', description: 'Speeding' }),
+          createStopCitation({ id: `cit_${index}_${i}`, statute: '32-5A-171', description: 'Speeding' }),
         ),
         ...Array.from({ length: Number(warned) }, (_, i) =>
-          createCitation({
+          createStopCitation({
             id: `warn_${index}_${i}`,
             statute: '32-5-240',
             description: 'Defective equipment',
@@ -920,6 +922,63 @@ export function seedState(): {
     }),
   ];
 
+  /* ---- Citations -------------------------------------------------------- */
+  /*
+    Two, arranged so the reconciliation story is visible. One arrived from the
+    MDT the same afternoon; the other an officer keyed in from the book four
+    days later, which is exactly the case the manual path exists for and
+    exactly the gap worth surfacing on screen.
+  */
+  const cited = Object.values(PEOPLE)[0];
+  const CITATIONS: Citation[] = cited
+    ? [
+        createCitation({
+          id: 'cit_seed_1',
+          number: 'A-4471902',
+          issuedAt: '2026-08-28T15:20:00Z',
+          recordedAt: '2026-08-28T15:41:00Z',
+          source: 'mdt',
+          personId: cited.id,
+          subjectName: `${cited.lastName}, ${cited.firstName}`,
+          plate: '4AC7821',
+          plateState: 'AL',
+          location: 'US-411 at Watson Rd',
+          court: 'Cedar Falls Municipal Court',
+          courtDate: '2026-10-14',
+          officerName: 'M. Reyes',
+          violations: [
+            createViolation({
+              id: 'vio_seed_1',
+              statute: '32-5A-171',
+              description: 'Speeding',
+              speed: '52',
+              speedLimit: '35',
+              fine: '$187',
+            }),
+          ],
+        }),
+        createCitation({
+          id: 'cit_seed_2',
+          number: 'B-0099431',
+          issuedAt: '2026-08-14T21:05:00Z',
+          recordedAt: '2026-08-18T09:12:00Z',
+          source: 'officer',
+          personId: cited.id,
+          subjectName: `${cited.lastName}, ${cited.firstName}`,
+          location: 'N Marion St at Depot',
+          officerName: 'D. Tam',
+          notes: 'MDT was down for the whole shift. Written from the book.',
+          violations: [
+            createViolation({
+              id: 'vio_seed_2',
+              description: 'No proof of insurance',
+              statute: '32-7A-16',
+            }),
+          ],
+        }),
+      ]
+    : [];
+
   return {
     incidents: [incomplete, complete, approved],
     stops: STOPS,
@@ -930,6 +989,7 @@ export function seedState(): {
     trespasses: TRESPASSES,
     warrants: WARRANTS,
     contacts: CONTACTS,
+    citations: CITATIONS,
     agency: AGENCY,
     users: USERS,
     // Password hashing is async, so demo credentials are provisioned by a

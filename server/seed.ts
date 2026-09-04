@@ -52,6 +52,7 @@ export async function seedDatabase(db: DatabaseSync): Promise<void> {
   documents(DOC_TABLES.trespasses).replaceAll(db, state.trespasses);
   documents(DOC_TABLES.warrants).replaceAll(db, state.warrants);
   documents(DOC_TABLES.fieldContacts).replaceAll(db, state.contacts);
+  documents(DOC_TABLES.citations).replaceAll(db, state.citations);
 
   console.log(`Seeded ${state.users.length} accounts and ${state.incidents.length} reports.`);
 }

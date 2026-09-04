@@ -28,6 +28,8 @@ import type { VehicleMatchResult, VehicleQuery } from '@/domain/vehicleMatching'
 import type { Trespass, TrespassState } from '@/domain/trespass';
 import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
 import type { FieldContact } from '@/domain/fieldContact';
+import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
+import type { Citation } from '@/domain/citation';
 import type { AgencyProfile } from '@/domain/agency';
 import type { User } from '@/domain/auth';
 import type { AuditEntry, ChainStatus } from '@/domain/audit';
@@ -39,6 +41,19 @@ import type {
   Finding as EvidenceFinding,
 } from '@/domain/evidence';
 import type { ChainStatus as CustodyStatus } from '@/domain/chain';
+
+/** An investigation with everything derived from it, worked out server-side. */
+export interface CaseWork {
+  investigation: Investigation;
+  status: InvestigationStatus;
+  score: number;
+  reviewDue: string;
+  reviewOverdueBy: number;
+  limitation: LimitationStanding;
+  /** True for the offences this agency works whatever the checklist says. */
+  mustBeWorked: boolean;
+  caseNumber: string;
+}
 
 /** One warrant, with the state worked out on the server. */
 export interface WarrantRow {
@@ -145,6 +160,16 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * What the server actually sent back.
+     *
+     * Routes here have long returned more than a message — the `field` to put
+     * the cursor in, and sometimes the record that caused the refusal, like
+     * the citation already on file under a number somebody is trying to enter.
+     * None of it could be read until this existed, so every caller could do
+     * was print the sentence.
+     */
+    readonly body?: unknown,
   ) {
     super(message);
   }
@@ -167,6 +192,7 @@ async function demoRequest<T>(path: string, init: RequestInit): Promise<T> {
     throw new ApiError(
       (reply.body as { error?: string } | null)?.error ?? `Request failed (${reply.status}).`,
       reply.status,
+      structuredClone(reply.body),
     );
   }
   /*
@@ -207,7 +233,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const message =
       (body as { error?: string } | null)?.error ?? `Request failed (${response.status}).`;
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, body);
   }
 
   return body as T;
@@ -694,6 +720,77 @@ export const api = {
 
   correctTrespass(id: string, patch: Partial<TrespassDraft>): Promise<{ trespass: Trespass }> {
     return request(`/api/trespasses/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  /* ---- Investigations --------------------------------------------------- */
+
+  investigation(caseId: string): Promise<CaseWork> {
+    return request(`/api/cases/${caseId}/investigation`);
+  },
+
+  caseload(scope: 'mine' | 'all' = 'mine'): Promise<{ investigations: CaseWork[] }> {
+    return request(`/api/investigations?scope=${scope}`);
+  },
+
+  assignCase(caseId: string, detectiveId: string): Promise<CaseWork> {
+    return request(`/api/cases/${caseId}/investigation/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ detectiveId }),
+    });
+  },
+
+  scoreCase(caseId: string, factors: Record<string, boolean>): Promise<CaseWork> {
+    return request(`/api/cases/${caseId}/investigation/factors`, {
+      method: 'POST',
+      body: JSON.stringify({ factors }),
+    });
+  },
+
+  suspendCase(caseId: string, reason: string): Promise<CaseWork & { advice: string }> {
+    return request(`/api/cases/${caseId}/investigation/suspend`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  reviewCase(caseId: string, decision: ReviewDecision, note: string): Promise<CaseWork> {
+    return request(`/api/cases/${caseId}/investigation/reviews`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note }),
+    });
+  },
+
+  /* ---- Citations ---------------------------------------------------------- */
+
+  personCitations(personId: string): Promise<{ citations: Citation[] }> {
+    return request(`/api/people/${personId}/citations`);
+  },
+
+  stopCitations(stopId: string): Promise<{ citations: Citation[] }> {
+    return request(`/api/stops/${stopId}/citations`);
+  },
+
+  citations(scope: 'mine' | 'all' = 'mine'): Promise<{ citations: Citation[]; awaitingCourt: number }> {
+    return request(`/api/citations?scope=${scope}`);
+  },
+
+  /** Records a ticket the officer has already issued. */
+  recordCitation(draft: Partial<Citation>): Promise<{ citation: Citation; advice: string }> {
+    return request('/api/citations', { method: 'POST', body: JSON.stringify(draft) });
+  },
+
+  voidCitation(id: string, reason: string): Promise<{ citation: Citation }> {
+    return request(`/api/citations/${id}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  citationDisposition(id: string, disposition: string): Promise<{ citation: Citation }> {
+    return request(`/api/citations/${id}/disposition`, {
+      method: 'POST',
+      body: JSON.stringify({ disposition }),
+    });
   },
 
   /* ---- Warrants ------------------------------------------------------- */

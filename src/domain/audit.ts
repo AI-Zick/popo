@@ -45,6 +45,15 @@ export type AuditAction =
   | 'fleet.checked'
   | 'fleet.requested'
   | 'fleet.requestUpdated'
+  | 'case.assigned'
+  | 'case.scored'
+  | 'case.suspended'
+  | 'case.suspendedAgainstPolicy'
+  | 'case.reviewed'
+  | 'citation.recorded'
+  | 'citation.received'
+  | 'citation.voided'
+  | 'citation.disposed'
   | 'warrant.entered'
   | 'warrant.attempted'
   | 'warrant.served'
@@ -119,6 +128,15 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'records.sealed': 'Record sealed or unsealed',
   'records.expunged': 'Records destroyed under court order',
   'records.sealedViewed': 'Sealed record opened',
+  'case.assigned': 'Case assigned',
+  'case.scored': 'Case triaged',
+  'case.suspended': 'Case suspended',
+  'case.suspendedAgainstPolicy': 'Case suspended against policy',
+  'case.reviewed': 'Case reviewed',
+  'citation.recorded': 'Citation recorded',
+  'citation.received': 'Citation received from the MDT',
+  'citation.voided': 'Citation voided',
+  'citation.disposed': 'Court disposition recorded',
   'warrant.entered': 'Warrant entered',
   'warrant.attempted': 'Warrant service attempted',
   'warrant.served': 'Warrant served',

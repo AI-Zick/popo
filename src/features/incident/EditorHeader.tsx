@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   Cloud,
   CornerUpLeft,
+  Briefcase,
   ListTodo,
   Printer,
   Send,
@@ -25,14 +26,17 @@ const STATUS: Record<ReportStatus, { label: string; tone: 'neutral' | 'accent' |
   returned: { label: 'Returned', tone: 'warn' },
 };
 
+/** Which side panel is showing. */
+export type PanelName = 'check' | 'tasks' | 'work';
+
 export function EditorHeader({
   onPrint,
   rightPanel,
   onShowPanel,
 }: {
   onPrint: () => void;
-  rightPanel: 'check' | 'tasks';
-  onShowPanel: (panel: 'check' | 'tasks') => void;
+  rightPanel: PanelName;
+  onShowPanel: (panel: PanelName) => void;
 }) {
   const {
     incident,
@@ -142,6 +146,15 @@ export function EditorHeader({
               {outstandingWork.split(' ')[0]}
             </span>
           )}
+        </PanelTab>
+        {/*
+          Who has the case and what it has to go on. Beside the to-do list
+          rather than inside the report, because investigative work carries on
+          after the report is approved — which is when it actually starts.
+        */}
+        <PanelTab active={rightPanel === 'work'} onClick={() => onShowPanel('work')}>
+          <Briefcase size={14} aria-hidden />
+          Case work
         </PanelTab>
       </div>
 

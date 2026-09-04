@@ -8,6 +8,7 @@ import { PersonPhotos } from '@/components/person/PersonPhotos';
 import { PersonTrespasses } from '@/features/trespass/PersonTrespasses';
 import { PersonWarrants } from '@/features/warrants/PersonWarrants';
 import { PersonContacts } from '@/features/contacts/PersonContacts';
+import { PersonCitations } from '@/features/citations/PersonCitations';
 import { LocationTrespassList } from '@/features/trespass/LocationTrespassList';
 
 /**
@@ -131,6 +132,8 @@ export function RecordFile() {
               <PersonTrespasses masterId={person.id} personName={displayName(person)} />
 
               <PersonPhotos masterId={person.id} personName={displayName(person)} />
+
+              <PersonCitations masterId={person.id} personName={displayName(person)} />
 
               <PersonContacts masterId={person.id} personName={displayName(person)} />
             </>

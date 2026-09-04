@@ -43,8 +43,20 @@ export const STOP_OUTCOMES: { value: StopOutcome; label: string; hint?: string }
   { value: 'no_action', label: 'No action taken' },
 ];
 
-/** One citation written on a stop. A stop can produce several. */
-export interface Citation {
+/**
+ * One citation line on a stop.
+ *
+ * Not the citation document — that is `domain/citation.ts`, which is the
+ * numbered ticket the person was handed and the court knows about. This is the
+ * stop's own note of what it produced, which is what the activity report
+ * counts and what an officer types while the stop is still in front of them.
+ *
+ * They are deliberately separate. A stop is logged in seconds and its line
+ * items need nothing but a statute; the document arrives later from the MDT
+ * with a number, a court date and a disposition. Requiring the second to log
+ * the first would mean no stop could be logged until the paperwork caught up.
+ */
+export interface StopCitation {
   id: UUID;
   /** Statute or ordinance cited. */
   statute: string;
@@ -68,7 +80,7 @@ export interface TrafficStop {
 
   reason: StopReason;
   outcome: StopOutcome;
-  citations: Citation[];
+  citations: StopCitation[];
 
   plate: string;
   plateState: string;
@@ -84,7 +96,7 @@ export interface TrafficStop {
   updatedAt: string;
 }
 
-export function createCitation(partial: Partial<Citation> = {}): Citation {
+export function createStopCitation(partial: Partial<StopCitation> = {}): StopCitation {
   return { id: '', statute: '', description: '', warningOnly: false, ...partial };
 }
 

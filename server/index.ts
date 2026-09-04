@@ -33,6 +33,8 @@ import { registerTrespassRoutes } from './trespass';
 import { registerVehicleRoutes } from './vehicles';
 import { registerWarrantRoutes, outstandingWarrants } from './warrants';
 import { registerFieldContactRoutes } from './fieldContacts';
+import { registerInvestigationRoutes } from './investigations';
+import { registerCitationRoutes } from './citations';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -509,6 +511,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerVehicleRoutes(app, db);
   registerWarrantRoutes(app, db);
   registerFieldContactRoutes(app, db);
+  registerInvestigationRoutes(app, db);
+  registerCitationRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {
