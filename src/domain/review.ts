@@ -35,7 +35,7 @@ export interface ReviewComment {
   resolvedAt: string;
 }
 
-export type ReviewAction = 'submitted' | 'approved' | 'returned' | 'reopened';
+export type ReviewAction = 'submitted' | 'approved' | 'returned' | 'reopened' | 'recalled';
 
 export interface ReviewEvent {
   id: UUID;
@@ -52,6 +52,7 @@ export const REVIEW_ACTION_LABEL: Record<ReviewAction, string> = {
   approved: 'Approved',
   returned: 'Returned for correction',
   reopened: 'Reopened',
+  recalled: 'Taken back by the officer',
 };
 
 /* ------------------------------------------------------------------ */
@@ -113,6 +114,46 @@ export function canReopen(reviewer: User | null, status: ReportStatus): Transiti
   }
   if (status !== 'approved') {
     return { ok: false, reason: 'Only an approved report can be reopened.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Taking a report back out of the queue.
+ *
+ * An officer who submits and then remembers the thing they meant to add has
+ * two bad options without this: ask a supervisor to return it, which puts a
+ * "returned for correction" on a report nothing was wrong with, or say nothing.
+ * The second is the one that actually happens, and it is how a report goes into
+ * the record incomplete.
+ *
+ * Only the author, only while nobody has acted on it. Once a supervisor has
+ * started reading, pulling the report out from under them is a different thing
+ * — and once it is approved or returned, the status already says what happened.
+ */
+export function canRecall(
+  officer: User | null,
+  report: { status: ReportStatus; createdBy: string; reviewComments?: { id: string }[] },
+): TransitionCheck {
+  if (!officer) return { ok: false, reason: 'You are not signed in.' };
+  if (report.status !== 'pending_review') {
+    return {
+      ok: false,
+      reason:
+        report.status === 'approved'
+          ? 'This report has been approved. A supervisor reopens it from here.'
+          : 'This report is not waiting on a supervisor.',
+    };
+  }
+  if (report.createdBy && report.createdBy !== officer.id) {
+    return { ok: false, reason: 'Only the officer who wrote it can take it back.' };
+  }
+  if ((report.reviewComments ?? []).length > 0) {
+    return {
+      ok: false,
+      reason:
+        'A supervisor has already left notes on this report. Answer those instead — taking it back now would drop what they asked for.',
+    };
   }
   return { ok: true };
 }

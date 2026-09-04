@@ -510,3 +510,116 @@ describe('result shape', () => {
     expect(result.byPath.get('incident.locationId')).toHaveLength(1);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* One car, two sections                                               */
+/* ------------------------------------------------------------------ */
+
+describe('a vehicle recorded as property', () => {
+  const stolenCar = (partial = {}) =>
+    baseIncident({
+      offenses: [createOffense({ code: '240', locationType: '20' })],
+      property: [
+        createProperty({
+          lossType: 'stolen',
+          descriptionCode: '03',
+          value: '8000',
+          make: 'Ford',
+          model: 'F-150',
+          serialNumber: '1FTFW1ET5DFA12345',
+        }),
+      ],
+      persons: [mkPerson('victim', { lastName: 'Ross', firstName: 'Kim', dob: '1980-01-01', victimType: 'I' })],
+      ...partial,
+    });
+
+  it('asks for the vehicle record the plate would live on', () => {
+    const issue = check(stolenCar()).issues.find((i) => i.ruleId === 'property.vehicleDetail');
+    expect(issue).toBeDefined();
+    expect(issue!.quickFix?.label).toBe('Add it to the vehicles section');
+  });
+
+  it('carries what it already knows across, and links the two', () => {
+    const draft = stolenCar();
+    const issue = check(draft).issues.find((i) => i.ruleId === 'property.vehicleDetail')!;
+    const focus = issue.quickFix!.apply(draft, PEOPLE);
+
+    expect(draft.vehicles).toHaveLength(1);
+    const [vehicle] = draft.vehicles;
+    expect(vehicle.make).toBe('Ford');
+    expect(vehicle.model).toBe('F-150');
+    // The serial number on a vehicle property line is its VIN.
+    expect(vehicle.vin).toBe('1FTFW1ET5DFA12345');
+    expect(vehicle.involvement).toBe('stolen');
+    expect(draft.property[0].vehicleId).toBe(vehicle.id);
+    // And it lands the cursor on the one thing it could not know.
+    expect(focus).toContain('plate');
+  });
+
+  it('stops asking once they are linked', () => {
+    const draft = stolenCar();
+    check(draft).issues.find((i) => i.ruleId === 'property.vehicleDetail')!.quickFix!.apply(draft, PEOPLE);
+    const after = check(draft);
+    expect(ruleIds(after.issues)).not.toContain('property.vehicleDetail');
+    // And the other direction does not immediately fire in its place.
+    expect(ruleIds(after.issues)).not.toContain('vehicles.property');
+  });
+
+  it('does not count an unrelated vehicle as the one that was taken', () => {
+    /*
+      A stolen car and a suspect's car on the same report is ordinary. Before
+      the link existed this rule went quiet as soon as *any* vehicle was on the
+      report, which is exactly when it should still be asking.
+    */
+    const draft = stolenCar({ vehicles: [createVehicle({ involvement: 'suspect', plate: 'XYZ123' })] });
+    expect(ruleIds(check(draft).issues)).toContain('property.vehicleDetail');
+  });
+});
+
+describe('a stolen vehicle that never reached the property list', () => {
+  const theft = (partial = {}) =>
+    baseIncident({
+      offenses: [createOffense({ code: '240', locationType: '20' })],
+      vehicles: [
+        createVehicle({ involvement: 'stolen', year: '2019', color: 'Blue', make: 'Ford', model: 'F-150', plate: 'ABC123' }),
+      ],
+      persons: [mkPerson('victim', { lastName: 'Ross', firstName: 'Kim', dob: '1980-01-01', victimType: 'I' })],
+      ...partial,
+    });
+
+  it('says the loss is not being counted', () => {
+    const issue = check(theft()).issues.find((i) => i.ruleId === 'vehicles.property');
+    expect(issue).toBeDefined();
+    expect(issue!.message).toMatch(/not counted/);
+  });
+
+  it('builds the property line from the car and asks only for the value', () => {
+    const draft = theft();
+    const focus = check(draft).issues.find((i) => i.ruleId === 'vehicles.property')!.quickFix!.apply(draft, PEOPLE);
+    expect(draft.property).toHaveLength(1);
+    const [item] = draft.property;
+    expect(item.lossType).toBe('stolen');
+    expect(item.descriptionCode).toBe('03');
+    expect(item.description).toBe('2019 Blue Ford F-150');
+    expect(item.vehicleId).toBe(draft.vehicles[0].id);
+    expect(focus).toContain('value');
+  });
+
+  it('leaves a suspect vehicle alone', () => {
+    // Only a car that was taken from somebody is a loss to record.
+    const draft = theft({ vehicles: [createVehicle({ involvement: 'suspect', plate: 'ABC123' })] });
+    expect(ruleIds(check(draft).issues)).not.toContain('vehicles.property');
+  });
+
+  it('does not fight the rule pointing the other way', () => {
+    /*
+      The two rules are a pair, and a pair that both fire after either fix is a
+      pair that makes the officer bounce between two sections for ever.
+    */
+    const draft = theft();
+    check(draft).issues.find((i) => i.ruleId === 'vehicles.property')!.quickFix!.apply(draft, PEOPLE);
+    const after = ruleIds(check(draft).issues);
+    expect(after).not.toContain('vehicles.property');
+    expect(after).not.toContain('property.vehicleDetail');
+  });
+});

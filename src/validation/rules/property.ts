@@ -1,6 +1,20 @@
 import { blank, path, type Issue, type Rule } from '../engine';
-import { createProperty } from '@/domain/factory';
+import { createProperty, createVehicle } from '@/domain/factory';
 import { STRUCTURE_PROPERTY_CODES, VEHICLE_PROPERTY_CODES } from '@/domain/codes';
+
+/**
+ * What a loss type means for the vehicle's involvement.
+ *
+ * The two lists say the same thing in different words, and only where they
+ * genuinely line up: property "seized" is not vehicle "towed", and guessing
+ * would put a wrong answer in a required field where a blank asks the question.
+ */
+const INVOLVEMENT_FOR_LOSS: Record<string, string> = {
+  stolen: 'stolen',
+  recovered: 'recovered',
+  burned: 'victim',
+  damaged: 'victim',
+};
 
 export const propertyRules: Rule[] = [
   // ---- Offenses that require a property record ---------------------------
@@ -196,11 +210,22 @@ export const propertyRules: Rule[] = [
         }
       }
 
-      // A drug offense with no drug property
+      /*
+        A vehicle on the property list with no vehicle record behind it.
+
+        The property segment carries the loss and the value; the plate, the VIN,
+        the colour and the body style live on the vehicle record, and those are
+        what a stolen-vehicle hit actually matches against. So this is not a
+        nag about tidiness — a car reported stolen with no plate in the system
+        is a car nobody is going to find.
+
+        The fix carries across what the property line already knows and links
+        the two, so the officer types the plate once, in the place it belongs.
+      */
       if (
         !blank(item.descriptionCode) &&
         VEHICLE_PROPERTY_CODES.has(item.descriptionCode) &&
-        ctx.vehicles.length === 0
+        !ctx.vehicles.some((vehicle) => vehicle.id === item.vehicleId)
       ) {
         issues.push({
           key: `property.${item.id}.vehicleDetail`,
@@ -209,8 +234,24 @@ export const propertyRules: Rule[] = [
           section: 'vehicles',
           path: path.section('vehicles'),
           title: 'Vehicle listed as property with no vehicle record',
-          message: `${scope} is coded as a vehicle, but the Vehicles section is empty.`,
+          message: `${scope} is coded as a vehicle, but nothing in the Vehicles section describes it.`,
           tip: 'Add the vehicle so the VIN, plate and description get into the record — that is what a hit on the stolen vehicle file matches against.',
+          quickFix: {
+            label: 'Add it to the vehicles section',
+            apply: (draft) => {
+              const line = draft.property.find((entry) => entry.id === item.id);
+              if (!line) return;
+              const vehicle = createVehicle({
+                involvement: INVOLVEMENT_FOR_LOSS[line.lossType] ?? '',
+                make: line.make,
+                model: line.model,
+                vin: line.serialNumber,
+              });
+              draft.vehicles.push(vehicle);
+              line.vehicleId = vehicle.id;
+              return path.vehicle(vehicle.id, 'plate');
+            },
+          },
         });
       }
 

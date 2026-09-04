@@ -132,6 +132,17 @@ export interface PropertyItem {
   drugQuantity: string;
   drugMeasurement: string;
   ownerPersonId: UUID | '';
+
+  /**
+   * The vehicle record this line is about, where it is about a vehicle.
+   *
+   * The plate, the VIN, the colour and the body style live on the vehicle, not
+   * here, and deliberately: those are what a stolen-vehicle hit matches
+   * against, and a second copy of them on the property line would be a second
+   * copy that drifts. What the property segment needs is the loss type and the
+   * value; what the officer needs is for both to describe one car.
+   */
+  vehicleId: UUID | '';
 }
 
 export interface Vehicle {

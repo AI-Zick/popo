@@ -1,5 +1,8 @@
 import { blank, path, type Issue, type Rule } from '../engine';
-import { createVehicle } from '@/domain/factory';
+import { createProperty, createVehicle } from '@/domain/factory';
+
+/** Involvements that mean the car was taken from somebody. */
+const STOLEN_INVOLVEMENT = new Set(['stolen', 'recovered']);
 import { isValidVIN } from '@/lib/format';
 
 export const vehicleRules: Rule[] = [
@@ -26,6 +29,50 @@ export const vehicleRules: Rule[] = [
         },
       },
     ];
+  },
+
+  /*
+    ---- A stolen vehicle that never reached the property list ---------------
+
+    The other half of the same relationship. A stolen car is property, and the
+    property segment is what carries its value into the state's figures — a
+    theft report with the car only in the vehicles section under-reports the
+    loss, every time, and nobody notices because the report looks complete.
+  */
+  (ctx) => {
+    const linked = new Set(ctx.property.map((item) => item.vehicleId).filter(Boolean));
+    return ctx.vehicles
+      .filter((vehicle) => STOLEN_INVOLVEMENT.has(vehicle.involvement) && !linked.has(vehicle.id))
+      .map((vehicle, index) => ({
+        key: `vehicles.${vehicle.id}.property`,
+        ruleId: 'vehicles.property',
+        severity: 'warning' as const,
+        section: 'property' as const,
+        path: path.section('property'),
+        scope: `Vehicle ${index + 1}${vehicle.plate ? ` — ${vehicle.plate}` : ''}`,
+        title: 'Stolen vehicle is not on the property list',
+        message:
+          'The vehicle is recorded, but nothing on the property list says it was taken, so its value is not counted in what this offence cost.',
+        tip: 'Adding it fills in the loss type and the description from the vehicle — the value is the one thing it cannot know.',
+        quickFix: {
+          label: 'Add it to the property list',
+          apply: (draft) => {
+            const car = draft.vehicles.find((entry) => entry.id === vehicle.id);
+            if (!car) return;
+            const item = createProperty({
+              lossType: car.involvement === 'recovered' ? 'recovered' : 'stolen',
+              descriptionCode: '03',
+              make: car.make,
+              model: car.model,
+              serialNumber: car.vin,
+              vehicleId: car.id,
+              description: [car.year, car.color, car.make, car.model].filter(Boolean).join(' '),
+            });
+            draft.property.push(item);
+            return path.property(item.id, 'value');
+          },
+        },
+      }));
   },
 
   // ---- Per-vehicle requirements ------------------------------------------

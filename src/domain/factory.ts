@@ -93,6 +93,7 @@ export function createProperty(partial: Partial<PropertyItem> = {}): PropertyIte
     drugQuantity: '',
     drugMeasurement: '',
     ownerPersonId: '',
+    vehicleId: '',
     ...partial,
   };
 }

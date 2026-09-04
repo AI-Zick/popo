@@ -363,6 +363,35 @@ export const VEHICLE_INVOLVEMENT: CodeOption[] = [
   { value: 'other', label: 'Other' },
 ];
 
+/**
+ * Body styles, as an officer would say them on the radio.
+ *
+ * Not a NIBRS list — NIBRS does not ask. This is for the description that
+ * matters when somebody is looking for the car, which is why it is the shapes
+ * people actually use rather than a manufacturer's trim taxonomy. "4-door" and
+ * "2-door" lead because that is what gets said first.
+ */
+export const BODY_STYLES: CodeOption[] = [
+  { value: '4dr', label: '4-door' },
+  { value: '2dr', label: '2-door' },
+  { value: 'hatchback', label: 'Hatchback' },
+  { value: 'wagon', label: 'Station wagon' },
+  { value: 'suv', label: 'SUV' },
+  { value: 'pickup', label: 'Pickup' },
+  { value: 'van', label: 'Van' },
+  { value: 'minivan', label: 'Minivan' },
+  { value: 'convertible', label: 'Convertible' },
+  { value: 'coupe', label: 'Coupe' },
+  { value: 'boxtruck', label: 'Box truck' },
+  { value: 'tractor', label: 'Tractor / semi' },
+  { value: 'bus', label: 'Bus' },
+  { value: 'motorcycle', label: 'Motorcycle' },
+  { value: 'atv', label: 'ATV / off-road' },
+  { value: 'trailer', label: 'Trailer' },
+  { value: 'rv', label: 'Motorhome / RV' },
+  { value: 'other', label: 'Other' },
+];
+
 export const CLEARANCE_OPTIONS: CodeOption[] = [
   { value: 'open', label: 'Open / Active' },
   { value: 'cleared_arrest', label: 'Cleared by Arrest' },

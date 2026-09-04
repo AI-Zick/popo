@@ -1,4 +1,5 @@
-import { AlertCircle, ArrowRight, CheckCircle2, FileCheck2, Send } from 'lucide-react';
+import { useState } from 'react';
+import { AlertCircle, ArrowRight, CheckCircle2, FileCheck2, Send, Undo2 } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { SECTION_LABEL, SECTION_ORDER, type SectionId } from '@/domain/types';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
@@ -8,7 +9,63 @@ import { personDisplayName } from '@/validation/engine';
 import { fullAddress } from '@/domain/location';
 import { cn } from '@/lib/cn';
 import { ReviewPanel } from '@/features/review/ReviewPanel';
-import { STATUS_LABEL } from '@/domain/review';
+import { canRecall, STATUS_LABEL } from '@/domain/review';
+
+/**
+ * Submitted, and what to do about remembering something afterwards.
+ *
+ * Without a way back, an officer who realises they left out the second
+ * witness has two options: ask a supervisor to return it — which puts
+ * "returned for correction" on a report nothing was wrong with — or say
+ * nothing. The second is what actually happens, and it is how a report goes
+ * into the record incomplete.
+ *
+ * It disappears the moment a supervisor has left a note, because from then on
+ * taking it back would drop what they asked for. `canRecall` holds that rule.
+ */
+function WaitingOnSupervisor() {
+  const { incident, currentUser, recallReport } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!incident) return null;
+
+  const recall = canRecall(currentUser, incident);
+
+  return (
+    <div className="rounded-xl border border-accent/35 bg-accent-soft p-4">
+      <p className="text-[14px] font-semibold text-ink">Waiting on a supervisor</p>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+        Submitted {incident.submittedAt ? formatDateTime(incident.submittedAt) : ''}. It is
+        read-only until it comes back or is approved.
+      </p>
+      {recall.ok ? (
+        <div className="mt-3">
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError('');
+              void recallReport().then((result) => {
+                setBusy(false);
+                if (!result.ok) setError(result.reason ?? 'That did not work.');
+              });
+            }}
+          >
+            <Undo2 size={15} aria-hidden />
+            Take it back to finish something
+          </Button>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-faint">
+            Puts it back in your drafts. It stays on the report's history, so this is not a way to
+            un-submit quietly.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-2 text-[11.5px] leading-relaxed text-faint">{recall.reason}</p>
+      )}
+      {error && <p className="mt-2 text-[12.5px] text-danger">{error}</p>}
+    </div>
+  );
+}
 
 export function SectionReview() {
   const { incident, persons, location, validation, goToIssue, setSection, attemptSubmit } =
@@ -35,15 +92,7 @@ export function SectionReview() {
         </div>
       )}
 
-      {incident.status === 'pending_review' && (
-        <div className="rounded-xl border border-accent/35 bg-accent-soft p-4">
-          <p className="text-[14px] font-semibold text-ink">Waiting on a supervisor</p>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-            Submitted {incident.submittedAt ? formatDateTime(incident.submittedAt) : ''}. It is
-            read-only until it comes back or is approved.
-          </p>
-        </div>
-      )}
+      {incident.status === 'pending_review' && <WaitingOnSupervisor />}
 
       <ReviewPanel />
 

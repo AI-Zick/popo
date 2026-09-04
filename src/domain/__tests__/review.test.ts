@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildQueue,
+  canRecall,
   canReopen,
   canReview,
   canSubmit,
@@ -138,5 +139,46 @@ describe('wait times read naturally', () => {
     expect(describeWait(0.2)).toBe('just now');
     expect(describeWait(5)).toBe('5h');
     expect(describeWait(50)).toBe('2d');
+  });
+});
+
+describe('taking a report back out of the queue', () => {
+  const submitted = (partial = {}) => ({
+    status: 'pending_review' as const,
+    createdBy: 'u-officer',
+    reviewComments: [] as { id: string }[],
+    ...partial,
+  });
+
+  it('the author may, while nobody has acted on it', () => {
+    /*
+      Without this an officer who remembers the second witness has to ask a
+      supervisor to return the report — putting "returned for correction" on a
+      report nothing was wrong with — or say nothing. The second is what
+      actually happens.
+    */
+    expect(canRecall(officer, submitted()).ok).toBe(true);
+  });
+
+  it('nobody else may', () => {
+    expect(canRecall(otherSupervisor, submitted()).ok).toBe(false);
+    expect(canRecall(supervisor, submitted()).reason).toMatch(/who wrote it/);
+  });
+
+  it('not once a supervisor has left notes on it', () => {
+    // Taking it back then would drop what they asked for.
+    const withNotes = submitted({ reviewComments: [{ id: 'c1' }] });
+    expect(canRecall(officer, withNotes).ok).toBe(false);
+    expect(canRecall(officer, withNotes).reason).toMatch(/Answer those/);
+  });
+
+  it('not once it is approved — that is a reopen, and a supervisor does it', () => {
+    const approved = submitted({ status: 'approved' as const });
+    expect(canRecall(officer, approved).ok).toBe(false);
+    expect(canRecall(officer, approved).reason).toMatch(/supervisor reopens it/);
+  });
+
+  it('not on a draft that was never submitted', () => {
+    expect(canRecall(officer, submitted({ status: 'draft' as const })).ok).toBe(false);
   });
 });

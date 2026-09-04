@@ -1153,6 +1153,11 @@ export const api = {
     return request(`/api/reports/${id}/submit`, { method: 'POST' });
   },
 
+  /** The officer takes it back, before anybody has acted on it. */
+  recallReport(id: string): Promise<{ report: Incident }> {
+    return request(`/api/reports/${id}/recall`, { method: 'POST' });
+  },
+
   approveReport(id: string, note = ''): Promise<{ report: Incident }> {
     return request(`/api/reports/${id}/approve`, {
       method: 'POST',

@@ -7,7 +7,7 @@ import {
   scoreLocation,
   searchLocations,
 } from '../locationMatching';
-import { emptyLocation, type LocationIndex, type MasterLocation } from '../location';
+import { emptyLocation, premisesFor, type LocationIndex, type MasterLocation } from '../location';
 
 function loc(partial: Partial<MasterLocation>): MasterLocation {
   return { ...emptyLocation(partial.id ?? 'l1'), ...partial };
@@ -196,5 +196,26 @@ describe('search box behaviour', () => {
 
   it('returns everything when the box is empty', () => {
     expect(searchLocations('', index(STORAGE, HOUSE))).toHaveLength(2);
+  });
+});
+
+describe('the premises type an offence takes from its place', () => {
+  it('fills a blank from the place', () => {
+    expect(premisesFor('', { locationType: '20' })).toBe('20');
+  });
+
+  it('never overwrites one somebody has answered', () => {
+    /*
+      An offence in the car park of a building is not an offence in the
+      building. Pinning down the address afterwards must not silently rewrite
+      the answer.
+    */
+    expect(premisesFor('13', { locationType: '20' })).toBe('13');
+  });
+
+  it('leaves it blank when the place has no type on file', () => {
+    expect(premisesFor('', { locationType: '' })).toBe('');
+    expect(premisesFor('', null)).toBe('');
+    expect(premisesFor('', undefined)).toBe('');
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Check, ChevronDown, Lightbulb, Wrench, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useStore } from '@/state/store';
@@ -220,6 +220,36 @@ interface SelectProps {
   showCodes?: boolean;
 }
 
+/* ------------------------------------------------------------------ */
+/* Select — a dropdown you can type into                               */
+/* ------------------------------------------------------------------ */
+
+interface TypeableProps extends SelectProps {
+  /**
+   * Whether a value the list does not contain may stand.
+   *
+   * Off for coded fields, where an unlisted value is a value the state will
+   * reject. On where the list is a convenience over free text — body style is
+   * the case that forced this: reports already hold "4-door sedan" typed by an
+   * officer and "PK" copied off a registration return, and a control that
+   * silently dropped those on first render would lose real evidence about real
+   * cars.
+   */
+  allowFree?: boolean;
+}
+
+/**
+ * A dropdown an officer can type into.
+ *
+ * Thirty-nine property descriptions and two hundred offence codes are not a
+ * list anybody scrolls twice. Typing "burg" and pressing Enter is how this gets
+ * used at three in the morning, and a plain select cannot do it.
+ *
+ * It shows the *label* while closed, because "Automobile" is what somebody is
+ * looking for, and it keeps the code as the value, because that is what gets
+ * filed. A value that is not on the list still shows — as itself — so nothing
+ * already recorded disappears the day this list changes.
+ */
 export function SelectField({
   path,
   label,
@@ -228,39 +258,173 @@ export function SelectField({
   options,
   required,
   hint,
-  placeholder = 'Select…',
+  placeholder = 'Type to search…',
   className,
   showCodes,
-}: SelectProps) {
+  allowFree,
+}: TypeableProps) {
   const { revealField } = useStore();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const chosen = options.find((o) => o.value === value);
+  const display = chosen ? (showCodes ? `${chosen.value} — ${chosen.label}` : chosen.label) : value;
+
+  const matches = useMemo(() => {
+    const q = (query ?? '').trim().toLowerCase();
+    if (!q) return options;
+    /*
+      Anything the officer might type: the label, the code, and the hint. A
+      search for "22" finds Burglary by its code; a search for "break" finds it
+      by the hint that says what it covers.
+    */
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        o.value.toLowerCase().includes(q) ||
+        (o.hint ?? '').toLowerCase().includes(q),
+    );
+  }, [options, query]);
+
+  // Clicking away closes it and gives up whatever was half-typed.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (!boxRef.current?.contains(event.target as Node)) {
+        commit();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  });
+
+  /** What a half-typed entry means once focus leaves. */
+  function commit() {
+    if (query === null) return;
+    const typed = query.trim();
+    setQuery(null);
+    if (!typed) {
+      onChange('');
+      return;
+    }
+    const exact = options.find(
+      (o) => o.label.toLowerCase() === typed.toLowerCase() || o.value.toLowerCase() === typed.toLowerCase(),
+    );
+    if (exact) {
+      onChange(exact.value);
+      return;
+    }
+    // One match left is what the officer meant; they narrowed it themselves.
+    if (matches.length === 1) {
+      onChange(matches[0].value);
+      return;
+    }
+    if (allowFree) onChange(typed);
+  }
+
+  const pick = (option: CodeOption) => {
+    onChange(option.value);
+    setQuery(null);
+    setOpen(false);
+    revealField(path);
+  };
+
   return (
     <FieldShell path={path} label={label} required={required} hint={hint} className={className}>
       {({ id, describedBy, invalid }) => (
-        <div className="relative">
-          <select
+        <div className="relative" ref={boxRef}>
+          <input
             id={id}
-            value={value}
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={`${id}-list`}
+            aria-autocomplete="list"
+            aria-activedescendant={open && matches[active] ? `${id}-opt-${active}` : undefined}
+            autoComplete="off"
+            value={query ?? display}
+            placeholder={placeholder}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
+            onFocus={() => {
+              setOpen(true);
+              setActive(0);
+            }}
             onChange={(e) => {
-              onChange(e.target.value);
-              revealField(path);
+              setQuery(e.target.value);
+              setOpen(true);
+              setActive(0);
             }}
             onBlur={() => revealField(path)}
-            className={controlClass(invalid, 'appearance-none pr-9')}
-          >
-            <option value="">{placeholder}</option>
-            {options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {showCodes ? `${o.value} — ${o.label}` : o.label}
-              </option>
-            ))}
-          </select>
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setOpen(true);
+                setActive((i) => Math.min(i + 1, matches.length - 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActive((i) => Math.max(i - 1, 0));
+              } else if (e.key === 'Enter') {
+                if (open && matches[active]) {
+                  e.preventDefault();
+                  pick(matches[active]);
+                }
+              } else if (e.key === 'Escape') {
+                // Back to what was there, rather than to nothing.
+                setQuery(null);
+                setOpen(false);
+              } else if (e.key === 'Tab') {
+                commit();
+                setOpen(false);
+              }
+            }}
+            className={controlClass(invalid, 'pr-9')}
+          />
           <ChevronDown
             size={16}
             className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint"
             aria-hidden
           />
+
+          {open && (
+            <ul
+              id={`${id}-list`}
+              role="listbox"
+              className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-lg"
+            >
+              {matches.length === 0 && (
+                <li className="px-3 py-2 text-[13px] text-faint">
+                  {allowFree ? 'Nothing matches — it will be kept as typed.' : 'Nothing matches.'}
+                </li>
+              )}
+              {matches.map((option, index) => (
+                <li key={option.value}>
+                  <button
+                    type="button"
+                    id={`${id}-opt-${index}`}
+                    role="option"
+                    aria-selected={option.value === value}
+                    // Mouse down would blur the input and close the list first.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pick(option)}
+                    className={cn(
+                      'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-[13.5px]',
+                      index === active ? 'bg-accent-soft text-ink' : 'text-ink hover:bg-raised',
+                    )}
+                  >
+                    {showCodes && (
+                      <span className="shrink-0 font-mono text-[12px] text-faint">{option.value}</span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    {option.value === value && <Check size={14} className="shrink-0 text-accent" aria-hidden />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </FieldShell>

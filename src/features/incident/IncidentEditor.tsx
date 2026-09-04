@@ -97,7 +97,16 @@ export function IncidentEditor() {
 
       <div className="flex min-h-0 flex-1">
         {/* -------- Section rail ---------------------------------------- */}
-        <nav className="w-56 shrink-0 overflow-y-auto border-r border-line bg-canvas p-3">
+        {/*
+          The bottom padding is not decoration. The feedback button floats at
+          `bottom-4 left-4` on every screen, and this rail is the only column
+          narrow enough to have content under it — the F8 hint at the foot of
+          this list was sitting behind it. Reserving the button's own height
+          here is what keeps the two apart at any window size, rather than
+          moving a control that is deliberately away from the primary actions
+          every screen puts bottom-right.
+        */}
+        <nav className="w-56 shrink-0 overflow-y-auto border-r border-line bg-canvas p-3 pb-16">
           <ol className="space-y-0.5">
             {SECTION_ORDER.map((section) => {
               const Icon = SECTION_ICON[section];

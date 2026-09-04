@@ -1,4 +1,4 @@
-import { Package } from 'lucide-react';
+import { Car, Package } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { path, personDisplayName } from '@/validation/engine';
 import { createProperty } from '@/domain/factory';
@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/primitives';
 import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
 import {
+  BODY_STYLES,
+  labelOf,
   DRUG_MEASUREMENTS,
   DRUG_TYPES,
   LOSS_TYPES,
@@ -92,8 +94,19 @@ function PropertyCard({
   onChange: (patch: Partial<PropertyItem>) => void;
   onRemove: () => void;
 }) {
-  const { persons } = useStore();
+  const { persons, incident, setSection } = useStore();
   const at = (field: keyof PropertyItem) => path.property(item.id, field);
+
+  /*
+    The car this line is about, where it is about a car.
+
+    Shown rather than duplicated. The plate, the VIN, the colour and the body
+    style are what a stolen-vehicle hit matches against, and they belong on the
+    one vehicle record that goes to the state — a second copy here would be a
+    second copy that drifts. What the officer needs is to see, from the
+    property line, that the details exist and where.
+  */
+  const linked = incident?.vehicles.find((vehicle) => vehicle.id === item.vehicleId);
 
   const isDrugItem = item.descriptionCode === '10' || item.descriptionCode === '11';
   const showDrugFields = isDrugItem || (forceDrugFields && item.lossType === 'seized');
@@ -120,6 +133,23 @@ function PropertyCard({
       }
       onRemove={onRemove}
     >
+      {linked && (
+        <button
+          type="button"
+          onClick={() => setSection('vehicles')}
+          className="mb-3 flex w-full items-center gap-2 rounded-lg border border-line bg-canvas px-3 py-2 text-left text-[12.5px] transition hover:border-accent/40"
+        >
+          <Car size={14} className="shrink-0 text-faint" aria-hidden />
+          <span className="min-w-0 flex-1 text-ink">
+            {[linked.year, linked.color, linked.make, linked.model, labelOf(BODY_STYLES, linked.style) || linked.style]
+              .filter(Boolean)
+              .join(' ') || 'Vehicle details not filled in yet'}
+            {linked.plate && <span className="ml-1.5 font-mono text-muted">{linked.plate}</span>}
+          </span>
+          <span className="shrink-0 text-faint">Edit in Vehicles</span>
+        </button>
+      )}
+
       <FieldGrid cols={3}>
         <SelectField
           path={at('lossType')}

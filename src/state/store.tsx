@@ -45,6 +45,7 @@ import {
 import { centerOf, featureAt, featureName } from '@/domain/geo';
 import {
   activeNotes,
+  premisesFor,
   type LocationIndex,
   type MasterLocation,
   type NoteKind,
@@ -240,6 +241,8 @@ interface StoreValue {
     comments: { path: string; section: string; message: string }[],
   ) => Promise<GuardResult>;
   reopenReport: (reason: string) => Promise<GuardResult>;
+  /** The author takes a report back out of the review queue. */
+  recallReport: () => Promise<GuardResult>;
   resolveReviewComment: (commentId: string) => void;
   uploadAttachment: (file: File, caption: string) => Promise<GuardResult>;
   retractAttachment: (id: string, reason: string) => Promise<GuardResult>;
@@ -551,7 +554,7 @@ interface StoreValue {
   historyFor: (masterId: string) => { incident: Incident; role: PersonRole }[];
 
   // Location index
-  setLocation: (locationId: string) => void;
+  setLocation: (locationId: string, place?: MasterLocation) => void;
   createAndSetLocation: (draft: Partial<MasterLocation>) => void;
   updateLocation: (locationId: string, patch: Partial<MasterLocation>) => void;
   addNote: (locationId: string, note: { kind: NoteKind; text: string; sensitive: boolean }) => void;
@@ -2524,13 +2527,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* -------------------------------------------------- locations -------- */
 
+  /**
+   * Attaches a place to the report, and answers the offence's premises
+   * question with it.
+   *
+   * A new offence already inherits the place's type, so the gap was the other
+   * order — and the other order is the common one: an officer writes the
+   * offence from what the call said, then pins down the address. Left alone,
+   * that officer answers "what kind of place was this" a second time about the
+   * same place, and it is a required field, so the report carries a blocking
+   * error for a question already answered.
+   *
+   * `premisesFor` holds the rule, including that it only fills blanks.
+   *
+   * `place` is passed in by the create path, which knows the record it just
+   * made; the index state has not caught up in the same tick.
+   */
   const setLocation = useCallback(
-    (locationId: string) => {
+    (locationId: string, place?: MasterLocation) => {
+      const known = place ?? locations[locationId];
       update((draft) => {
         draft.locationId = locationId;
+        for (const offense of draft.offenses) {
+          offense.locationType = premisesFor(offense.locationType, known);
+        }
       });
     },
-    [update],
+    [update, locations],
   );
 
   /**
@@ -2554,7 +2577,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       setLocations((prev) => ({ ...prev, [created.id]: created }));
       markDirty('locations', created.id);
-      setLocation(created.id);
+      setLocation(created.id, created);
     },
     [locations, setLocation, agency.city, agency.state],
   );
@@ -3121,6 +3144,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [incident, adoptReport],
   );
 
+  const recallReport = useCallback(async (): Promise<GuardResult> => {
+    if (!incident) return { ok: false, reason: 'No report is open.' };
+    try {
+      await api.recallReport(incident.id);
+      await adoptReport();
+      return { ok: true };
+    } catch (error) {
+      return failed(error, 'Could not take it back.');
+    }
+  }, [incident, adoptReport]);
+
   const resolveReviewComment = useCallback(
     (commentId: string) => {
       if (!incident) return;
@@ -3168,6 +3202,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     approveReport,
     returnReport,
     reopenReport,
+    recallReport,
     resolveReviewComment,
     uploadAttachment,
     retractAttachment,

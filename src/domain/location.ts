@@ -176,3 +176,26 @@ export function isStale(note: PremiseNote, now = Date.now()): boolean {
   if (Number.isNaN(at)) return false;
   return now - at > NOTE_STALE_DAYS * 86_400_000;
 }
+
+/* ------------------------------------------------------------------ */
+/* What a place tells the report                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The premises type an offence should take from the place it happened at.
+ *
+ * Both fields come from the same NIBRS list, so this is a straight carry-over
+ * rather than a mapping. The rule is only that it fills blanks: an offence in
+ * the car park of a building is not an offence in the building, and an officer
+ * who has said so is not to be overruled by a later edit to the address.
+ *
+ * Returns what the offence's type should be, so the caller can compare and
+ * decide whether anything changed.
+ */
+export function premisesFor(
+  current: string,
+  place: { locationType: string } | null | undefined,
+): string {
+  if (current.trim()) return current;
+  return place?.locationType ?? '';
+}

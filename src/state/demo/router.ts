@@ -11,7 +11,7 @@
  */
 
 import { can, createUser, sanitizeUserInput, type Permission } from '@/domain/auth';
-import { canReopen, canReview, canSubmit } from '@/domain/review';
+import { canRecall, canReopen, canReview, canSubmit } from '@/domain/review';
 import { checkArrest, blockingProblems as arrestBlocking, createArrest, createCharge, nextArrestNumber } from '@/domain/arrest';
 import { createTask, sortTasks } from '@/domain/caseTask';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
@@ -149,6 +149,10 @@ import {
   type PublicRequest,
   type RequestChannel,
 } from '@/domain/publicRecords';
+import { runRules } from '@/validation/engine';
+import { ALL_RULES } from '@/validation/rules';
+import { stateRules } from '@/domain/nibrs/rules';
+import { profileFor } from '@/domain/nibrs/states';
 import { createSupplement, nextNumber } from '@/domain/supplement';
 import { createCrashReport } from '@/domain/crash';
 import { audit, currentUser, db, newId, password, reset, seedHistory } from './store';
@@ -466,8 +470,46 @@ export async function handle(method: string, url: string, body: unknown): Promis
       if (action === 'submit') {
         const allowed = canSubmit(incident.status);
         if (!allowed.ok) return fail(403, allowed.reason!);
+        /*
+          The same gate the server applies, and for the same reason: the editor
+          refusing this is what makes the refusal useful, but a check only the
+          editor performs is not a check. The arrest route next door has always
+          worked this way — the report route was the one that did not.
+        */
+        const blocking = runRules(
+          incident,
+          [...ALL_RULES, ...stateRules(profileFor(state.agency.state))],
+          { people: state.people, locations: state.locations, agency: state.agency },
+        ).errors;
+        if (blocking.length > 0) {
+          return {
+            status: 400,
+            body: {
+              error:
+                blocking.length === 1
+                  ? 'This report has one problem that has to be fixed before it goes up.'
+                  : `This report has ${blocking.length} problems that have to be fixed before it goes up.`,
+              issues: blocking.map((issue) => ({
+                key: issue.key,
+                section: issue.section,
+                path: issue.path,
+                scope: issue.scope,
+                title: issue.title,
+                message: issue.message,
+                tip: issue.tip,
+              })),
+            },
+          };
+        }
         Object.assign(incident, { status: 'pending_review', submittedAt: at() });
         await audit({ actorId: user.id, actorName: user.name, action: 'report.submitted', target: incident.caseNumber, detail: '' });
+        return ok({ ok: true, report: incident });
+      }
+      if (action === 'recall') {
+        const allowed = canRecall(user, incident);
+        if (!allowed.ok) return fail(409, allowed.reason!);
+        Object.assign(incident, { status: 'draft', submittedAt: '' });
+        await audit({ actorId: user.id, actorName: user.name, action: 'report.recalled', target: incident.caseNumber, detail: '' });
         return ok({ ok: true, report: incident });
       }
       if (action === 'approve' || action === 'return') {

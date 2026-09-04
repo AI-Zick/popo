@@ -14,7 +14,14 @@ import { DOC_TABLES, documents } from './db';
 import { newId } from './ids';
 import { requireAuth } from './auth';
 import { recordAudit } from './audit';
-import { canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
+import { canRecall, canReopen, canReview, canSubmit, type ReviewComment, type ReviewEvent } from '../src/domain/review';
+import { runRules, type Issue } from '../src/validation/engine';
+import { ALL_RULES } from '../src/validation/rules';
+import { stateRules } from '../src/domain/nibrs/rules';
+import { profileFor } from '../src/domain/nibrs/states';
+import { emptyAgency, type AgencyProfile } from '../src/domain/agency';
+import type { PersonIndex } from '../src/domain/person';
+import type { LocationIndex } from '../src/domain/location';
 import type { Incident } from '../src/domain/types';
 
 export const incidents = documents<Incident>(DOC_TABLES.incidents);
@@ -53,6 +60,42 @@ function save(db: DatabaseSync, doc: Incident): void {
   incidents.save(db, doc);
 }
 
+/**
+ * What is wrong with a report, as the officer's own screen sees it.
+ *
+ * The people and places come out of the database rather than off the request,
+ * because a rule that asks "does this victim have a date of birth" has to look
+ * at the victim the agency actually holds. Reading them costs a query on a
+ * path that runs once when a report goes up, which is the right place to pay
+ * for being sure.
+ *
+ * Only errors. Warnings are the state's requirements and the softer advice —
+ * they hold a report out of the state submission, deliberately, and they have
+ * never blocked an officer from filing.
+ */
+function blockingIssues(db: DatabaseSync, report: Incident): Issue[] {
+  const agencyRow = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
+    | { doc: string }
+    | undefined;
+  const agency: AgencyProfile = agencyRow ? (JSON.parse(agencyRow.doc) as AgencyProfile) : emptyAgency();
+
+  const people = Object.fromEntries(
+    (db.prepare('SELECT doc FROM people').all() as { doc: string }[]).map((row) => {
+      const person = JSON.parse(row.doc) as { id: string };
+      return [person.id, person];
+    }),
+  ) as PersonIndex;
+  const locations = Object.fromEntries(
+    (db.prepare('SELECT doc FROM locations').all() as { doc: string }[]).map((row) => {
+      const place = JSON.parse(row.doc) as { id: string };
+      return [place.id, place];
+    }),
+  ) as LocationIndex;
+
+  const rules = [...ALL_RULES, ...stateRules(profileFor(agency.state))];
+  return runRules(report, rules, { people, locations, agency }).errors;
+}
+
 export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
   /** Officer sends the report up. */
   app.post('/api/reports/:id/submit', requireAuth, async (req: Request, res: Response) => {
@@ -66,6 +109,40 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
     const check = canSubmit(loaded.doc.status);
     if (!check.ok) {
       res.status(409).json({ error: check.reason });
+      return;
+    }
+
+    /*
+      And the report has to actually be finishable.
+
+      The editor already refuses this, which is what makes the refusal useful —
+      an officer is told which field and taken to it. But a check that only the
+      editor performs is not a check: anything that posts to this route without
+      going through that screen gets a report into the review queue with
+      whatever is missing from it, and the first person to find out is the
+      supervisor, or the state, or nobody.
+
+      The same rules, run the same way. `blockingIssues` builds the context from
+      the database rather than from what the client says it is, so a client that
+      lies about the report's contents cannot talk its way past this either.
+    */
+    const blocking = blockingIssues(db, loaded.doc);
+    if (blocking.length > 0) {
+      res.status(400).json({
+        error:
+          blocking.length === 1
+            ? 'This report has one problem that has to be fixed before it goes up.'
+            : `This report has ${blocking.length} problems that have to be fixed before it goes up.`,
+        issues: blocking.map((issue) => ({
+          key: issue.key,
+          section: issue.section,
+          path: issue.path,
+          scope: issue.scope,
+          title: issue.title,
+          message: issue.message,
+          tip: issue.tip,
+        })),
+      });
       return;
     }
 
@@ -85,6 +162,42 @@ export function registerReviewRoutes(app: Express, db: DatabaseSync): void {
       actorId: user.id,
       actorName: user.name,
       action: 'report.submitted',
+      target: doc.caseNumber,
+      detail: '',
+    });
+    res.json({ ok: true, report: doc });
+  });
+
+  /** Officer takes it back before anybody has acted on it. */
+  app.post('/api/reports/:id/recall', requireAuth, async (req: Request, res: Response) => {
+    const user = req.user!;
+    const loaded = incidents.findWithVersion(db, req.params.id);
+    if (!loaded) {
+      res.status(404).json({ error: 'No such report.' });
+      return;
+    }
+    const check = canRecall(user, loaded.doc);
+    if (!check.ok) {
+      res.status(409).json({ error: check.reason });
+      return;
+    }
+    const doc: Incident = {
+      ...loaded.doc,
+      status: 'draft',
+      submittedAt: '',
+      /*
+        Kept on the history rather than erased from it. A report that went up
+        and came back down is a thing that happened, and a supervisor looking
+        at the trail should see it — this is not a way to un-submit invisibly.
+      */
+      reviewHistory: [...(loaded.doc.reviewHistory ?? []), reviewEvent('recalled', user)],
+      updatedAt: new Date().toISOString(),
+    };
+    save(db, doc);
+    await recordAudit(db, {
+      actorId: user.id,
+      actorName: user.name,
+      action: 'report.recalled',
       target: doc.caseNumber,
       detail: '',
     });

@@ -12,7 +12,7 @@ import {
   SectionAnchor,
 } from '@/components/ui/primitives';
 import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
-import { STATES, VEHICLE_INVOLVEMENT } from '@/domain/codes';
+import { BODY_STYLES, STATES, VEHICLE_INVOLVEMENT } from '@/domain/codes';
 
 export function SectionVehicles() {
   const { incident, update } = useStore();
@@ -121,7 +121,15 @@ function VehicleCard({
           />
           <TextField path={at('make')} label="Make" value={vehicle.make} onChange={(v) => onChange({ make: v })} />
           <TextField path={at('model')} label="Model" value={vehicle.model} onChange={(v) => onChange({ model: v })} />
-          <TextField path={at('style')} label="Body style" placeholder="4-door" value={vehicle.style} onChange={(v) => onChange({ style: v })} />
+          <SelectField
+            path={at('style')}
+            label="Body style"
+            placeholder="Not known"
+            options={BODY_STYLES}
+            allowFree
+            value={vehicle.style}
+            onChange={(v) => onChange({ style: v })}
+          />
           <TextField path={at('color')} label="Color" value={vehicle.color} onChange={(v) => onChange({ color: v })} />
         </FieldGrid>
       </div>
