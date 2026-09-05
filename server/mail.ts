@@ -42,7 +42,18 @@ export class MailNotConfigured extends Error {
  */
 const sink = (): string => process.env.AEGIS_MAIL_SINK ?? '';
 
-export async function send(settings: MailSettings, message: Message): Promise<void> {
+/**
+ * Sends one message.
+ *
+ * The password is passed in rather than read off the settings, because it does
+ * not live with them: the settings come out of the database and the password
+ * comes out of the environment.
+ */
+export async function send(
+  settings: MailSettings,
+  password: string,
+  message: Message,
+): Promise<void> {
   if (sink()) {
     const { appendFileSync } = await import('node:fs');
     appendFileSync(
@@ -53,13 +64,13 @@ export async function send(settings: MailSettings, message: Message): Promise<vo
     return;
   }
 
-  if (!canSendMail(settings)) throw new MailNotConfigured();
+  if (!canSendMail(settings, { hasPassword: Boolean(password) })) throw new MailNotConfigured();
 
   const transport = createTransport({
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
-    auth: settings.username ? { user: settings.username, pass: settings.password } : undefined,
+    auth: settings.username ? { user: settings.username, pass: password } : undefined,
   });
 
   await transport.sendMail({

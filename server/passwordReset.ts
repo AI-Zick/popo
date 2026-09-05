@@ -87,7 +87,11 @@ function sameDigest(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-export function registerPasswordResetRoutes(app: Express, db: DatabaseSync): void {
+export function registerPasswordResetRoutes(
+  app: Express,
+  db: DatabaseSync,
+  config: { smtpPassword: string },
+): void {
   /*
     Rate limited by source, and spent on every request — unlike the change
     route, every request here really is an attempt at somebody's account, and
@@ -95,10 +99,12 @@ export function registerPasswordResetRoutes(app: Express, db: DatabaseSync): voi
   */
   const guard = createAttemptGuard({ windowMs: 15 * 60_000, max: 8 });
 
+  const mailReady = (): boolean =>
+    canSendMail(readAgency(db).mail, { hasPassword: Boolean(config.smtpPassword) });
+
   /** Whether the sign-in screen should offer this at all. */
   app.get('/api/auth/forgot', (_req: Request, res: Response) => {
-    const agency = readAgency(db);
-    res.json({ available: canSendMail(agency.mail), minutes: TOKEN_MINUTES });
+    res.json({ available: mailReady(), minutes: TOKEN_MINUTES });
   });
 
   /**
@@ -121,7 +127,7 @@ export function registerPasswordResetRoutes(app: Express, db: DatabaseSync): voi
 
     const acknowledged = { ok: true, message: REQUEST_ACKNOWLEDGED };
     const agency = readAgency(db);
-    if (!canSendMail(agency.mail)) {
+    if (!mailReady()) {
       /*
         Refused rather than acknowledged. This one case is safe to be honest
         about, because it is a fact about the installation rather than about
@@ -173,7 +179,7 @@ export function registerPasswordResetRoutes(app: Express, db: DatabaseSync): voi
     );
 
     try {
-      await send(agency.mail, {
+      await send(agency.mail, config.smtpPassword, {
         to: user.email,
         subject: `${agency.name || 'Aegis RMS'}: setting a new password`,
         text: [

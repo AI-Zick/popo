@@ -640,11 +640,40 @@ function addMissingColumns(db: DatabaseSync): void {
   }
 }
 
+/**
+ * Removes the mail password from a stored agency profile.
+ *
+ * It used to live there, and briefly did on any installation that configured
+ * mail before this was fixed. Leaving it would defeat the point of moving it
+ * to the environment: the copy in the database is the one that ends up on a
+ * backup tape. Runs once at boot and does nothing on a profile that never had
+ * one.
+ */
+function scrubStoredSecrets(db: DatabaseSync): void {
+  const row = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
+    | { doc: string }
+    | undefined;
+  if (!row) return;
+  let agency: { mail?: Record<string, unknown> };
+  try {
+    agency = JSON.parse(row.doc) as { mail?: Record<string, unknown> };
+  } catch {
+    return;
+  }
+  if (!agency.mail || !('password' in agency.mail)) return;
+  const { password: _gone, ...rest } = agency.mail;
+  db.prepare('UPDATE agency SET doc = ? WHERE id = ?').run(
+    JSON.stringify({ ...agency, mail: rest }),
+    'default',
+  );
+}
+
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
   addMissingColumns(db);
+  scrubStoredSecrets(db);
   return db;
 }
 

@@ -232,21 +232,6 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   /* ---- Bootstrap state ---------------------------------------------- */
 
   /** Everything the signed-in client needs to render. */
-  /**
-   * The agency profile, minus the one secret in it.
-   *
-   * The mail password is write-only: it goes in on save and never comes back
-   * out. Everything in the agency profile is otherwise readable by anybody
-   * signed in, so leaving a working SMTP credential in it would hand the
-   * agency's outbound mail to every officer on the roster.
-   */
-  const publicAgency = (doc: unknown): unknown => {
-    if (!doc || typeof doc !== 'object') return doc;
-    const agency = doc as { mail?: Record<string, unknown> };
-    if (!agency.mail) return agency;
-    return { ...agency, mail: { ...agency.mail, password: '' } };
-  };
-
   app.get('/api/state', requireAuth, (req: Request, res: Response) => {
     const agencyRow = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
       | { doc: string }
@@ -340,12 +325,26 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       versions,
       locks: listLocks(db),
       attachments: listAttachments(db),
-      agency: agencyRow ? publicAgency(JSON.parse(agencyRow.doc)) : null,
+      agency: agencyRow ? JSON.parse(agencyRow.doc) : null,
       users: listUsers(db),
       // The log is only sent to people entitled to read it.
       auditLog: can(req.user!, 'audit.view') ? readAuditLog(db) : [],
     });
   });
+
+  /**
+   * Whether a mail relay password reached this server.
+   *
+   * Answers with a boolean and never the value. The setup screen needs to show
+   * whether one arrived, and there is no reason for anything to read it back.
+   */
+  app.get(
+    '/api/agency/mail-password',
+    requirePermission('agency.configure'),
+    (_req: Request, res: Response) => {
+      res.json({ set: Boolean(config.smtpPassword) });
+    },
+  );
 
   app.put('/api/agency', requirePermission('agency.configure'), (req: Request, res: Response) => {
     const doc = req.body?.agency;
@@ -354,26 +353,13 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       return;
     }
     /*
-      The mail password never comes back out, so it never comes back in either.
-      An empty one here means "leave it alone" rather than "clear it" —
-      otherwise every save from a screen that cannot read it would wipe it.
-      Clearing it is done by clearing the mail server, which is what somebody
-      turning this off actually means.
+      Nothing secret is stored here any more, so a save is a save. A `password`
+      arriving from an old client is dropped rather than written.
     */
-    const existing = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
-      | { doc: string }
-      | undefined;
     const incoming = doc as { mail?: Record<string, unknown> };
-    if (incoming.mail && !String(incoming.mail.password ?? '')) {
-      let stored = '';
-      try {
-        stored = String(
-          (JSON.parse(existing?.doc ?? '{}') as { mail?: { password?: string } }).mail?.password ?? '',
-        );
-      } catch {
-        stored = '';
-      }
-      incoming.mail = { ...incoming.mail, password: stored };
+    if (incoming.mail && 'password' in incoming.mail) {
+      const { password: _dropped, ...rest } = incoming.mail;
+      incoming.mail = rest;
     }
 
     db.prepare(
@@ -702,7 +688,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerGisRoutes(app, db);
   registerBookingRoutes(app, db);
   registerBulletinRoutes(app, db);
-  registerPasswordResetRoutes(app, db);
+  registerPasswordResetRoutes(app, db, config);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {

@@ -1,5 +1,7 @@
 import { CheckCircle2, Plus, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/state/store';
+import { api } from '@/state/api';
 import {
   checkPattern,
   DEFAULT_PATTERN,
@@ -35,7 +37,20 @@ export function MailSetup() {
   const { agency, updateAgency, can } = useStore();
   const mayEdit = can('agency.configure');
   const mail = agency.mail ?? emptyMailSettings();
-  const check = checkMail(mail);
+
+  /*
+    Asked of the server rather than assumed, because the answer lives in its
+    environment and nothing in the database can know it.
+  */
+  const [hasPassword, setHasPassword] = useState(false);
+  useEffect(() => {
+    void api.mailPasswordSet().then(
+      (r) => setHasPassword(r.set),
+      () => setHasPassword(false),
+    );
+  }, []);
+
+  const check = checkMail(mail, { hasPassword });
 
   const set = (patch: Partial<MailSettings>) => updateAgency({ mail: { ...mail, ...patch } });
 
@@ -132,25 +147,33 @@ export function MailSetup() {
           />
         </label>
 
-        <label className="block">
+        {/*
+          Not a field. The relay password is a deployment secret and lives in
+          the environment with the TLS material, because everything typed on
+          this screen is stored in the database — and a database is copied to
+          backups, restored onto other machines, and readable by anybody who
+          holds the disk.
+        */}
+        <div className="block">
           <span className="mb-1.5 block text-[12.5px] font-medium text-ink">Password</span>
-          <input
-            type="password"
-            value={mail.password}
-            disabled={!mayEdit}
-            onChange={(e) => set({ password: e.target.value })}
-            placeholder={mail.username ? '••••••••' : ''}
-            className={field}
-            autoComplete="off"
-          />
-          {/*
-            Never read back. The server keeps the stored one when this arrives
-            empty, so leaving it alone changes nothing.
-          */}
-          <span className="mt-1 block text-[11.5px] text-faint">
-            Stored, never shown again. Leave it empty to keep the one already saved.
+          <p className={cn(field, 'flex items-center gap-1.5 text-[12.5px] text-muted')}>
+            {hasPassword ? (
+              <>
+                <CheckCircle2 size={13} className="shrink-0 text-ok" aria-hidden />
+                Supplied by the server
+              </>
+            ) : (
+              <>
+                <TriangleAlert size={13} className="shrink-0 text-warn" aria-hidden />
+                None reached the server
+              </>
+            )}
+          </p>
+          <span className="mt-1 block text-[11.5px] leading-relaxed text-faint">
+            Set as <code className="font-mono">AEGIS_SMTP_PASSWORD</code> where the server runs.
+            Not typed here, because this screen writes to the database.
           </span>
-        </label>
+        </div>
 
         <label className="col-span-2 block">
           <span className="mb-1.5 block text-[12.5px] font-medium text-ink">From address</span>

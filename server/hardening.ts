@@ -31,6 +31,13 @@ export interface ServerConfig {
   /** Trust X-Forwarded-* — only true behind a reverse proxy you control. */
   trustProxy: boolean;
   /**
+   * The mail relay password, from AEGIS_SMTP_PASSWORD.
+   *
+   * Deliberately not part of the agency profile: the profile lives in the
+   * database, and a database is copied, backed up and restored elsewhere.
+   */
+  smtpPassword: string;
+  /**
    * Where officer feedback is posted, or empty for nowhere.
    *
    * The only outbound path in the system. On by default — see `vendor.ts` for
@@ -83,6 +90,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
   const feedbackKey = env.AEGIS_FEEDBACK_KEY ?? '';
 
   /*
+    The password for the agency's outgoing mail relay.
+
+    From the environment rather than the database, for the reason every other
+    credential here is: a database is copied to backups, restored onto other
+    machines, and read by anybody who can read the disk, and a working SMTP
+    credential sitting in it is the agency's outbound mail handed to whoever
+    holds a copy. The rest of the mail configuration — host, port, From
+    address — is ordinary settings an administrator edits on screen.
+  */
+  const smtpPassword = env.AEGIS_SMTP_PASSWORD ?? '';
+
+  /*
     Every install gets its own key at provisioning, so one leaked key is one
     agency to rotate rather than a hole anybody can post through. Without one
     the receiver has no way to know a request is really from this agency.
@@ -120,6 +139,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
       trustProxy: behindProxy,
       feedbackUrl,
       feedbackKey,
+      smtpPassword,
     },
     problems,
   };

@@ -157,8 +157,6 @@ export interface MailSettings {
   /** STARTTLS on the submission port, or implicit TLS on 465. */
   secure: boolean;
   username: string;
-  /** Write-only from the browser's point of view; never sent back out. */
-  password: string;
   /** The From: address. Usually a no-reply on the agency's own domain. */
   from: string;
   /**
@@ -176,7 +174,6 @@ export const emptyMailSettings = (): MailSettings => ({
   port: 587,
   secure: false,
   username: '',
-  password: '',
   from: '',
   baseUrl: '',
 });
@@ -187,11 +184,32 @@ export interface MailCheck {
   problems: string[];
 }
 
-export function checkMail(settings: MailSettings): MailCheck {
+/**
+ * What is missing, in the order somebody would fill it in.
+ *
+ * The password is not one of these fields. It is a deployment secret and comes
+ * from the environment, so all this can know is whether one arrived —
+ * `hasPassword`. Everything else about the mail server is ordinary
+ * configuration an agency administrator sets from the setup screen.
+ */
+export function checkMail(
+  settings: MailSettings,
+  context: { hasPassword: boolean } = { hasPassword: false },
+): MailCheck {
   const problems: string[] = [];
   if (!settings.host.trim()) problems.push('No mail server is set.');
   if (!Number.isFinite(settings.port) || settings.port <= 0 || settings.port > 65535) {
     problems.push('The port is not a number between 1 and 65535.');
+  }
+  /*
+    A username with no password is the failure that looks like success: every
+    field on the screen is filled in, and the relay refuses every message. Said
+    here rather than discovered by the first officer to be locked out.
+  */
+  if (settings.username.trim() && !context.hasPassword) {
+    problems.push(
+      'A username is set but no password reached the server. It is supplied as AEGIS_SMTP_PASSWORD in the environment, not typed here.',
+    );
   }
   if (!settings.from.trim()) problems.push('No From address is set.');
   else if (!looksLikeEmail(settings.from)) problems.push('The From address does not look like an email address.');
@@ -204,7 +222,10 @@ export function checkMail(settings: MailSettings): MailCheck {
 }
 
 /** Whether the agency has enough set up for the sign-in screen to offer this. */
-export const canSendMail = (settings: MailSettings): boolean => checkMail(settings).ok;
+export const canSendMail = (
+  settings: MailSettings,
+  context: { hasPassword: boolean } = { hasPassword: false },
+): boolean => checkMail(settings, context).ok;
 
 /** The link an officer is mailed. */
 export function resetLink(settings: MailSettings, token: string): string {

@@ -120,10 +120,12 @@ const configured = (): MailSettings => ({
   port: 587,
   secure: false,
   username: 'rms',
-  password: 'secret',
   from: 'no-reply@cedarfalls.gov',
   baseUrl: 'https://rms.cedarfalls.gov',
 });
+
+/** The password comes from the server's environment, never from the profile. */
+const withPassword = { hasPassword: true };
 
 describe('mail settings', () => {
   it('ship empty and say so', () => {
@@ -137,31 +139,49 @@ describe('mail settings', () => {
   });
 
   it('are complete once filled in', () => {
-    expect(checkMail(configured())).toEqual({ ok: true, problems: [] });
+    expect(checkMail(configured(), withPassword)).toEqual({ ok: true, problems: [] });
+  });
+
+  it('hold no password of their own', () => {
+    /*
+      The type is the guarantee. A relay credential in the agency profile is a
+      credential in the database, and a database is copied to backups and
+      restored onto other machines.
+    */
+    expect(Object.keys(emptyMailSettings())).not.toContain('password');
+  });
+
+  it('catch a username with no password behind it', () => {
+    // The failure that looks like success: every field filled in, every
+    // message refused by the relay.
+    const check = checkMail(configured(), { hasPassword: false });
+    expect(check.ok).toBe(false);
+    expect(check.problems.some((p) => /AEGIS_SMTP_PASSWORD/.test(p))).toBe(true);
   });
 
   it('need somewhere for links to point', () => {
-    const problems = checkMail({ ...configured(), baseUrl: '' }).problems;
+    const problems = checkMail({ ...configured(), baseUrl: '' }, withPassword).problems;
     expect(problems.some((p) => /links cannot be built/.test(p))).toBe(true);
   });
 
   it('refuse an installation address with no scheme', () => {
     // Without one the link is relative and lands nowhere from a mail client.
-    const problems = checkMail({ ...configured(), baseUrl: 'rms.cedarfalls.gov' }).problems;
+    const problems = checkMail({ ...configured(), baseUrl: 'rms.cedarfalls.gov' }, withPassword).problems;
     expect(problems.some((p) => /http/.test(p))).toBe(true);
   });
 
   it('catch a From address that is not one', () => {
-    expect(checkMail({ ...configured(), from: 'no-reply' }).ok).toBe(false);
+    expect(checkMail({ ...configured(), from: 'no-reply' }, withPassword).ok).toBe(false);
   });
 
   it('catch an impossible port', () => {
-    expect(checkMail({ ...configured(), port: 0 }).ok).toBe(false);
-    expect(checkMail({ ...configured(), port: 70_000 }).ok).toBe(false);
+    expect(checkMail({ ...configured(), port: 0 }, withPassword).ok).toBe(false);
+    expect(checkMail({ ...configured(), port: 70_000 }, withPassword).ok).toBe(false);
   });
 
   it('do not insist on a username, because plenty of relays have none', () => {
-    expect(checkMail({ ...configured(), username: '', password: '' }).ok).toBe(true);
+    // No username means no auth, so no password is needed either.
+    expect(checkMail({ ...configured(), username: '' }, { hasPassword: false }).ok).toBe(true);
   });
 });
 

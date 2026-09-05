@@ -824,6 +824,17 @@ export const api = {
 
   /* ---- Getting back in ------------------------------------------------ */
 
+  /**
+   * Whether a mail relay password reached the server.
+   *
+   * The setup screen cannot know: the password is in the server's environment
+   * and nothing in the database records it. This is the only thing the screen
+   * is told about it — that one arrived, never what it is.
+   */
+  mailPasswordSet(): Promise<{ set: boolean }> {
+    return request('/api/agency/mail-password');
+  },
+
   /** Whether this installation can send email at all. */
   forgotAvailable(): Promise<{ available: boolean; minutes: number }> {
     return request('/api/auth/forgot');

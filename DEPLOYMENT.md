@@ -101,6 +101,25 @@ Every send is written to the audit log as `feedback.sent`, so what has left the
 building is answerable from your own records rather than the vendor's, and every
 item stays in your database whether or not it was forwarded.
 
+### Sending email
+
+One thing is sent by email and nothing else: the link that lets somebody set a
+new password when they have forgotten theirs. Host, port, From address and the
+address of this installation are set on the agency setup screen. The relay
+password is not — it is `AEGIS_SMTP_PASSWORD` in the environment, because
+everything on that screen is written to the database, and a database is copied
+to backups and restored onto other machines.
+
+```
+AEGIS_SMTP_PASSWORD=...     # only if the relay needs authentication
+```
+
+Until the mail settings are complete the sign-in screen offers no password
+reset at all, which is deliberate: an offer that goes nowhere leaves somebody
+locked out at two in the morning waiting for an email that was never coming.
+Administrators can still issue passwords, and the console command below still
+works.
+
 ## When the administrator is locked out
 
 An agency with one administrator who forgets their password, on an installation
@@ -158,11 +177,10 @@ Read this part.
 - **Single instance.** Rate limiting is in-process memory, and SQLite is one
   writer. Fine for one agency; a second instance needs a shared limiter store
   and a different database.
-- **A secret is stored in the database.** The SMTP password for password-reset
-  email lives in the agency profile. It is stripped from every payload leaving
-  the server and never returned to a browser, but it is plaintext in the same
-  file as the records — so the encryption-at-rest note above is not optional
-  once mail is configured. Other secrets belong in a secret store rather than
-  the environment.
+- **No secrets management.** The two secrets are TLS material and
+  `AEGIS_SMTP_PASSWORD`, both from the environment. Nothing secret is written
+  to the database — an installation that stored the mail password there before
+  this was fixed has it removed the next time the server starts. When there are
+  more secrets they belong in a secret store rather than the environment.
 - **Personnel screening, physical security, incident response and the audit
   review process** are all required by CJIS and none of them are software.
