@@ -15,6 +15,7 @@ import { defaultPolicy, type PublicRecordsPolicy } from './publicRecords';
 import type { Statute } from './statute';
 import { emptyGisSource, type GisSource } from './gis';
 import { emptyMailSettings, type MailSettings } from './passwordReset';
+import { DEFAULT_PATTERN, type ShiftPattern } from './shift';
 import { statutePack } from './statutes';
 
 export interface AgencyProfile {
@@ -101,6 +102,16 @@ export interface AgencyProfile {
   mail: MailSettings;
 
   /**
+   * When shifts change over.
+   *
+   * Ships as three eights, which is what most departments run — a default
+   * rather than a blank, because a briefing screen that will not draw until
+   * somebody configures it is a screen nobody sees. Wrong by an hour is
+   * visible and fixable; absent is not.
+   */
+  shifts: ShiftPattern;
+
+  /**
    * The state's offence statutes, keyed to the NIBRS codes they answer to.
    *
    * Seeded from the state pack when the state is chosen at setup, and the
@@ -179,6 +190,7 @@ export function emptyAgency(): AgencyProfile {
     statutes: [],
     gis: emptyGisSource(),
     mail: emptyMailSettings(),
+    shifts: DEFAULT_PATTERN,
     publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,

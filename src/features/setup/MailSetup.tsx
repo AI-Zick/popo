@@ -1,12 +1,18 @@
-import { CheckCircle2, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Plus, TriangleAlert, X } from 'lucide-react';
 import { useStore } from '@/state/store';
+import {
+  checkPattern,
+  DEFAULT_PATTERN,
+  isTimeOfDay,
+  sayTime,
+} from '@/domain/shift';
 import {
   checkMail,
   emptyMailSettings,
   TOKEN_MINUTES,
   type MailSettings,
 } from '@/domain/passwordReset';
-import { Badge, Panel } from '@/components/ui/primitives';
+import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
 
 /**
@@ -184,6 +190,129 @@ export function MailSetup() {
         A link lasts {TOKEN_MINUTES} minutes and works once. It sets a password and does not sign
         anybody in — the authenticator code is still asked for afterwards, so a mailbox somebody
         else has got into is not a way into this system.
+      </p>
+    </Panel>
+  );
+}
+
+/**
+ * When the agency changes over.
+ *
+ * Lives beside the mail settings rather than on its own screen because both
+ * are one-line facts about how the department runs, and a settings screen per
+ * field is how nineteen tabs happened.
+ *
+ * Three eights until somebody says otherwise. A briefing screen that refuses
+ * to draw until this is configured is a screen nobody sees, and boundaries an
+ * hour out are visible and fixable in a way that a blank page is not.
+ */
+export function ShiftSetup() {
+  const { agency, updateAgency, can } = useStore();
+  const mayEdit = can('agency.configure');
+  const pattern = agency.shifts ?? DEFAULT_PATTERN;
+  const problems = checkPattern(pattern);
+  const isDefault =
+    pattern.starts.join() === DEFAULT_PATTERN.starts.join() &&
+    pattern.names.join() === DEFAULT_PATTERN.names.join();
+
+  const set = (starts: string[], names: string[]) => updateAgency({ shifts: { starts, names } });
+  const setOne = (index: number, patch: { start?: string; name?: string }) => {
+    const starts = [...pattern.starts];
+    const names = [...pattern.names];
+    if (patch.start !== undefined) starts[index] = patch.start;
+    if (patch.name !== undefined) names[index] = patch.name;
+    set(starts, names);
+  };
+
+  const field =
+    'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-[13.5px] text-ink placeholder:text-faint disabled:opacity-60';
+
+  return (
+    <Panel
+      title="Shifts"
+      description="When one shift hands over to the next. Used to work out which shift a call belongs to, and what the briefing covers."
+      aside={isDefault ? <Badge tone="warn">Default</Badge> : undefined}
+    >
+      {isDefault && (
+        <p className="mb-3 rounded-lg border border-warn/45 bg-warn/5 p-3 text-[12.5px] leading-relaxed text-warn">
+          These are the times this software ships with, not this agency&apos;s. Until they are
+          changed, the briefing draws its boundaries at 7am, 3pm and 11pm.
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {pattern.starts.map((start, index) => (
+          <li key={index} className="flex items-center gap-2">
+            <input
+              type="time"
+              value={start}
+              disabled={!mayEdit}
+              onChange={(e) => setOne(index, { start: e.target.value })}
+              aria-label={`Shift ${index + 1} starts`}
+              className={cn(field, 'w-32')}
+            />
+            <input
+              value={pattern.names[index] ?? ''}
+              disabled={!mayEdit}
+              onChange={(e) => setOne(index, { name: e.target.value })}
+              placeholder="What it is called"
+              aria-label={`Shift ${index + 1} name`}
+              className={field}
+            />
+            <span className="w-24 shrink-0 text-[11.5px] text-faint">
+              {isTimeOfDay(start) ? sayTime(start) : ''}
+            </span>
+            {mayEdit && pattern.starts.length > 1 && (
+              <button
+                type="button"
+                onClick={() =>
+                  set(
+                    pattern.starts.filter((_, i) => i !== index),
+                    pattern.names.filter((_, i) => i !== index),
+                  )
+                }
+                aria-label={`Remove shift ${index + 1}`}
+                className="rounded p-1 text-faint hover:text-danger"
+              >
+                <X size={14} aria-hidden />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {mayEdit && (
+        <Button className="mt-3" onClick={() => set([...pattern.starts, '00:00'], [...pattern.names, ''])}>
+          <Plus size={14} aria-hidden />
+          Another shift
+        </Button>
+      )}
+
+      {problems.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {problems.map((problem) => (
+            <li
+              key={problem.message}
+              className="flex items-start gap-1.5 text-[12px] leading-relaxed text-warn"
+            >
+              <TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden />
+              <span>
+                {problem.message}
+                {problem.tip && <span className="block text-muted">{problem.tip}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/*
+        Said explicitly, because it is the one thing about this that surprises
+        people: the shift starting at 11pm is one shift, not two, and a call at
+        2am belongs to the night that began the evening before.
+      */}
+      <p className="mt-4 text-[12px] leading-relaxed text-muted">
+        A shift that crosses midnight is treated as one shift. A call at two in the morning belongs
+        to the shift that started the evening before, not to the new calendar day.
       </p>
     </Panel>
   );

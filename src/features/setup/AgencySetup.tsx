@@ -35,7 +35,7 @@ import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 import { YourPassword } from '@/features/auth/YourPassword';
-import { MailSetup } from '@/features/setup/MailSetup';
+import { MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
 
 /**
  * One-time configuration. Everything here is per-install, and the boundary
@@ -125,7 +125,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   exemptions: 'Exemptions',
   statutes: 'Statutes',
   gis: 'County GIS',
-  mail: 'Sending email',
+  mail: 'Email and shifts',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -255,7 +255,12 @@ export function AgencySetup({
           {tab === 'exemptions' && mayConfigure && <ExemptionRules />}
           {tab === 'statutes' && mayConfigure && <StatuteTable />}
           {tab === 'gis' && mayConfigure && <GisSetup />}
-          {tab === 'mail' && mayConfigure && <MailSetup />}
+          {tab === 'mail' && mayConfigure && (
+            <>
+              <MailSetup />
+              <ShiftSetup />
+            </>
+          )}
           {tab === 'fleet' && (
             <>
               <FleetView />

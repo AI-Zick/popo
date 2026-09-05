@@ -16,6 +16,7 @@ import {
   KeyRound,
   ListTodo,
   Megaphone,
+  Moon,
   Search,
   Send,
   Settings,
@@ -97,7 +98,8 @@ export function Dashboard({
       | { kind: 'hub'; section: SectionKey; start?: HubTab }
       | { kind: 'people' }
       | { kind: 'vehicles' }
-      | { kind: 'board' },
+      | { kind: 'board' }
+      | { kind: 'briefing' },
   ) => void;
   onOpenSearch: () => void;
 }) {
@@ -425,6 +427,11 @@ export function Dashboard({
               icon={<Megaphone size={14} />}
               label="Board"
               onClick={() => onGo({ kind: 'board' })}
+            />
+            <Destination
+              icon={<Moon size={14} />}
+              label="Shift briefing"
+              onClick={() => onGo({ kind: 'briefing' })}
             />
             <Destination icon={<Users size={14} />} label="People" onClick={() => onGo({ kind: 'people' })} />
             <Destination icon={<Car size={14} />} label="Vehicles" onClick={() => onGo({ kind: 'vehicles' })} />

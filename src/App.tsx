@@ -48,6 +48,9 @@ const VehicleIndex = lazy(() =>
 const BoardScreen = lazy(() =>
   import('@/features/board/Board').then((m) => ({ default: m.BoardScreen })),
 );
+const Briefing = lazy(() =>
+  import('@/features/briefing/Briefing').then((m) => ({ default: m.Briefing })),
+);
 
 /**
  * Shown while one of those arrives. Deliberately quiet: on any normal
@@ -104,6 +107,7 @@ export default function App() {
     | { kind: 'people' }
     | { kind: 'vehicles' }
     | { kind: 'board' }
+    | { kind: 'briefing' }
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -214,6 +218,8 @@ export default function App() {
             <VehicleIndex onClose={() => setAway(null)} />
           ) : away.kind === 'board' ? (
             <BoardScreen onClose={() => setAway(null)} />
+          ) : away.kind === 'briefing' ? (
+            <Briefing onClose={() => setAway(null)} />
           ) : (
             <AgencySetup section={away.section} start={away.start} onClose={() => setAway(null)} />
           )}
