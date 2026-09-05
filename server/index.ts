@@ -39,6 +39,7 @@ import { registerPublicRecordsRoutes } from './publicRecords';
 import { registerGisRoutes } from './gis';
 import { registerBookingRoutes } from './bookings';
 import { registerBulletinRoutes } from './bulletins';
+import { registerPasswordResetRoutes } from './passwordReset';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -79,6 +80,7 @@ import {
 } from '../src/domain/auth';
 import { createCredential } from '../src/domain/session';
 import { generateTemporaryPassword } from '../src/domain/credentials';
+import { looksLikeEmail } from '../src/domain/passwordReset';
 
 export function createApp(db: DatabaseSync, config: ServerConfig) {
   const app = express();
@@ -230,6 +232,21 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   /* ---- Bootstrap state ---------------------------------------------- */
 
   /** Everything the signed-in client needs to render. */
+  /**
+   * The agency profile, minus the one secret in it.
+   *
+   * The mail password is write-only: it goes in on save and never comes back
+   * out. Everything in the agency profile is otherwise readable by anybody
+   * signed in, so leaving a working SMTP credential in it would hand the
+   * agency's outbound mail to every officer on the roster.
+   */
+  const publicAgency = (doc: unknown): unknown => {
+    if (!doc || typeof doc !== 'object') return doc;
+    const agency = doc as { mail?: Record<string, unknown> };
+    if (!agency.mail) return agency;
+    return { ...agency, mail: { ...agency.mail, password: '' } };
+  };
+
   app.get('/api/state', requireAuth, (req: Request, res: Response) => {
     const agencyRow = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
       | { doc: string }
@@ -323,7 +340,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       versions,
       locks: listLocks(db),
       attachments: listAttachments(db),
-      agency: agencyRow ? JSON.parse(agencyRow.doc) : null,
+      agency: agencyRow ? publicAgency(JSON.parse(agencyRow.doc)) : null,
       users: listUsers(db),
       // The log is only sent to people entitled to read it.
       auditLog: can(req.user!, 'audit.view') ? readAuditLog(db) : [],
@@ -336,6 +353,29 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       res.status(400).json({ error: 'Expected { agency: {...} }.' });
       return;
     }
+    /*
+      The mail password never comes back out, so it never comes back in either.
+      An empty one here means "leave it alone" rather than "clear it" —
+      otherwise every save from a screen that cannot read it would wipe it.
+      Clearing it is done by clearing the mail server, which is what somebody
+      turning this off actually means.
+    */
+    const existing = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
+      | { doc: string }
+      | undefined;
+    const incoming = doc as { mail?: Record<string, unknown> };
+    if (incoming.mail && !String(incoming.mail.password ?? '')) {
+      let stored = '';
+      try {
+        stored = String(
+          (JSON.parse(existing?.doc ?? '{}') as { mail?: { password?: string } }).mail?.password ?? '',
+        );
+      } catch {
+        stored = '';
+      }
+      incoming.mail = { ...incoming.mail, password: stored };
+    }
+
     db.prepare(
       `INSERT INTO agency (id, doc, updated_at) VALUES ('default', ?, ?)
        ON CONFLICT(id) DO UPDATE SET doc = excluded.doc, updated_at = excluded.updated_at`,
@@ -396,10 +436,22 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       return;
     }
 
+    /*
+      An address that does not look like one is refused rather than stored.
+      A typo here is only discovered on the day the officer is locked out and
+      the link goes somewhere that does not exist.
+    */
+    const email = String(safe.email ?? '').trim().toLowerCase();
+    if (email && !looksLikeEmail(email)) {
+      res.status(400).json({ error: 'That does not look like an email address.' });
+      return;
+    }
+
     const account = createUser({
       ...safe,
       id: `usr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
       username,
+      email,
       name: String(safe.name).trim(),
       createdBy: actor.name,
     });
@@ -408,8 +460,8 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     const passwordHash = await hashPassword(temporaryPassword);
 
     db.prepare(
-      `INSERT INTO users (id, username, name, badge, role, grants, revocations, active, deactivated_at, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, '', ?, ?)`,
+      `INSERT INTO users (id, username, name, badge, role, grants, revocations, active, deactivated_at, created_at, created_by, email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, '', ?, ?, ?)`,
     ).run(
       account.id,
       account.username,
@@ -420,6 +472,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
       JSON.stringify(account.revocations),
       account.createdAt,
       account.createdBy,
+      account.email,
     );
     saveCredential(db, createCredential(account.id, { passwordHash, mustChangePassword: true }));
 
@@ -552,6 +605,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerGisRoutes(app, db);
   registerBookingRoutes(app, db);
   registerBulletinRoutes(app, db);
+  registerPasswordResetRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {

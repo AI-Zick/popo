@@ -41,8 +41,25 @@ CREATE TABLE IF NOT EXISTS users (
   active        INTEGER NOT NULL DEFAULT 1,
   deactivated_at TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL,
-  created_by    TEXT NOT NULL DEFAULT ''
+  created_by    TEXT NOT NULL DEFAULT '',
+  email         TEXT NOT NULL DEFAULT ''
 );
+
+-- Password reset requests. The token itself is never here — only its SHA-256,
+-- so a database somebody can read does not hand over live links. Rows are kept
+-- after use because "when was this account last reset, and from where" is the
+-- question asked after an account is taken over.
+CREATE TABLE IF NOT EXISTS reset_requests (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  token_hash  TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  used_at     TEXT NOT NULL DEFAULT '',
+  requested_from TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS reset_requests_token ON reset_requests(token_hash);
+CREATE INDEX IF NOT EXISTS reset_requests_user ON reset_requests(user_id, requested_at);
 
 -- Kept apart from users so a query for a roster cannot accidentally select a
 -- password hash into a response body.
@@ -612,6 +629,7 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
     with no explanation. New sessions are issued under the new rules.
   */
   ['sessions', 'factor', "TEXT NOT NULL DEFAULT 'full'"],
+  ['users', 'email', "TEXT NOT NULL DEFAULT ''"],
 ];
 
 function addMissingColumns(db: DatabaseSync): void {

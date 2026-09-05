@@ -14,6 +14,7 @@ import { DEFAULT_RULES, type ExemptionRule } from './exemption';
 import { defaultPolicy, type PublicRecordsPolicy } from './publicRecords';
 import type { Statute } from './statute';
 import { emptyGisSource, type GisSource } from './gis';
+import { emptyMailSettings, type MailSettings } from './passwordReset';
 import { statutePack } from './statutes';
 
 export interface AgencyProfile {
@@ -89,6 +90,15 @@ export interface AgencyProfile {
    * has.
    */
   gis: GisSource;
+
+  /**
+   * Where the agency's outgoing mail goes.
+   *
+   * Ships empty and stays empty until somebody fills it in. Until then the
+   * sign-in screen does not offer a password reset, because offering one that
+   * silently goes nowhere is worse than offering none.
+   */
+  mail: MailSettings;
 
   /**
    * The state's offence statutes, keyed to the NIBRS codes they answer to.
@@ -168,6 +178,7 @@ export function emptyAgency(): AgencyProfile {
     exemptions: DEFAULT_RULES.map((rule) => ({ ...rule })),
     statutes: [],
     gis: emptyGisSource(),
+    mail: emptyMailSettings(),
     publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,

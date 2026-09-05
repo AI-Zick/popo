@@ -15,6 +15,7 @@ import {
 } from '@/domain/auth';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { relativeTime } from '@/lib/format';
+import { looksLikeEmail } from '@/domain/passwordReset';
 import { cn } from '@/lib/cn';
 
 /**
@@ -300,9 +301,10 @@ function NewAccountForm({
     name: string;
     badge: string;
     username: string;
+    email: string;
     role: Role;
     grants: Permission[];
-  }>({ name: '', badge: '', username: '', role: roles[0] ?? 'officer', grants: [] });
+  }>({ name: '', badge: '', username: '', email: '', role: roles[0] ?? 'officer', grants: [] });
 
   const control =
     'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint';
@@ -351,6 +353,32 @@ function NewAccountForm({
           />
         </label>
       </div>
+
+      {/*
+        Optional, and said to be. Plenty of agencies have officers with no
+        reachable work address, and refusing to create those accounts would be
+        refusing to create the accounts — but an account without one has no way
+        back in except through an administrator, and whoever is filling this
+        form in is the administrator who would get that call.
+      */}
+      <label className="mt-3 block">
+        <span className="mb-1.5 block text-[12.5px] text-muted">
+          Work email address <span className="text-faint">— optional</span>
+        </span>
+        <input
+          value={draft.email}
+          onChange={(e) => setDraft({ ...draft, email: e.target.value.toLowerCase() })}
+          placeholder="jalvarez@your-county.gov"
+          className={control}
+        />
+        <span className="mt-1 block text-[11.5px] leading-relaxed text-faint">
+          {draft.email.trim()
+            ? looksLikeEmail(draft.email.trim())
+              ? 'A forgotten password can be reset from here.'
+              : 'That does not look like an email address.'
+            : 'Without one, only an administrator can get this person back in when they forget their password.'}
+        </span>
+      </label>
 
       <div className="mt-3 max-w-xs">
         <label>

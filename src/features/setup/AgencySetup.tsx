@@ -35,6 +35,7 @@ import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 import { YourPassword } from '@/features/auth/YourPassword';
+import { MailSetup } from '@/features/setup/MailSetup';
 
 /**
  * One-time configuration. Everything here is per-install, and the boundary
@@ -58,6 +59,7 @@ export type Tab =
   | 'exemptions'
   | 'statutes'
   | 'gis'
+  | 'mail'
   | 'security'
   | 'feedback';
 
@@ -86,6 +88,7 @@ const SECTION_OF: Record<Tab, SectionKey> = {
   exemptions: 'agency',
   statutes: 'agency',
   gis: 'agency',
+  mail: 'agency',
 
   evidence: 'work',
   fleet: 'work',
@@ -122,6 +125,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   exemptions: 'Exemptions',
   statutes: 'Statutes',
   gis: 'County GIS',
+  mail: 'Sending email',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -155,6 +159,7 @@ export function AgencySetup({
         case 'exemptions':
         case 'statutes':
         case 'gis':
+        case 'mail':
           return mayConfigure;
         case 'accounts':
           return mayManageUsers;
@@ -250,6 +255,7 @@ export function AgencySetup({
           {tab === 'exemptions' && mayConfigure && <ExemptionRules />}
           {tab === 'statutes' && mayConfigure && <StatuteTable />}
           {tab === 'gis' && mayConfigure && <GisSetup />}
+          {tab === 'mail' && mayConfigure && <MailSetup />}
           {tab === 'fleet' && (
             <>
               <FleetView />

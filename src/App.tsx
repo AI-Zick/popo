@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { cn } from '@/lib/cn';
 import type { SectionKey, Tab as HubTab } from '@/features/setup/AgencySetup';
 import { Loader2, ServerCrash } from 'lucide-react';
@@ -10,6 +10,7 @@ import { CommandSearch, useSearchHotkey } from '@/features/search/CommandSearch'
 import { SendFeedback } from '@/features/feedback/SendFeedback';
 import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
+import { ResetPassword } from '@/features/auth/ForgotPassword';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 import { SecondFactor } from '@/features/auth/SecondFactor';
 import { RecordFile } from '@/features/file/RecordFile';
@@ -64,6 +65,19 @@ function ScreenLoading() {
   );
 }
 
+/*
+  The reset token this page was opened with.
+
+  Read at module load rather than during a render, so it is the URL the officer
+  actually followed and not whatever the address bar says by the time React
+  gets to it. A reset link must not be left in the address bar of a shared
+  cruiser terminal, so the effect inside takes it off.
+*/
+const OPENED_WITH_RESET =
+  typeof window === 'undefined'
+    ? ''
+    : (new URLSearchParams(window.location.search).get('reset') ?? '');
+
 export default function App() {
   const {
     incident,
@@ -95,6 +109,22 @@ export default function App() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   useSearchHotkey(() => setSearchOpen(true));
 
+  const [resetToken, setResetToken] = useState(OPENED_WITH_RESET);
+  /*
+    The token comes off the address bar, but in an effect rather than while
+    deriving state: reading the URL is a question, rewriting it is a side
+    effect, and a side effect inside a `useState` initialiser runs twice under
+    StrictMode — the second run finding a URL the first one had already
+    cleared, and the reset screen never opening. Which is exactly what
+    happened.
+  */
+  useEffect(() => {
+    if (OPENED_WITH_RESET && window.location.search.includes('reset=')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+  const clearResetToken = () => setResetToken('');
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center bg-canvas">
@@ -124,6 +154,14 @@ export default function App() {
       </div>
     );
   }
+
+  /*
+    A mailed link lands here before anything else, signed in or not. Before
+    anything, because somebody following a reset link on a shared terminal
+    where a colleague is still signed in must reach the reset screen rather
+    than that colleague's dashboard.
+  */
+  if (resetToken) return <ResetPassword token={resetToken} onDone={clearResetToken} />;
 
   if (!isAuthenticated) return <SignIn />;
   /*

@@ -29,6 +29,8 @@ export type AuditAction =
   | 'auth.mfaFailed'
   | 'auth.mfaRecoveryUsed'
   | 'auth.mfaReset'
+  | 'auth.resetRequested'
+  | 'auth.resetCompleted'
   | 'user.created'
   | 'user.updated'
   | 'user.deactivated'
@@ -135,6 +137,8 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'auth.mfaFailed': 'Failed second factor',
   'auth.mfaRecoveryUsed': 'Recovery code used',
   'auth.mfaReset': 'Second factor cleared by an administrator',
+  'auth.resetRequested': 'Password reset link requested',
+  'auth.resetCompleted': 'Password set from a reset link',
   'bulletin.posted': 'Posted to the board',
   'bulletin.edited': 'Board entry changed',
   'bulletin.cleared': 'Board entry cleared',

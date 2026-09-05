@@ -60,6 +60,7 @@ interface UserRow {
   deactivated_at: string;
   created_at: string;
   created_by: string;
+  email: string;
 }
 
 export function rowToUser(row: UserRow): User {
@@ -75,6 +76,7 @@ export function rowToUser(row: UserRow): User {
     deactivatedAt: row.deactivated_at,
     createdAt: row.created_at,
     createdBy: row.created_by,
+    email: row.email ?? '',
   };
 }
 

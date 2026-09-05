@@ -165,6 +165,7 @@ import { profileFor } from '@/domain/nibrs/states';
 import { createSupplement, nextNumber } from '@/domain/supplement';
 import { createCrashReport } from '@/domain/crash';
 import { audit, currentUser, db, newId, password, reset, seedHistory } from './store';
+import { LINK_NO_GOOD, looksLikeEmail, TOKEN_MINUTES } from '@/domain/passwordReset';
 import {
   blocking as blockingBulletin,
   createBulletin,
@@ -389,6 +390,23 @@ export async function handle(method: string, url: string, body: unknown): Promis
         return ok({ user: found, mustChangePassword: false });
       }
       if (parts[1] === 'sign-out') return ok();
+      if (parts[1] === 'forgot') {
+        /*
+          Honest rather than simulated. The demo has no mail server and no
+          inbox to send to, and a fake "link sent" would be the one screen
+          here that lies — on the feature whose whole point is not leaving
+          somebody waiting for an email that is not coming.
+        */
+        if (method === 'GET') return ok({ available: false, minutes: TOKEN_MINUTES });
+        return fail(
+          503,
+          'The demonstration cannot send email, so there is no link to send. On a real installation this is where one would go to your work address.',
+        );
+      }
+      if (parts[1] === 'reset') {
+        if (method === 'GET') return ok({ ok: false, error: LINK_NO_GOOD });
+        return fail(400, LINK_NO_GOOD);
+      }
       if (parts[1] === 'password') {
         // Reading when it last changed is a fair question; changing it is not.
         if (method === 'GET') return ok({ changedAt: '', mustChange: false });
@@ -1173,7 +1191,13 @@ export async function handle(method: string, url: string, body: unknown): Promis
         return ok({ user: target });
       }
       const safe = sanitizeUserInput(user, input);
-      const created = createUser({ ...safe, id: newId('usr') } as never);
+      // The same refusal as the server: a typo here is found on the day the
+      // officer is locked out and the link goes somewhere that does not exist.
+      const address = text(safe.email, 200).trim().toLowerCase();
+      if (address && !looksLikeEmail(address)) {
+        return fail(400, 'That does not look like an email address.');
+      }
+      const created = createUser({ ...safe, email: address, id: newId('usr') } as never);
       state.users.push(created);
       await audit({ actorId: user.id, actorName: user.name, action: 'user.created', target: created.name, detail: created.role });
       return ok({ user: created, temporaryPassword: password });

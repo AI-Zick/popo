@@ -268,6 +268,17 @@ export interface User {
   username: string;
 
   /**
+   * Where a password reset link is sent. Optional, and often absent.
+   *
+   * Plenty of agencies have officers with no reachable work address, and
+   * refusing to create those accounts would be refusing to create the
+   * accounts. An account with no address simply has no self-service recovery
+   * and needs an administrator, which is the arrangement those agencies
+   * already have.
+   */
+  email: string;
+
+  /**
    * Accounts are deactivated, never deleted. An officer who has left still
    * authored reports and notes, and those have to keep resolving to a person.
    */
@@ -304,6 +315,7 @@ export function createUser(partial: Partial<User> & { id: UUID }): User {
     grants: [],
     revocations: [],
     username: '',
+    email: '',
     active: true,
     deactivatedAt: '',
     createdAt: new Date().toISOString(),

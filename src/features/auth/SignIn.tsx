@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, Loader2, LogIn, Shield } from 'lucide-react';
 import { useStore } from '@/state/store';
+import { api } from '@/state/api';
+import { ForgotPassword } from './ForgotPassword';
 import { DEMO_PASSWORD } from '@/state/seed';
 import { Button } from '@/components/ui/primitives';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
@@ -8,6 +10,20 @@ import { ThemeToggle } from '@/components/layout/ThemeToggle';
 export function SignIn() {
   const { signIn, agency } = useStore();
   const [username, setUsername] = useState('');
+  /*
+    Offered only where the agency can actually send mail. A "forgot your
+    password?" link on an installation with no mail server is a link that
+    leads somebody through two screens to be told nothing can be sent, at the
+    moment they are already locked out.
+  */
+  const [canRecover, setCanRecover] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  useEffect(() => {
+    void api.forgotAvailable().then(
+      (r) => setCanRecover(r.available),
+      () => setCanRecover(false),
+    );
+  }, []);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,6 +43,8 @@ export function SignIn() {
 
   const control =
     'w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-faint';
+
+  if (forgot) return <ForgotPassword onBack={() => setForgot(false)} />;
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -100,6 +118,16 @@ export function SignIn() {
             <button type="submit" className="hidden" aria-hidden tabIndex={-1}>
               Sign in
             </button>
+
+            {canRecover && (
+              <button
+                type="button"
+                onClick={() => setForgot(true)}
+                className="mt-4 block w-full text-center text-[12.5px] text-muted hover:text-ink"
+              >
+                Can't sign in?
+              </button>
+            )}
           </form>
 
           <DemoNotice />

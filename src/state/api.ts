@@ -822,6 +822,30 @@ export const api = {
     return request('/api/auth/sign-out', { method: 'POST' });
   },
 
+  /* ---- Getting back in ------------------------------------------------ */
+
+  /** Whether this installation can send email at all. */
+  forgotAvailable(): Promise<{ available: boolean; minutes: number }> {
+    return request('/api/auth/forgot');
+  },
+
+  /**
+   * Asks for a link. Answers the same whether or not the account exists — the
+   * only failures that surface are facts about the installation.
+   */
+  forgotPassword(who: string): Promise<{ ok: true; message: string }> {
+    return request('/api/auth/forgot', { method: 'POST', body: JSON.stringify({ who }) });
+  },
+
+  checkResetLink(token: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+    return request(`/api/auth/reset?token=${encodeURIComponent(token)}`);
+  },
+
+  /** Sets the password. Deliberately returns no session. */
+  resetPassword(token: string, next: string): Promise<{ ok: true }> {
+    return request('/api/auth/reset', { method: 'POST', body: JSON.stringify({ token, next }) });
+  },
+
   /** When this account last changed its password. */
   passwordStatus(): Promise<{ changedAt: string; mustChange: boolean }> {
     return request('/api/auth/password');

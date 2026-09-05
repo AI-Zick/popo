@@ -116,7 +116,7 @@ export function registerBulletinRoutes(app: Express, db: DatabaseSync): void {
     }
 
     const bulletin = createBulletin({
-      id: newId(),
+      id: newId('bul'),
       ...readInput(req.body),
       postedById: user.id,
       postedByName: user.name,
