@@ -36,6 +36,7 @@ import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 import { YourPassword } from '@/features/auth/YourPassword';
 import { MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
+import { Readiness } from '@/features/setup/Readiness';
 
 /**
  * One-time configuration. Everything here is per-install, and the boundary
@@ -43,6 +44,7 @@ import { MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
  * vendor, or the 911 addressing authority.
  */
 export type Tab =
+  | 'readiness'
   | 'jurisdiction'
   | 'accounts'
   | 'audit'
@@ -79,6 +81,7 @@ export type Tab =
 export type SectionKey = 'work' | 'agency' | 'me';
 
 const SECTION_OF: Record<Tab, SectionKey> = {
+  readiness: 'agency',
   jurisdiction: 'agency',
   accounts: 'agency',
   audit: 'agency',
@@ -109,6 +112,7 @@ export const SECTION_TITLE: Record<SectionKey, string> = {
 };
 
 const SCREEN_NAME: Record<Tab, string> = {
+  readiness: 'Before going live',
   jurisdiction: 'Jurisdiction',
   accounts: 'Accounts',
   audit: 'Audit log',
@@ -154,6 +158,7 @@ export function AgencySetup({
   const allowed = useCallback(
     (key: Tab): boolean => {
       switch (key) {
+        case 'readiness':
         case 'jurisdiction':
         case 'import':
         case 'exemptions':
@@ -279,6 +284,7 @@ export function AgencySetup({
           )}
           {tab === 'feedback' && <FeedbackQueue />}
 
+          {tab === 'readiness' && mayConfigure && <Readiness onGoTo={(screen) => setTab(screen)} />}
           {tab === 'jurisdiction' && mayConfigure && (
             <>
           {/*
