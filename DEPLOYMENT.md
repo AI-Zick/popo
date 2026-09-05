@@ -196,6 +196,37 @@ Those numbers are from a small database. Re-time it on a real one, and write
 the number down where whoever is on call can find it — the useful thing about
 a rehearsal is knowing how long the outage will be before you are in one.
 
+## Taking everything out
+
+A backup is a SQLite file for putting back into this software. An export is for
+reading in something else.
+
+```
+npm run export -- --to /tmp/leaving
+```
+
+One JSON file per collection, both file directories, a README explaining the
+shape, and a `checksums.txt` covering every file written. Records are unwrapped
+from their storage rows, and the index columns the database searches on are
+dropped rather than emitted a second time under a different spelling.
+
+The table list comes from the database itself rather than from a list somebody
+maintains, so a collection added next year is in the export the day it exists.
+The failure mode is exporting something unnecessary, which is visible; not
+quietly leaving a table behind, which is not.
+
+Four things are deliberately left out, and the README says so: password hashes,
+authenticator secrets, live sessions, and who had a report open. None of it
+describes anybody — it is how this installation recognises people at the
+keyboard, it is worthless anywhere else, and a directory of password hashes is
+the one thing an export could do to make an agency less safe rather than more
+free.
+
+Every file a record points at is checked to be in the export by digest, and the
+command exits non-zero if any are missing. A directory of JSON referencing
+photographs that are not in it is worse than nothing, because it reads as
+complete.
+
 ## What this does not do
 
 Read this part.
