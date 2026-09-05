@@ -10,10 +10,11 @@
 
 import type { UUID } from './person';
 
-export type Role = 'officer' | 'records' | 'supervisor' | 'admin' | 'vendor';
+export type Role = 'officer' | 'dispatch' | 'records' | 'supervisor' | 'admin' | 'vendor';
 
 export const ROLE_LABEL: Record<Role, string> = {
   officer: 'Patrol officer',
+  dispatch: 'Dispatcher',
   records: 'Records',
   supervisor: 'Supervisor',
   admin: 'Agency administrator',
@@ -27,13 +28,19 @@ export const ROLE_LABEL: Record<Role, string> = {
  */
 const ROLE_RANK: Record<Role, number> = {
   officer: 1,
+  /*
+    Level with records and supervisors for provisioning purposes, which is all
+    rank means here — an administrator can create a dispatcher, and a
+    dispatcher, holding no account management, creates nobody.
+  */
+  dispatch: 2,
   records: 2,
   supervisor: 2,
   admin: 3,
   vendor: 4,
 };
 
-export const ROLE_ORDER: Role[] = ['officer', 'records', 'supervisor', 'admin', 'vendor'];
+export const ROLE_ORDER: Role[] = ['officer', 'dispatch', 'records', 'supervisor', 'admin', 'vendor'];
 
 export type Permission =
   /** Add a note to a location. Everyone who writes reports can. */
@@ -105,6 +112,30 @@ export type Permission =
    */
   | 'trespass.lift'
   /**
+   * Put something on the board — a BOLO, a lookout, a shift notice.
+   *
+   * Everybody, on purpose. The officer who has just watched a car leave a
+   * burglary is the one holding the description, and a board that makes them
+   * find a supervisor first is a board that gets it an hour late and second
+   * hand. Same line as adding a location note.
+   */
+  | 'bulletins.post'
+  /**
+   * Take something off the board.
+   *
+   * Administrators and dispatch. A lookout somebody found inconvenient and
+   * quietly deleted is the exact failure the location note rule exists to
+   * prevent, and dispatch is on this list because dispatch is who runs the
+   * board hour to hour — they are told the car was recovered before anybody
+   * else is.
+   *
+   * Withdrawal, not destruction: it leaves the board, keeps who took it down
+   * and why, and stays readable by the people who may see withdrawn material.
+   * Nobody asks about a deleted BOLO until something has gone wrong, which is
+   * when "it is gone" is the worst available answer.
+   */
+  | 'bulletins.remove'
+  /**
    * Approve a redaction and issue a public records release.
    *
    * Logging a request is open to everybody, because writing down that somebody
@@ -139,16 +170,30 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'records.expunge': 'Carry out destruction orders',
   'records.release': 'Approve redactions and issue public records releases',
   'trespass.lift': 'Lift a trespass notice early',
+  'bulletins.post': 'Post BOLOs and bulletins',
+  'bulletins.remove': 'Take a BOLO or bulletin off the board',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  officer: ['notes.add', 'notes.viewRestricted'],
+  officer: ['notes.add', 'notes.viewRestricted', 'bulletins.post'],
+  /*
+    Dispatch takes the calls and runs the board. No report approval, no
+    property room, no accounts — a dispatcher is not a supervisor, and the
+    permissions here are the ones the job actually uses.
+  */
+  dispatch: [
+    'notes.add',
+    'notes.viewRestricted',
+    'bulletins.post',
+    'bulletins.remove',
+  ],
   supervisor: [
     'notes.add',
     'notes.viewRestricted',
     'notes.retract',
     'notes.viewRetracted',
     'trespass.lift',
+    'bulletins.post',
     'reports.approve',
     'evidence.manage',
     'audit.view',
@@ -159,6 +204,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.retract',
     'notes.viewRetracted',
     'trespass.lift',
+    'bulletins.post',
     'evidence.manage',
     'audit.view',
     'records.seal',
@@ -170,6 +216,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.retract',
     'notes.viewRetracted',
     'trespass.lift',
+    'bulletins.post',
+    'bulletins.remove',
     'agency.configure',
     'reports.approve',
     'users.manage',
@@ -190,6 +238,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.retract',
     'notes.viewRetracted',
     'trespass.lift',
+    'bulletins.post',
+    'bulletins.remove',
     'agency.configure',
     'reports.approve',
     'users.manage',

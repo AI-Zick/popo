@@ -40,6 +40,7 @@ import type { CrashReport } from '@/domain/crash';
 import type { QueryReturn } from '@/domain/inbound';
 import type { Arrest } from '@/domain/arrest';
 import type { Booking } from '@/domain/booking';
+import type { Bulletin } from '@/domain/bulletin';
 import type { CaseTask } from '@/domain/caseTask';
 import type { PersonPhoto } from '@/domain/photo';
 import type { Cruiser, CruiserCheck, MaintenanceRequest } from '@/domain/fleet';
@@ -78,6 +79,7 @@ export interface DemoState {
   returns: QueryReturn[];
   arrests: Arrest[];
   bookings: Booking[];
+  bulletins: Bulletin[];
   caseTasks: CaseTask[];
   photos: PersonPhoto[];
   evidence: EvidenceItem[];
@@ -148,6 +150,7 @@ export function fresh(): DemoState {
     returns: seed.returns,
     arrests: [],
     bookings: [],
+    bulletins: seed.bulletins,
     caseTasks: [],
     photos: [],
     evidence: [],

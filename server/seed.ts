@@ -45,6 +45,7 @@ export async function seedDatabase(db: DatabaseSync): Promise<void> {
 
   documents(DOC_TABLES.incidents).replaceAll(db, state.incidents);
   documents(DOC_TABLES.stops).replaceAll(db, state.stops);
+  documents(DOC_TABLES.bulletins).replaceAll(db, state.bulletins);
   documents(DOC_TABLES.returns).replaceAll(db, state.returns);
   documents(DOC_TABLES.people).replaceAll(db, Object.values(state.people));
   documents(DOC_TABLES.locations).replaceAll(db, Object.values(state.locations));

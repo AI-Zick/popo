@@ -165,6 +165,14 @@ import { profileFor } from '@/domain/nibrs/states';
 import { createSupplement, nextNumber } from '@/domain/supplement';
 import { createCrashReport } from '@/domain/crash';
 import { audit, currentUser, db, newId, password, reset, seedHistory } from './store';
+import {
+  blocking as blockingBulletin,
+  createBulletin,
+  forBriefing,
+  state as bulletinState,
+  type Bulletin,
+  type BulletinKind,
+} from '@/domain/bulletin';
 
 export interface Reply {
   status: number;
@@ -175,6 +183,7 @@ const ok = (body: unknown = { ok: true }): Reply => ({ status: 200, body });
 const fail = (status: number, error: string): Reply => ({ status, body: { error } });
 const text = (v: unknown, max: number) => String(v ?? '').slice(0, max);
 const day = (v: unknown) => (/^\d{4}-\d{2}-\d{2}$/.test(text(v, 10)) ? text(v, 10) : '');
+const BULLETIN_KINDS: BulletinKind[] = ['bolo', 'attemptToLocate', 'officerSafety', 'information'];
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
   return (allowed as readonly string[]).includes(String(v)) ? (v as T) : fallback;
@@ -565,6 +574,114 @@ export async function handle(method: string, url: string, body: unknown): Promis
 
     /* ---- Arrests ---------------------------------------------------- */
     /* ---- Booking ----------------------------------------------------------- */
+    case 'bulletins': {
+      /*
+        The same rules as the server, not a looser copy. In particular the
+        demo refuses a removal to somebody without the permission, because
+        watching that refusal is the point — it is the rule the board is built
+        around, and a demo that lets everybody delete everything demonstrates
+        different software.
+      */
+      const now = new Date();
+
+      if (method === 'GET' && !parts[1]) {
+        const all = state.bulletins;
+        const shown =
+          query.get('include') === 'all'
+            ? [...all].sort((a, b) => b.postedAt.localeCompare(a.postedAt))
+            : forBriefing(all, now);
+        return ok({
+          bulletins: shown.map((b: Bulletin) => ({ ...b, state: bulletinState(b, now) })),
+          asOf: at(),
+        });
+      }
+
+      if (method === 'POST' && !parts[1]) {
+        const denied = need('bulletins.post');
+        if (denied) return denied;
+        const user = currentUser();
+        const posted = createBulletin({
+          id: newId('bul'),
+          kind: oneOf(input.kind, BULLETIN_KINDS, 'bolo'),
+          headline: text(input.headline, 200),
+          detail: text(input.detail, 5000),
+          lookFor: text(input.lookFor, 2000),
+          personId: text(input.personId, 64),
+          vehicleId: text(input.vehicleId, 64),
+          caseNumber: text(input.caseNumber, 40),
+          area: text(input.area, 200),
+          contact: text(input.contact, 200),
+          expiresAt: text(input.expiresAt, 40),
+          postedById: user?.id ?? '',
+          postedByName: user?.name ?? '',
+          postedAt: at(),
+          source: user?.role === 'dispatch' ? 'dispatch' : 'officer',
+        });
+        const problems = blockingBulletin(posted);
+        if (problems.length > 0) return fail(400, problems[0].message);
+        state.bulletins.push(posted);
+        await audit({ actorId: user?.id ?? '', actorName: user?.name ?? '', action: 'bulletin.posted', target: posted.id, detail: posted.headline });
+        return { status: 201, body: { bulletin: posted } };
+      }
+
+      const found = state.bulletins.find((b) => b.id === parts[1]);
+      if (!found) return fail(404, 'No such bulletin.');
+      const me = currentUser();
+      const mine = found.postedById === (me?.id ?? '');
+
+      if (method === 'PATCH' && !parts[2]) {
+        if (!mine && !can(me, 'bulletins.remove'))
+          return fail(403, 'Only whoever posted this can change it.');
+        if (found.removed) return fail(400, 'This has been taken off the board.');
+        Object.assign(found, {
+          kind: oneOf(input.kind, BULLETIN_KINDS, found.kind),
+          headline: text(input.headline, 200),
+          detail: text(input.detail, 5000),
+          lookFor: text(input.lookFor, 2000),
+          area: text(input.area, 200),
+          contact: text(input.contact, 200),
+          caseNumber: text(input.caseNumber, 40),
+          expiresAt: text(input.expiresAt, 40),
+        });
+        const problems = blockingBulletin(found);
+        if (problems.length > 0) return fail(400, problems[0].message);
+        await audit({ actorId: me?.id ?? '', actorName: me?.name ?? '', action: 'bulletin.edited', target: found.id, detail: found.headline });
+        return ok({ bulletin: found });
+      }
+
+      if (method === 'POST' && parts[2] === 'clear') {
+        if (!mine && !can(me, 'bulletins.remove'))
+          return fail(403, 'Only whoever posted this, or dispatch, can clear it.');
+        if (found.cleared) return fail(400, 'This has already been cleared.');
+        const reason = text(input.reason, 400).trim();
+        if (!reason)
+          return fail(
+            400,
+            'Say what happened — found, arrested, called off. The next person to read this needs to know how it ended.',
+          );
+        found.cleared = { at: at(), byId: me?.id ?? '', byName: me?.name ?? '', reason };
+        await audit({ actorId: me?.id ?? '', actorName: me?.name ?? '', action: 'bulletin.cleared', target: found.id, detail: `${found.headline} — ${reason}` });
+        return ok({ bulletin: found });
+      }
+
+      if (method === 'POST' && parts[2] === 'remove') {
+        const denied = need('bulletins.remove');
+        if (denied)
+          return fail(
+            403,
+            'Only an administrator or dispatch can take something off the board. You can clear it if it is over.',
+          );
+        if (found.removed) return fail(400, 'This is already off the board.');
+        const reason = text(input.reason, 400).trim();
+        if (!reason) return fail(400, 'Say why this is coming down.');
+        found.removed = { at: at(), byId: me?.id ?? '', byName: me?.name ?? '', reason };
+        await audit({ actorId: me?.id ?? '', actorName: me?.name ?? '', action: 'bulletin.removed', target: found.id, detail: `${found.headline} — ${reason}` });
+        return ok({ bulletin: found });
+      }
+
+      return fail(404, 'Not found.');
+    }
+
     case 'bookings': {
       /*
         The same rules as the server, not a looser copy. A demo that lets

@@ -58,6 +58,10 @@ export type AuditAction =
   | 'warrant.attempted'
   | 'warrant.served'
   | 'warrant.recalled'
+  | 'bulletin.posted'
+  | 'bulletin.edited'
+  | 'bulletin.cleared'
+  | 'bulletin.removed'
   | 'contact.recorded'
   | 'contact.corrected'
   | 'publicRecords.logged'
@@ -131,6 +135,10 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'auth.mfaFailed': 'Failed second factor',
   'auth.mfaRecoveryUsed': 'Recovery code used',
   'auth.mfaReset': 'Second factor cleared by an administrator',
+  'bulletin.posted': 'Posted to the board',
+  'bulletin.edited': 'Board entry changed',
+  'bulletin.cleared': 'Board entry cleared',
+  'bulletin.removed': 'Board entry taken down',
   'user.created': 'Account created',
   'user.updated': 'Account changed',
   'user.deactivated': 'Account deactivated',

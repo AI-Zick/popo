@@ -57,7 +57,11 @@ describe('edge cases', () => {
   });
 
   it('lists the permissions actually held', () => {
-    expect(effectivePermissions(officer)).toEqual(['notes.add', 'notes.viewRestricted']);
+    expect(effectivePermissions(officer)).toEqual([
+      'notes.add',
+      'notes.viewRestricted',
+      'bulletins.post',
+    ]);
     expect(effectivePermissions(officer)).not.toContain('audit.view');
     expect(effectivePermissions(admin)).toContain('agency.configure');
   });
@@ -121,7 +125,13 @@ describe('nobody hands out more authority than they hold', () => {
   });
 
   it('an agency administrator can create staff up to their own level', () => {
-    expect(assignableRoles(admin)).toEqual(['officer', 'records', 'supervisor', 'admin']);
+    expect(assignableRoles(admin)).toEqual([
+      'officer',
+      'dispatch',
+      'records',
+      'supervisor',
+      'admin',
+    ]);
   });
 
   it('the vendor can create an agency administrator', () => {

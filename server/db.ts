@@ -457,6 +457,27 @@ CREATE INDEX IF NOT EXISTS warrants_number ON warrants(number);
 -- Field contacts. The subjects live inside the document because a contact is
 -- read whole, but the officer and the date are lifted out: "what did I write
 -- last night" and "what is due for disposal" are both column scans.
+-- The board. One row per BOLO or bulletin, live or not: an entry that has been
+-- cleared, has expired or has been withdrawn is still the record of something
+-- the agency told its officers, and the only time anybody looks one up is
+-- after something went wrong.
+CREATE TABLE IF NOT EXISTS bulletins (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  kind        TEXT NOT NULL DEFAULT 'bolo',
+  posted_at   TEXT NOT NULL DEFAULT '',
+  posted_by   TEXT NOT NULL DEFAULT '',
+  -- Flattened so the board can ask the database for what is still standing
+  -- rather than reading every entry ever posted to find out.
+  expires_at  TEXT NOT NULL DEFAULT '',
+  cleared_at  TEXT NOT NULL DEFAULT '',
+  removed_at  TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bulletins_when ON bulletins(posted_at);
+CREATE INDEX IF NOT EXISTS bulletins_standing ON bulletins(removed_at, cleared_at, expires_at);
+
 CREATE TABLE IF NOT EXISTS field_contacts (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -636,6 +657,7 @@ export interface DocTable {
     | 'trespasses'
     | 'warrants'
     | 'field_contacts'
+    | 'bulletins'
     | 'investigations'
     | 'citations'
     | 'public_requests'
@@ -752,6 +774,17 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       taken_on: String(doc.takenOn ?? ''),
       removal: String(doc.removal ?? ''),
+    }),
+  },
+  bulletins: {
+    name: 'bulletins',
+    columns: (doc) => ({
+      kind: String(doc.kind ?? 'bolo'),
+      posted_at: String(doc.postedAt ?? ''),
+      posted_by: String(doc.postedById ?? ''),
+      expires_at: String(doc.expiresAt ?? ''),
+      cleared_at: String((doc.cleared as { at?: string } | null)?.at ?? ''),
+      removed_at: String((doc.removed as { at?: string } | null)?.at ?? ''),
     }),
   },
   investigations: {

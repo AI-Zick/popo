@@ -38,6 +38,7 @@ import { registerCitationRoutes } from './citations';
 import { registerPublicRecordsRoutes } from './publicRecords';
 import { registerGisRoutes } from './gis';
 import { registerBookingRoutes } from './bookings';
+import { registerBulletinRoutes } from './bulletins';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -550,6 +551,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerPublicRecordsRoutes(app, db);
   registerGisRoutes(app, db);
   registerBookingRoutes(app, db);
+  registerBulletinRoutes(app, db);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);
   registerFeedbackRoutes(app, db, {

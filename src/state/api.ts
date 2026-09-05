@@ -28,6 +28,16 @@ import type { VehicleMatchResult, VehicleQuery } from '@/domain/vehicleMatching'
 import type { Trespass, TrespassState } from '@/domain/trespass';
 import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
 import type { FieldContact } from '@/domain/fieldContact';
+import type { Bulletin, BulletinState } from '@/domain/bulletin';
+
+/**
+ * A board entry as the server hands it over, with the state it worked out.
+ *
+ * The state travels with the row so a client cannot disagree with the server
+ * about whether something is still live — the browser derives it too, from the
+ * same function, but the two must never be able to drift.
+ */
+export type PostedBulletin = Bulletin & { state: BulletinState };
 import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
 import type { AddressCandidate, GisSource } from '@/domain/gis';
@@ -465,6 +475,36 @@ export const api = {
   /** Who is in the building. What a shift briefing reads. */
   custodyRoster(): Promise<{ roster: RosterRow[]; asOf: string }> {
     return request('/api/bookings/roster');
+  },
+
+  /* ---- The board ---------------------------------------------------- */
+
+
+  /** Live entries, in the order a shift reads them. `all` for the history. */
+  bulletins(include?: 'all'): Promise<{ bulletins: PostedBulletin[]; asOf: string }> {
+    return request(`/api/bulletins${include ? `?include=${include}` : ''}`);
+  },
+
+  postBulletin(input: Partial<Bulletin>): Promise<{ bulletin: Bulletin }> {
+    return request('/api/bulletins', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  editBulletin(id: string, input: Partial<Bulletin>): Promise<{ bulletin: Bulletin }> {
+    return request(`/api/bulletins/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  },
+
+  clearBulletin(id: string, reason: string): Promise<{ bulletin: Bulletin }> {
+    return request(`/api/bulletins/${id}/clear`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  removeBulletin(id: string, reason: string): Promise<{ bulletin: Bulletin }> {
+    return request(`/api/bulletins/${id}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
   },
 
   bookings(query: { arrestId?: string; masterId?: string } = {}): Promise<{ bookings: Booking[] }> {

@@ -148,6 +148,18 @@ function publicRecordRows(
   return out;
 }
 
+/** Board entries matching a predicate, mapped to `Row`. */
+function bulletinRows(
+  db: DatabaseSync,
+  matches: (doc: Record<string, unknown>) => boolean,
+): Row[] {
+  const rows = db.prepare('SELECT id, doc FROM bulletins').all() as { id: string; doc: string }[];
+  return rows
+    .map((row) => ({ id: row.id, doc: JSON.parse(row.doc) as Record<string, unknown> }))
+    .filter(({ doc }) => matches(doc))
+    .map(({ id, doc }) => ({ id, label: String(doc.headline ?? ''), files: [] }));
+}
+
 function purgePublicRecords(db: DatabaseSync, ids: string[]): void {
   const read = db.prepare('SELECT doc FROM public_requests WHERE id = ?');
   const write = db.prepare('UPDATE public_requests SET doc = ?, updated_at = ? WHERE id = ?');
@@ -341,6 +353,33 @@ const HOLDERS: Holder[] = [
         }));
     },
     purge: del('field_contacts'),
+  },
+  {
+    /*
+      Board entries naming this person, or arising from this case.
+
+      A BOLO is a description of somebody circulated to every officer in the
+      agency, which is exactly the material a sealing order is about: the point
+      of an expungement is that the accusation stops following them around, and
+      a lookout left on the board is the accusation still following them
+      around. Registered here so it goes with the report.
+
+      Cleared, expired and withdrawn entries go too. An expired BOLO is not a
+      spent one — it is the same text about the same person, still readable by
+      anybody who lifts the filter.
+    */
+    kind: 'BOLOs and bulletins',
+    byCase: (db, id) => {
+      const row = db.prepare('SELECT case_number FROM incidents WHERE id = ?').get(id) as
+        | { case_number?: string }
+        | undefined;
+      const number = String(row?.case_number ?? '');
+      if (!number) return [];
+      return bulletinRows(db, (doc) => String(doc.caseNumber ?? '') === number);
+    },
+    byPerson: (db, masterId) =>
+      bulletinRows(db, (doc) => String(doc.personId ?? '') === masterId),
+    purge: del('bulletins'),
   },
   {
     /*

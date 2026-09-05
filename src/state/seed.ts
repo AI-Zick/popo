@@ -25,7 +25,8 @@ import { createUser, type User } from '@/domain/auth';
  * who maintains the location index, given the one permission that needs,
  * without being made a supervisor. The fourth is the records clerk, who is the
  * only one of them who can decide what leaves the building on a public records
- * request.
+ * request. The fifth is a dispatcher, who runs the board and nothing else —
+ * the only non-administrator here who can take a BOLO down.
  */
 const USERS: User[] = [
   createUser({
@@ -54,6 +55,14 @@ const USERS: User[] = [
     createdBy: 'R. Vance',
   }),
   createUser({
+    id: 'u-doyle',
+    name: 'K. Doyle',
+    badge: '771',
+    username: 'kdoyle',
+    role: 'dispatch',
+    createdBy: 'R. Vance',
+  }),
+  createUser({
     id: 'u-okafor',
     name: 'J. Okafor',
     badge: '5502',
@@ -79,6 +88,7 @@ const USERS: User[] = [
   }),
 ];
 import type { GeoFeatureCollection } from '@/domain/geo';
+import { createBulletin, REVIEW_DAYS, type Bulletin } from '@/domain/bulletin';
 
 /**
  * A stand-in jurisdiction. A real department loads its own boundary file from
@@ -239,6 +249,7 @@ export function seedState(): {
   incidents: Incident[];
   stops: TrafficStop[];
   returns: QueryReturn[];
+  bulletins: Bulletin[];
   people: PersonIndex;
   locations: LocationIndex;
   vehicles: VehicleIndex;
@@ -1066,8 +1077,64 @@ export function seedState(): {
     }),
   ];
 
+  /*
+    Something on the board, because an empty one demonstrates nothing.
+
+    Three entries chosen to show the three things the board does: a lookout
+    that ends by itself, a standing safety warning that does not, and a shift
+    notice. The safety warning is dated far enough back that the "still
+    current?" prompt is visible, which is the part of this that stops boards
+    rotting and the part nobody would otherwise see.
+  */
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 36e5).toISOString();
+  const inDays = (days: number) => new Date(Date.now() + days * 864e5).toISOString();
+  const BULLETINS: Bulletin[] = [
+    createBulletin({
+      id: 'bul_seed_1',
+      kind: 'officerSafety',
+      headline: '1142 Ashwood Ln — dog at large, prior assault on officers',
+      lookFor: 'Two occupants. The dog is loose in the side yard, not fenced.',
+      detail:
+        'Flagged after the burglary call. The resident is cooperative; the neighbour at 1140 is not, and was arrested here in 2024 for assaulting an officer.',
+      area: 'North end',
+      contact: 'Dispatch',
+      postedById: 'u-doyle',
+      postedByName: 'K. Doyle',
+      postedAt: hoursAgo(24 * (REVIEW_DAYS + 4)),
+      source: 'dispatch',
+      expiresAt: '',
+    }),
+    createBulletin({
+      id: 'bul_seed_2',
+      kind: 'bolo',
+      headline: 'Silver pickup, burglary on Ashwood',
+      lookFor:
+        'Silver Ford F-150, older body style, dent in the tailgate. Partial plate 4KJ. Left westbound.',
+      area: 'North end, around Ashwood and Third',
+      contact: 'Unit 12 (Reyes)',
+      caseNumber: '2026-000148',
+      postedById: 'u-reyes',
+      postedByName: 'M. Reyes',
+      postedAt: hoursAgo(9),
+      expiresAt: inDays(6),
+    }),
+    createBulletin({
+      id: 'bul_seed_3',
+      kind: 'information',
+      headline: 'Third Street closed at the bridge until Friday',
+      detail: 'County crew on the deck. Marked detour via Vine. Affects response from the south.',
+      contact: 'Desk',
+      postedById: 'u-doyle',
+      postedByName: 'K. Doyle',
+      postedAt: hoursAgo(30),
+      source: 'dispatch',
+      expiresAt: inDays(4),
+    }),
+  ];
+
   return {
     incidents: [incomplete, complete, approved],
+    bulletins: BULLETINS,
     stops: STOPS,
     returns: RETURNS,
     people: PEOPLE,

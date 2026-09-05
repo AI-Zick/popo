@@ -15,6 +15,7 @@ import {
   Inbox,
   KeyRound,
   ListTodo,
+  Megaphone,
   Search,
   Send,
   Settings,
@@ -25,6 +26,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
+import { BoardPanel } from '@/features/board/Board';
 import type { SectionKey, Tab as HubTab } from '@/features/setup/AgencySetup';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
@@ -94,7 +96,8 @@ export function Dashboard({
     to:
       | { kind: 'hub'; section: SectionKey; start?: HubTab }
       | { kind: 'people' }
-      | { kind: 'vehicles' },
+      | { kind: 'vehicles' }
+      | { kind: 'board' },
   ) => void;
   onOpenSearch: () => void;
 }) {
@@ -418,6 +421,11 @@ export function Dashboard({
             page somebody starts their shift on.
           */}
           <nav className="mb-5 flex flex-wrap gap-2" aria-label="Where else to go">
+            <Destination
+              icon={<Megaphone size={14} />}
+              label="Board"
+              onClick={() => onGo({ kind: 'board' })}
+            />
             <Destination icon={<Users size={14} />} label="People" onClick={() => onGo({ kind: 'people' })} />
             <Destination icon={<Car size={14} />} label="Vehicles" onClick={() => onGo({ kind: 'vehicles' })} />
             <Destination
@@ -466,6 +474,18 @@ export function Dashboard({
               />
             )}
           </nav>
+
+          {/*
+            The board, above the counts.
+
+            Deliberately the first thing under the navigation rather than a
+            page somebody visits. A BOLO nobody happened to click on is a BOLO
+            nobody was told, and the officer this is for is about to walk out
+            of the door.
+          */}
+          <div className="mb-5">
+            <BoardPanel onOpenBoard={() => onGo({ kind: 'board' })} />
+          </div>
 
           {/* Tiles double as filters — the number and the way in are the same
               thing, so there is nothing to hunt for after reading it. */}
