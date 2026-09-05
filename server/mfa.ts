@@ -25,9 +25,9 @@
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Express, Request, Response } from 'express';
-import { getCredential, mfaRequired, saveCredential, upgradeSession, setSessionCookie } from './auth';
+import { getCredential, getUserById, mfaRequired, saveCredential, upgradeSession, setSessionCookie } from './auth';
 import { recordAudit } from './audit';
-import { can } from '../src/domain/auth';
+import { can, canManageUser } from '../src/domain/auth';
 import {
   generateRecoveryCodes,
   generateSecret,
@@ -256,9 +256,21 @@ export function registerMfaRoutes(app: Express, db: DatabaseSync): void {
       res.status(404).json({ error: 'No such account.' });
       return;
     }
-    const target = db.prepare('SELECT name FROM users WHERE id = ?').get(credential.userId) as
-      | { name: string }
-      | undefined;
+    const target = getUserById(db, credential.userId);
+    if (!target) {
+      res.status(404).json({ error: 'No such account.' });
+      return;
+    }
+    /*
+      The same ceiling every other account operation has, and missing here
+      until now: an agency administrator could clear the vendor's second
+      factor, which is reaching above their own authority by exactly the route
+      that authority is supposed to close.
+    */
+    if (!canManageUser(actor, target)) {
+      res.status(403).json({ error: 'This account has more authority than yours.' });
+      return;
+    }
 
     const reason = text(req.body?.reason, 500).trim();
     if (!reason) {
@@ -283,7 +295,7 @@ export function registerMfaRoutes(app: Express, db: DatabaseSync): void {
       actorId: actor.id,
       actorName: actor.name,
       action: 'auth.mfaReset',
-      target: target?.name ?? credential.userId,
+      target: target.name,
       detail: reason,
     });
 

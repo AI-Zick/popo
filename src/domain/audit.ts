@@ -35,6 +35,7 @@ export type AuditAction =
   | 'user.updated'
   | 'user.deactivated'
   | 'user.reactivated'
+  | 'user.passwordReset'
   | 'note.added'
   | 'note.retracted'
   | 'note.restored'
@@ -147,6 +148,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'user.updated': 'Account changed',
   'user.deactivated': 'Account deactivated',
   'user.reactivated': 'Account reactivated',
+  'user.passwordReset': 'Password reset by an administrator',
   'note.added': 'Note added',
   'note.retracted': 'Note withdrawn',
   'note.restored': 'Note restored',

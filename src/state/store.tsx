@@ -281,6 +281,8 @@ interface StoreValue {
   recoveryCodes: string[] | null;
   acknowledgeRecoveryCodes: () => void;
   auditLog: AuditEntry[];
+  /** Re-read the log from the server, for the screen that displays it. */
+  refreshAuditLog: () => Promise<void>;
 
   signIn: (username: string, password: string) => Promise<SignInOutcome>;
   signOut: () => void;
@@ -650,6 +652,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [agency, setAgency] = useState<AgencyProfile>(emptyAgency());
   const [users, setUsers] = useState<User[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+
+  /*
+    Re-reads the log from the server.
+    
+    Called by the audit screen on the way in, because a cached log is a
+    misleading one: an entry written by anything that did not happen to refresh
+    it is simply absent, and the verification line above the list — which does
+    ask the server — then reports a different number from the list beneath it.
+    That contradiction is exactly what a reader of an audit log should never
+    have to resolve.
+  */
+  const refreshAuditLog = useCallback(async (): Promise<void> => {
+    try {
+      const { entries } = await api.auditLog();
+      setAuditLog(entries);
+    } catch {
+      // Left as it was. The verification line says whether the server answered.
+    }
+  }, []);
   const [evidence, setEvidence] = useState<EvidenceSummary[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [feedbackForwarding, setFeedbackForwarding] = useState(false);
@@ -3314,6 +3335,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     beginEnrolment,
     confirmEnrolment,
     auditLog,
+    refreshAuditLog,
     signIn,
     signOut,
     changePassword,

@@ -202,6 +202,7 @@ function AccountRow({ user, onDeactivate }: { user: User; onDeactivate: () => vo
             Deactivate
           </Button>
           <ResetSecondFactor user={user} />
+          <ResetPassword user={user} />
         </div>
       )}
     </div>
@@ -277,6 +278,111 @@ function ResetSecondFactor({ user }: { user: User }) {
       <div className="mt-2 flex gap-1.5">
         <Button size="sm" variant="danger" disabled={busy || !reason.trim()} onClick={() => void submit()}>
           Clear it
+        </Button>
+        <Button size="sm" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Handing somebody a new password.
+ *
+ * The path back in for every officer the emailed link cannot reach — no work
+ * address, a mailbox they cannot get to, or an installation with no mail
+ * server. Identity is checked by a person who knows them rather than by a
+ * mailbox, which is the stronger check of the two.
+ *
+ * The password is shown once, here, and is meant to be read out in the room or
+ * down the radio rather than sent anywhere. It is never stored readably and the
+ * officer must change it the moment they sign in.
+ */
+function ResetPassword({ user }: { user: User }) {
+  const { currentUser } = useStore();
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [issued, setIssued] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  /*
+    Not offered on your own account. Resetting your own here would not need the
+    current password, which would turn any unlocked terminal with an
+    administrator signed in on it into an account takeover. The Signing in
+    screen is where you change your own.
+  */
+  if (user.id === currentUser.id) return null;
+
+  if (issued !== null) {
+    return (
+      <div className="w-[280px] rounded-lg border border-ok/45 bg-ok-soft p-2.5">
+        <p className="text-[11.5px] leading-relaxed text-ink">
+          Read this to {user.name} now — it is not shown again, and they must change it when they
+          sign in.
+        </p>
+        <p className="mt-2 select-all rounded border border-line bg-surface px-2 py-1.5 text-center font-mono text-[14px] tracking-wide text-ink">
+          {issued}
+        </p>
+        <Button size="sm" className="mt-2" onClick={() => setIssued(null)}>
+          Done
+        </Button>
+      </div>
+    );
+  }
+
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAsking(true)}
+        className="text-[11.5px] text-muted underline-offset-2 transition hover:text-ink hover:underline"
+      >
+        Reset password
+      </button>
+    );
+  }
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { api } = await import('@/state/api');
+      const result = await api.resetUserPassword(user.id, reason.trim());
+      setIssued(result.temporaryPassword);
+      setAsking(false);
+      setReason('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That did not work.');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="w-[280px] rounded-lg border border-warn/45 bg-warn-soft p-2.5">
+      <p className="text-[11.5px] leading-relaxed text-ink">
+        {user.name} gets a temporary password to change at their next sign-in. Their sessions end
+        now, and any reset link they were sent stops working.
+      </p>
+      {/*
+        Said, because an administrator reaching for this after somebody lost a
+        phone will otherwise assume it did both.
+      */}
+      <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+        Their second factor is untouched — clearing that is separate, on purpose.
+      </p>
+      <input
+        autoFocus
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Why — this goes in the audit log"
+        className="mt-2 w-full rounded border border-line bg-surface px-2 py-1 text-[12px] text-ink placeholder:text-faint"
+      />
+      {error && <p className="mt-1 text-[11.5px] text-danger">{error}</p>}
+      <div className="mt-2 flex gap-1.5">
+        <Button size="sm" variant="primary" disabled={busy || !reason.trim()} onClick={() => void submit()}>
+          Issue one
         </Button>
         <Button size="sm" onClick={() => setAsking(false)}>
           Cancel

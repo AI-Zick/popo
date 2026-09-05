@@ -16,10 +16,15 @@ import { cn } from '@/lib/cn';
 const DANGEROUS: AuditAction[] = ['auth.signInFailed', 'auth.lockout', 'note.retracted'];
 
 export function AuditLog() {
-  const { auditLog, verifyAuditLog } = useStore();
+  const { auditLog, refreshAuditLog, verifyAuditLog } = useStore();
   const [search, setSearch] = useState('');
   const [securityOnly, setSecurityOnly] = useState(false);
   const [chain, setChain] = useState<ChainStatus | null>(null);
+
+  // Read fresh on the way in. See `refreshAuditLog`.
+  useEffect(() => {
+    void refreshAuditLog();
+  }, [refreshAuditLog]);
 
   useEffect(() => {
     let cancelled = false;

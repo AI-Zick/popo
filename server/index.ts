@@ -488,6 +488,103 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     res.json({ ok: true, user: account, temporaryPassword });
   });
 
+  /**
+   * An administrator issues somebody a new password.
+   *
+   * The path back in for every officer the emailed link cannot reach: no work
+   * address on the account, a mailbox they cannot get to, or an installation
+   * with no mail server at all. Without this an officer who forgets their
+   * password is locked out permanently and the administrator they telephone
+   * has nothing to do about it.
+   *
+   * Identity is verified by a person rather than by a mailbox. The
+   * administrator knows the officer, hands the password over in the room or
+   * down the radio, and the officer must change it at next sign-in. That is a
+   * stronger check than an email link, not a weaker one — which is why this
+   * route exists even on installations that can send mail.
+   *
+   * Three refusals worth reading.
+   *
+   *   **Not your own.** An administrator resetting their own password here
+   *   would be doing it without knowing the old one, which turns any unlocked
+   *   terminal with an administrator signed in on it into a permanent account
+   *   takeover. Their own password is changed on the settings screen, where
+   *   the current one is required.
+   *
+   *   **Not above your own authority.** The same rule that governs every other
+   *   account operation.
+   *
+   *   **The second factor is untouched.** Resetting a password must not be a
+   *   way past it. Clearing somebody's authenticator is a separate route, with
+   *   its own reason and its own audit entry, and needing both is the point.
+   */
+  app.post(
+    '/api/users/:id/reset-password',
+    requirePermission('users.manage'),
+    async (req: Request, res: Response) => {
+      const actor = req.user!;
+      const target = getUserById(db, req.params.id);
+      if (!target) {
+        res.status(404).json({ error: 'No such account.' });
+        return;
+      }
+      if (target.id === actor.id) {
+        res.status(400).json({
+          error:
+            'Change your own password on the Signing in screen, where the current one is asked for. Resetting it here would not need it.',
+        });
+        return;
+      }
+      if (!canManageUser(actor, target)) {
+        res.status(403).json({ error: 'This account has more authority than yours.' });
+        return;
+      }
+
+      const reason = String(req.body?.reason ?? '').slice(0, 500).trim();
+      if (!reason) {
+        res.status(400).json({
+          error: 'Say why. Handing somebody a password is worth a line on the record.',
+        });
+        return;
+      }
+
+      const temporaryPassword = generateTemporaryPassword();
+      const existing = getCredential(db, target.id);
+      saveCredential(db, {
+        ...(existing ?? createCredential(target.id)),
+        userId: target.id,
+        passwordHash: await hashPassword(temporaryPassword),
+        mustChangePassword: true,
+        passwordChangedAt: new Date().toISOString(),
+        // Cleared so a locked-out officer is not still locked out afterwards.
+        failedAttempts: 0,
+        lockedUntil: '',
+      });
+
+      /*
+        Their sessions end, and any reset link they were mailed stops working.
+        Somebody whose password is being reset has usually lost control of
+        something, and a link still sitting in that mailbox is part of it.
+      */
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id);
+      db.prepare("UPDATE reset_requests SET used_at = ? WHERE user_id = ? AND used_at = ''").run(
+        new Date().toISOString(),
+        target.id,
+      );
+
+      await recordAudit(db, {
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'user.passwordReset',
+        target: target.name,
+        detail: reason,
+      });
+
+      // Shown once, never stored readably, and the holder must change it.
+      res.json({ ok: true, temporaryPassword });
+    },
+  );
+
   app.post(
     '/api/users/:id/deactivate',
     requirePermission('users.manage'),

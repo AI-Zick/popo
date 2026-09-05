@@ -1362,6 +1362,14 @@ export const api = {
 
   /* ---- Accounts ---------------------------------------------------- */
 
+  /** An administrator issues somebody a new password. Never their own. */
+  resetUserPassword(id: string, reason: string): Promise<{ ok: true; temporaryPassword: string }> {
+    return request(`/api/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
   createUser(input: Partial<User>): Promise<{ user: User; temporaryPassword: string }> {
     return request('/api/users', { method: 'POST', body: JSON.stringify(input) });
   },

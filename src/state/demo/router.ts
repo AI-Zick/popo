@@ -10,7 +10,7 @@
  * than failing in a way that looks like a bug in the product.
  */
 
-import { can, createUser, sanitizeUserInput, type Permission } from '@/domain/auth';
+import { can, canManageUser, createUser, sanitizeUserInput, type Permission } from '@/domain/auth';
 import { canHandOff, canRecall, canReopen, canReview, canSubmit, handOffPatch } from '@/domain/review';
 import { checkArrest, blockingProblems as arrestBlocking, createArrest, createCharge, nextArrestNumber } from '@/domain/arrest';
 import { createTask, sortTasks } from '@/domain/caseTask';
@@ -1182,6 +1182,36 @@ export async function handle(method: string, url: string, body: unknown): Promis
       if (denied) return denied;
       if (parts[2] === 'mfa') {
         return fail(400, 'The demo has no second factor to clear — there is no phone behind a shared link. On a real installation this ends their sessions and makes them enrol again.');
+      }
+      if (parts[2] === 'reset-password') {
+        const target = state.users.find((u) => u.id === parts[1]);
+        if (!target) return fail(404, 'No such account.');
+        if (target.id === user.id) {
+          return fail(
+            400,
+            'Change your own password on the Signing in screen, where the current one is asked for. Resetting it here would not need it.',
+          );
+        }
+        if (!canManageUser(user, target)) {
+          return fail(403, 'This account has more authority than yours.');
+        }
+        const why = text(input.reason, 500).trim();
+        if (!why) {
+          return fail(400, 'Say why. Handing somebody a password is worth a line on the record.');
+        }
+        await audit({
+          actorId: user.id,
+          actorName: user.name,
+          action: 'user.passwordReset',
+          target: target.name,
+          detail: why,
+        });
+        /*
+          The demo has one shared password and cannot mint a second, so it
+          hands back the one everybody already has rather than inventing a
+          string that would not work.
+        */
+        return ok({ ok: true, temporaryPassword: password });
       }
       if (parts[2] === 'deactivate' || parts[2] === 'reactivate') {
         const target = state.users.find((u) => u.id === parts[1]);
