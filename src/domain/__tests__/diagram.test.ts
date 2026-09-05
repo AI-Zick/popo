@@ -8,17 +8,26 @@ import {
   createShape,
   duplicateShape,
   emptyDiagram,
+  grabBox,
   GRID,
   isEmpty,
   missingUnits,
   pathBounds,
   pushHistory,
+  MAX_SIZE,
+  MIN_GRAB,
+  MIN_SIZE,
   removeShape,
+  resizeShape,
   sendToBack,
+  setSize,
+  SIGN_TEXT_DEFAULT,
   simplifyPath,
+  SIZE_STEP,
   snap,
   stampFor,
   STAMPS,
+  takesSignText,
   UNDO_DEPTH,
   unitStamps,
   updateShape,
@@ -225,5 +234,192 @@ describe('undo history', () => {
     let history: Diagram[] = [];
     for (let i = 0; i < UNDO_DEPTH + 20; i += 1) history = pushHistory(history, withShapes(1));
     expect(history).toHaveLength(UNDO_DEPTH);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Getting hold of a shape                                             */
+/* ------------------------------------------------------------------ */
+
+describe('the area that responds to a grab', () => {
+  it('is never smaller than a pointer can reliably hit', () => {
+    /*
+      The complaint this exists for, and it was measurable: SVG hit-testing
+      follows painted pixels, so a centre line — eight units of stroke — took
+      the pointer on 0 of 25 sample points across its own box, and a pedestrian
+      on 2. An officer experiences that as "it will not let me move it".
+    */
+    const centreLine = STAMPS.find((s) => s.variant === 'centreline')!;
+    const shape = createShape(centreLine, { x: 100, y: 100 }, 'line');
+    expect(shape.width).toBeLessThan(MIN_GRAB);
+    expect(grabBox(shape).width).toBe(MIN_GRAB);
+  });
+
+  it('does not shrink a shape that is already big enough', () => {
+    // A lorry must not get a target smaller than the lorry.
+    const truck = STAMPS.find((s) => s.variant === 'truck')!;
+    const shape = createShape(truck, { x: 100, y: 100 }, 't');
+    expect(grabBox(shape)).toEqual({ width: shape.width, height: shape.height });
+  });
+
+  it('pads each side independently, so a long thin shape keeps its length', () => {
+    const centreLine = STAMPS.find((s) => s.variant === 'centreline')!;
+    const shape = createShape(centreLine, { x: 100, y: 100 }, 'line');
+    const box = grabBox(shape);
+    expect(box.width).toBe(MIN_GRAB);
+    expect(box.height).toBe(shape.height);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Resizing                                                            */
+/* ------------------------------------------------------------------ */
+
+describe('resizing a stamp', () => {
+  const carAt = (width: number, height: number): Diagram => {
+    const diagram = addShape(emptyDiagram(), createShape(carStamp, { x: 300, y: 300 }, 'c'));
+    return updateShape(diagram, 'c', { width, height });
+  };
+
+  it('scales both sides by the same factor', () => {
+    const bigger = resizeShape(carAt(60, 120), 'c', 2);
+    const shape = bigger.shapes[0];
+    expect(shape.width).toBe(120);
+    expect(shape.height).toBe(240);
+  });
+
+  it('keeps the shape where it is', () => {
+    // Scaling about the centre. A stamp that wanders while it grows is one
+    // somebody has to reposition after every size change.
+    const bigger = resizeShape(carAt(60, 120), 'c', 2);
+    expect(bigger.shapes[0].x).toBe(300);
+    expect(bigger.shapes[0].y).toBe(300);
+  });
+
+  it('will not shrink below what prints legibly', () => {
+    const tiny = resizeShape(carAt(60, 120), 'c', 0.01);
+    expect(Math.min(tiny.shapes[0].width, tiny.shapes[0].height)).toBeGreaterThanOrEqual(MIN_SIZE);
+  });
+
+  it('will not grow past the canvas', () => {
+    const huge = resizeShape(carAt(60, 120), 'c', 100);
+    expect(Math.max(huge.shapes[0].width, huge.shapes[0].height)).toBeLessThanOrEqual(MAX_SIZE);
+  });
+
+  it('keeps the proportions when a limit is reached', () => {
+    /*
+      The bug a naive clamp produces: each side clamped on its own, so the
+      short side pins at the floor while the long side carries on and the car
+      turns into a square.
+    */
+    const before = carAt(60, 120);
+    const shrunk = resizeShape(before, 'c', 0.001);
+    const shape = shrunk.shapes[0];
+    expect(shape.height / shape.width).toBeCloseTo(2, 1);
+
+    const grown = resizeShape(before, 'c', 1000);
+    expect(grown.shapes[0].height / grown.shapes[0].width).toBeCloseTo(2, 1);
+  });
+
+  it('steps by a proportion, so one press is one visible change', () => {
+    const once = resizeShape(carAt(60, 120), 'c', SIZE_STEP);
+    expect(once.shapes[0].width).toBeGreaterThan(60);
+    expect(once.shapes[0].width).toBeLessThan(120);
+  });
+
+  it('scales a freehand path about its own centre', () => {
+    // A skid mark drawn too small is a real case, and a box does not fit it.
+    const diagram = addShape(emptyDiagram(), {
+      id: 'p',
+      kind: 'path',
+      variant: 'skid',
+      x: 100,
+      y: 100,
+      width: 100,
+      height: 0,
+      rotation: 0,
+      label: '',
+      unitNumber: null,
+      points: [
+        { x: 50, y: 100 },
+        { x: 150, y: 100 },
+      ],
+    });
+    const bigger = resizeShape(diagram, 'p', 2);
+    const points = bigger.shapes[0].points;
+    // Twice as long, still centred on the same place.
+    expect(points[1].x - points[0].x).toBe(200);
+    expect((points[0].x + points[1].x) / 2).toBe(100);
+  });
+
+  it('takes an exact size from a handle drag, clamped the same way', () => {
+    expect(setSize(carAt(60, 120), 'c', 90, 180).shapes[0]).toMatchObject({ width: 90, height: 180 });
+    expect(setSize(carAt(60, 120), 'c', 1, 1).shapes[0].width).toBe(MIN_SIZE);
+    expect(setSize(carAt(60, 120), 'c', 5000, 5000).shapes[0].width).toBe(MAX_SIZE);
+  });
+
+  it('leaves the diagram alone when the shape is gone', () => {
+    const diagram = carAt(60, 120);
+    expect(resizeShape(diagram, 'nope', 2)).toEqual(diagram);
+    expect(setSize(diagram, 'nope', 10, 10)).toEqual(diagram);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Street signs                                                        */
+/* ------------------------------------------------------------------ */
+
+describe('the sign set', () => {
+  const signs = STAMPS.filter((s) => s.group === 'signs');
+
+  it('offers the signs a crash actually turns on', () => {
+    /*
+      Which sign controlled the approach is often the whole question — whether
+      there was a stop or a yield decides who had the right of way — so "a sign
+      was here" answers nothing.
+    */
+    const variants = signs.map((s) => s.variant);
+    for (const expected of [
+      'sign-stop',
+      'sign-yield',
+      'sign-speed',
+      'sign-doNotEnter',
+      'sign-oneWay',
+      'sign-railroad',
+      'sign-school',
+      'sign-warning',
+    ]) {
+      expect(variants).toContain(expected);
+    }
+  });
+
+  it('gives every sign a size that can be seen and grabbed', () => {
+    for (const sign of signs) {
+      expect(sign.width).toBeGreaterThanOrEqual(MIN_SIZE);
+      expect(sign.height).toBeGreaterThanOrEqual(MIN_SIZE);
+      expect(sign.kind).toBe('object');
+    }
+  });
+
+  it('seeds the signs whose text is part of the fact', () => {
+    // A speed limit sign with no number says something was there, not what.
+    expect(takesSignText('sign-speed')).toBe(true);
+    expect(takesSignText('sign-street')).toBe(true);
+    expect(takesSignText('sign-stop')).toBe(false);
+
+    const speed = STAMPS.find((s) => s.variant === 'sign-speed')!;
+    const placed = createShape(speed, { x: 10, y: 10 }, 'sp');
+    expect(placed.label).toBe(SIGN_TEXT_DEFAULT['sign-speed']);
+    expect(placed.label).not.toBe('');
+  });
+
+  it('lets a placed sign keep a label the officer typed', () => {
+    const street = STAMPS.find((s) => s.variant === 'sign-street')!;
+    expect(createShape(street, { x: 0, y: 0 }, 's', 'Marion St').label).toBe('Marion St');
+  });
+
+  it('still resolves the old generic sign, so saved diagrams open', () => {
+    // Diagrams drawn before the set existed hold variant 'sign'.
+    expect(stampFor('sign').variant).toBeTruthy();
   });
 });

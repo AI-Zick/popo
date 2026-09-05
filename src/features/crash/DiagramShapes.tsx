@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { Shape } from '@/domain/diagram';
+import { grabBox, type Shape } from '@/domain/diagram';
 
 /**
  * How each stamp is drawn.
@@ -74,6 +74,10 @@ export const DiagramShape = memo(function DiagramShape({
       .join(' ');
     return (
       <g>
+        {/* A thin line is a thin target. This one is invisible and wide. */}
+        {!print && (
+          <path d={d} fill="none" stroke="transparent" strokeWidth={28} strokeLinecap="round" />
+        )}
         <path
           d={d}
           fill="none"
@@ -91,8 +95,31 @@ export const DiagramShape = memo(function DiagramShape({
     );
   }
 
+  const grab = grabBox(shape);
+
   return (
     <g transform={`translate(${shape.x} ${shape.y}) rotate(${shape.rotation})`}>
+      {/*
+        The thing that actually takes the pointer.
+
+        SVG hit-testing follows painted pixels, which for a diagram editor is
+        the wrong rule: a centre line is eight units of stroke and a pedestrian
+        is five thin lines with air between them, so both were all but
+        impossible to grab — measured at 0 and 2 of 25 points across their own
+        boxes. Drawn first so it sits under the art, and never in print, where
+        nothing is being grabbed.
+      */}
+      {!print && (
+        <rect
+          x={-grab.width / 2}
+          y={-grab.height / 2}
+          width={grab.width}
+          height={grab.height}
+          fill="transparent"
+          stroke="transparent"
+          strokeWidth={0}
+        />
+      )}
       {selected && (
         <rect
           x={-shape.width / 2 - 8}
@@ -249,6 +276,10 @@ function ArrowBody({ shape, stroke }: { shape: Shape; stroke: string }) {
 function ObjectBody({ shape, stroke, fill }: { shape: Shape; stroke: string; fill: string }) {
   const half = { w: shape.width / 2, h: shape.height / 2 };
 
+  if (shape.variant.startsWith('sign-')) {
+    return <SignFace shape={shape} stroke={stroke} fill={fill} />;
+  }
+
   switch (shape.variant) {
     case 'pedestrian':
       return (
@@ -293,16 +324,8 @@ function ObjectBody({ shape, stroke, fill }: { shape: Shape; stroke: string; fil
         </g>
       );
     case 'sign':
-      return (
-        <g>
-          <path
-            d={`M 0 ${-half.h} L ${half.w} 0 L 0 ${half.h} L ${-half.w} 0 Z`}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={2.5}
-          />
-        </g>
-      );
+      // Anything drawn before the sign set existed. Kept so old diagrams open.
+      return <SignFace shape={{ ...shape, variant: 'sign-other' }} stroke={stroke} fill={fill} />;
     case 'tree':
       return (
         <g>
@@ -340,4 +363,362 @@ export function NorthArrow({ rotation, print }: { rotation: number; print?: bool
       </text>
     </g>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Street signs                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sign colours, as the manual assigns them.
+ *
+ * Kept in print as well as on screen. Which sign controlled an approach is
+ * frequently the whole question in a crash, and the shapes carry that on their
+ * own — an octagon is a stop on the fourth photocopy — but where colour
+ * survives, red and yellow are read faster than any label.
+ */
+const SIGN = {
+  red: '#c8102e',
+  white: '#ffffff',
+  black: '#1a1a1a',
+  yellow: '#ffcd00',
+  green: '#006341',
+  /* Fluorescent yellow-green: school and pedestrian crossings only. */
+  schoolGreen: '#c6e000',
+};
+
+/**
+ * One street sign, drawn to its assigned shape.
+ *
+ * The shape is the meaning. Every one of these is scaled from the stamp's own
+ * box so resizing works the same way it does for everything else, and the text
+ * that some of them carry — a speed limit, a street name — is the shape's
+ * label, so what the officer typed is what the sign says.
+ */
+function SignFace({ shape, stroke, fill }: { shape: Shape; stroke: string; fill: string }) {
+  const w = shape.width;
+  const h = shape.height;
+  const hw = w / 2;
+  const hh = h / 2;
+  const edge = Math.max(1.5, Math.min(w, h) * 0.07);
+
+  /** Text upright regardless of how the sign has been turned. */
+  const Upright = ({ children }: { children: React.ReactNode }) => (
+    <g transform={`rotate(${-shape.rotation})`}>{children}</g>
+  );
+
+  const face = (fillColour: string, strokeColour: string, d: string) => (
+    <path d={d} fill={fillColour} stroke={strokeColour} strokeWidth={edge} strokeLinejoin="round" />
+  );
+
+  /** A regular polygon inscribed in the box, first vertex pointing up. */
+  const polygon = (sides: number, rotate = 0) =>
+    Array.from({ length: sides }, (_, i) => {
+      const a = (i / sides) * Math.PI * 2 - Math.PI / 2 + (rotate * Math.PI) / 180;
+      return `${(Math.cos(a) * hw).toFixed(2)} ${(Math.sin(a) * hh).toFixed(2)}`;
+    })
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p}`)
+      .join(' ') + ' Z';
+
+  switch (shape.variant) {
+    case 'sign-stop':
+      return (
+        <g>
+          {face(SIGN.red, SIGN.white, polygon(8, 22.5))}
+          {/*
+            Sized to sit inside the octagon rather than across it. Bold text is
+            wider per character than the usual estimate, and "STOP" hanging out
+            over both edges reads as a mistake in the drawing.
+          */}
+          <Upright>
+            <text
+              y={h * 0.09}
+              textAnchor="middle"
+              fontSize={h * 0.25}
+              fontWeight={700}
+              fill={SIGN.white}
+              style={{ userSelect: 'none' }}
+            >
+              STOP
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-yield':
+      return (
+        <g>
+          {/* Point down, which is the shape's whole distinguishing feature. */}
+          {face(SIGN.white, SIGN.red, `M ${-hw} ${-hh} L ${hw} ${-hh} L 0 ${hh} Z`)}
+          {/*
+            The word sits high, where the triangle is still wide. Centred it
+            overflowed the sloping sides — a yield sign with its own name
+            hanging off the edge, which is worse than no word at all. The
+            shape and the red border are what carry the meaning; the word is
+            what survives a black-and-white photocopy.
+          */}
+          <Upright>
+            <text
+              y={-hh * 0.34}
+              textAnchor="middle"
+              fontSize={h * 0.19}
+              fontWeight={700}
+              fill={SIGN.red}
+              style={{ userSelect: 'none' }}
+            >
+              YIELD
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-speed':
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} fill={SIGN.white} stroke={SIGN.black} strokeWidth={edge} />
+          <Upright>
+            <text
+              y={-hh * 0.38}
+              textAnchor="middle"
+              fontSize={h * 0.17}
+              fontWeight={700}
+              fill={SIGN.black}
+              style={{ userSelect: 'none' }}
+            >
+              SPEED
+            </text>
+            <text
+              y={-hh * 0.08}
+              textAnchor="middle"
+              fontSize={h * 0.17}
+              fontWeight={700}
+              fill={SIGN.black}
+              style={{ userSelect: 'none' }}
+            >
+              LIMIT
+            </text>
+            <text
+              y={hh * 0.62}
+              textAnchor="middle"
+              fontSize={h * 0.42}
+              fontWeight={700}
+              fill={SIGN.black}
+              style={{ userSelect: 'none' }}
+            >
+              {shape.label || '—'}
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-doNotEnter':
+      return (
+        <g>
+          <circle r={Math.min(hw, hh)} fill={SIGN.red} stroke={SIGN.white} strokeWidth={edge} />
+          <rect
+            x={-Math.min(hw, hh) * 0.62}
+            y={-Math.min(hw, hh) * 0.16}
+            width={Math.min(hw, hh) * 1.24}
+            height={Math.min(hw, hh) * 0.32}
+            fill={SIGN.white}
+          />
+        </g>
+      );
+
+    case 'sign-wrongWay':
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} fill={SIGN.red} stroke={SIGN.white} strokeWidth={edge} />
+          <Upright>
+            <text
+              y={-h * 0.04}
+              textAnchor="middle"
+              fontSize={h * 0.3}
+              fontWeight={700}
+              fill={SIGN.white}
+              style={{ userSelect: 'none' }}
+            >
+              WRONG
+            </text>
+            <text
+              y={h * 0.3}
+              textAnchor="middle"
+              fontSize={h * 0.3}
+              fontWeight={700}
+              fill={SIGN.white}
+              style={{ userSelect: 'none' }}
+            >
+              WAY
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-oneWay':
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} fill={SIGN.black} stroke={SIGN.white} strokeWidth={edge} />
+          {/* The arrow turns with the sign: which way is the whole message. */}
+          <g fill={SIGN.white}>
+            <rect x={-hw * 0.72} y={-h * 0.06} width={w * 0.58} height={h * 0.12} />
+            <path
+              d={`M ${hw * 0.16} ${-h * 0.22} L ${hw * 0.8} 0 L ${hw * 0.16} ${h * 0.22} Z`}
+            />
+          </g>
+        </g>
+      );
+
+    case 'sign-noTurn':
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} fill={SIGN.white} stroke={SIGN.black} strokeWidth={edge} />
+          <circle r={Math.min(hw, hh) * 0.62} fill="none" stroke={SIGN.red} strokeWidth={edge * 1.4} />
+          <line
+            x1={-Math.min(hw, hh) * 0.44}
+            y1={Math.min(hw, hh) * 0.44}
+            x2={Math.min(hw, hh) * 0.44}
+            y2={-Math.min(hw, hh) * 0.44}
+            stroke={SIGN.red}
+            strokeWidth={edge * 1.4}
+          />
+        </g>
+      );
+
+    case 'sign-warning':
+      return (
+        <g>
+          {face(SIGN.yellow, SIGN.black, `M 0 ${-hh} L ${hw} 0 L 0 ${hh} L ${-hw} 0 Z`)}
+          {shape.label && (
+            <Upright>
+              <text
+                y={h * 0.1}
+                textAnchor="middle"
+                fontSize={h * 0.26}
+                fontWeight={700}
+                fill={SIGN.black}
+                style={{ userSelect: 'none' }}
+              >
+                {shape.label}
+              </text>
+            </Upright>
+          )}
+        </g>
+      );
+
+    case 'sign-school':
+      // The five-sided school shape, in the fluorescent yellow-green.
+      return (
+        <g>
+          {face(
+            SIGN.schoolGreen,
+            SIGN.black,
+            `M 0 ${-hh} L ${hw} ${-hh * 0.28} L ${hw * 0.62} ${hh} L ${-hw * 0.62} ${hh} L ${-hw} ${-hh * 0.28} Z`,
+          )}
+          <Upright>
+            <text
+              y={h * 0.16}
+              textAnchor="middle"
+              fontSize={h * 0.22}
+              fontWeight={700}
+              fill={SIGN.black}
+              style={{ userSelect: 'none' }}
+            >
+              SCH
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-crossing':
+      return (
+        <g>
+          {face(
+            SIGN.schoolGreen,
+            SIGN.black,
+            `M 0 ${-hh} L ${hw} 0 L 0 ${hh} L ${-hw} 0 Z`,
+          )}
+          {/* A walking figure, the way the crossing sign carries it. */}
+          <g stroke={SIGN.black} strokeWidth={Math.max(1.2, h * 0.05)} fill="none" strokeLinecap="round">
+            <circle cx={0} cy={-h * 0.16} r={h * 0.07} fill={SIGN.black} />
+            <line x1={0} y1={-h * 0.08} x2={0} y2={h * 0.08} />
+            <line x1={-h * 0.11} y1={h * 0.24} x2={0} y2={h * 0.08} />
+            <line x1={0} y1={h * 0.08} x2={h * 0.11} y2={h * 0.24} />
+            <line x1={-h * 0.12} y1={-h * 0.02} x2={h * 0.1} y2={h * 0.04} />
+          </g>
+        </g>
+      );
+
+    case 'sign-railroad':
+      // The crossbuck: two boards in an X, which is unmistakable at any size.
+      return (
+        <g>
+          <g transform="rotate(45)">
+            <rect x={-hw * 0.98} y={-hh * 0.24} width={hw * 1.96} height={hh * 0.48} fill={SIGN.white} stroke={SIGN.black} strokeWidth={edge} />
+          </g>
+          <g transform="rotate(-45)">
+            <rect x={-hw * 0.98} y={-hh * 0.24} width={hw * 1.96} height={hh * 0.48} fill={SIGN.white} stroke={SIGN.black} strokeWidth={edge} />
+          </g>
+        </g>
+      );
+
+    case 'sign-railroadAdvance':
+      return (
+        <g>
+          <circle r={Math.min(hw, hh)} fill={SIGN.yellow} stroke={SIGN.black} strokeWidth={edge} />
+          <Upright>
+            <text
+              y={h * 0.16}
+              textAnchor="middle"
+              fontSize={h * 0.46}
+              fontWeight={700}
+              fill={SIGN.black}
+              style={{ userSelect: 'none' }}
+            >
+              RR
+            </text>
+          </Upright>
+        </g>
+      );
+
+    case 'sign-street':
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} rx={h * 0.14} fill={SIGN.green} stroke={SIGN.white} strokeWidth={edge} />
+          <Upright>
+            <text
+              y={h * 0.2}
+              textAnchor="middle"
+              fontSize={h * 0.56}
+              fontWeight={600}
+              fill={SIGN.white}
+              style={{ userSelect: 'none' }}
+            >
+              {shape.label || 'Street'}
+            </text>
+          </Upright>
+        </g>
+      );
+
+    default:
+      // Anything the officer would rather describe in words.
+      return (
+        <g>
+          <rect x={-hw} y={-hh} width={w} height={h} rx={3} fill={fill} stroke={stroke} strokeWidth={edge} />
+          {shape.label && (
+            <Upright>
+              <text
+                y={h * 0.16}
+                textAnchor="middle"
+                fontSize={h * 0.36}
+                fontWeight={600}
+                fill={stroke}
+                style={{ userSelect: 'none' }}
+              >
+                {shape.label}
+              </text>
+            </Upright>
+          )}
+        </g>
+      );
+  }
 }

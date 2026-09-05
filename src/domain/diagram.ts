@@ -94,7 +94,7 @@ export interface StampSpec {
   width: number;
   height: number;
   /** Grouping for the toolbar. */
-  group: 'units' | 'road' | 'marks' | 'scene';
+  group: 'units' | 'road' | 'marks' | 'signs' | 'scene';
 }
 
 export const STAMPS: StampSpec[] = [
@@ -115,7 +115,30 @@ export const STAMPS: StampSpec[] = [
   { kind: 'path', variant: 'debris', label: 'Debris / gouge', width: 0, height: 0, group: 'marks' },
   { kind: 'object', variant: 'impact', label: 'Point of impact', width: 34, height: 34, group: 'marks' },
 
-  { kind: 'object', variant: 'sign', label: 'Sign', width: 26, height: 26, group: 'scene' },
+  /*
+    The real signs, not a generic diamond.
+
+    Which sign controlled the approach is often the whole question in a crash —
+    whether there was a stop or a yield decides who had the right of way — and a
+    diagram that says "a sign was here" answers nothing. These are drawn to the
+    shapes the manual assigns, because the shape is what carries the meaning:
+    an octagon is a stop even in black and white on the fourth photocopy.
+  */
+  { kind: 'object', variant: 'sign-stop', label: 'Stop', width: 34, height: 34, group: 'signs' },
+  { kind: 'object', variant: 'sign-yield', label: 'Yield', width: 36, height: 32, group: 'signs' },
+  { kind: 'object', variant: 'sign-speed', label: 'Speed limit', width: 30, height: 38, group: 'signs' },
+  { kind: 'object', variant: 'sign-doNotEnter', label: 'Do not enter', width: 34, height: 34, group: 'signs' },
+  { kind: 'object', variant: 'sign-wrongWay', label: 'Wrong way', width: 44, height: 28, group: 'signs' },
+  { kind: 'object', variant: 'sign-oneWay', label: 'One way', width: 46, height: 24, group: 'signs' },
+  { kind: 'object', variant: 'sign-noTurn', label: 'No turn', width: 32, height: 34, group: 'signs' },
+  { kind: 'object', variant: 'sign-warning', label: 'Warning (diamond)', width: 34, height: 34, group: 'signs' },
+  { kind: 'object', variant: 'sign-school', label: 'School zone', width: 34, height: 36, group: 'signs' },
+  { kind: 'object', variant: 'sign-crossing', label: 'Pedestrian crossing', width: 34, height: 36, group: 'signs' },
+  { kind: 'object', variant: 'sign-railroad', label: 'Railroad crossbuck', width: 38, height: 38, group: 'signs' },
+  { kind: 'object', variant: 'sign-railroadAdvance', label: 'Railroad advance', width: 34, height: 34, group: 'signs' },
+  { kind: 'object', variant: 'sign-street', label: 'Street name', width: 66, height: 20, group: 'signs' },
+  { kind: 'object', variant: 'sign-other', label: 'Other sign', width: 30, height: 30, group: 'signs' },
+
   { kind: 'object', variant: 'signal', label: 'Traffic signal', width: 24, height: 48, group: 'scene' },
   { kind: 'object', variant: 'pole', label: 'Pole', width: 20, height: 20, group: 'scene' },
   { kind: 'object', variant: 'tree', label: 'Tree', width: 40, height: 40, group: 'scene' },
@@ -127,6 +150,7 @@ export const STAMP_GROUPS: { key: StampSpec['group']; label: string }[] = [
   { key: 'units', label: 'Units' },
   { key: 'road', label: 'Roadway' },
   { key: 'marks', label: 'Marks' },
+  { key: 'signs', label: 'Signs' },
   { key: 'scene', label: 'Scene' },
 ];
 
@@ -138,6 +162,127 @@ export function snap(value: number, grid = GRID): number {
   return Math.round(value / grid) * grid;
 }
 
+/* ------------------------------------------------------------------ */
+/* Grabbing hold of something                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The smallest box that can be reliably grabbed, in diagram units.
+ *
+ * SVG hit-testing follows painted pixels, which is the wrong rule for a
+ * diagram editor: a centre line is eight units of stroke, a pedestrian is five
+ * thin strokes with air between them, and both are effectively ungrabbable —
+ * measured at 0 and 2 of 25 sample points across their own bounding boxes
+ * before this existed. An officer experiences that as "it will not let me move
+ * it", and the only workaround is hunting for a pixel of ink.
+ *
+ * So every shape gets an invisible target at least this big. The canvas is
+ * 1200 units rendered at roughly 500 pixels, so 56 units is about 23 pixels on
+ * screen — a comfortable target that is still small enough that two stamps
+ * side by side do not steal each other's clicks.
+ */
+export const MIN_GRAB = 56;
+
+/** The invisible rectangle that actually takes the pointer, in local units. */
+export function grabBox(shape: Shape): { width: number; height: number } {
+  return {
+    width: Math.max(shape.width, MIN_GRAB),
+    height: Math.max(shape.height, MIN_GRAB),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Size                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How small and how large a stamp may be made.
+ *
+ * The floor is what stays legible on a printed page; the ceiling is most of
+ * the canvas, because a building or a road sometimes should be most of the
+ * canvas. Neither is a matter of taste — both are the point at which the
+ * diagram stops communicating.
+ */
+export const MIN_SIZE = 12;
+export const MAX_SIZE = 900;
+
+/** One step of the resize keys, as a proportion. */
+export const SIZE_STEP = 1.2;
+
+/**
+ * Scales a shape about its own centre.
+ *
+ * Both axes together, so a car cannot be squashed into something that is not a
+ * car. Somebody who wants a long thin rectangle has the road stamps for it,
+ * and free aspect on a vehicle stamp only ever produces a diagram that looks
+ * wrong to a jury.
+ */
+export function resizeShape(diagram: Diagram, id: string, factor: number): Diagram {
+  const shape = diagram.shapes.find((s) => s.id === id);
+  if (!shape) return diagram;
+
+  if (shape.kind === 'path') {
+    return {
+      ...diagram,
+      shapes: diagram.shapes.map((s) => (s.id === id ? scalePath(s, factor) : s)),
+    };
+  }
+
+  /*
+    One factor for both axes, clamped so that whichever side reaches a limit
+    first stops the whole scaling. Clamping each side on its own is what
+    produces a car that grows into a square: the short side pins at the floor
+    while the long side carries on.
+  */
+  const applied = clampFactor(factor, shape.width, shape.height);
+  return updateShape(diagram, id, {
+    width: Math.round(shape.width * applied),
+    height: Math.round(shape.height * applied),
+  });
+}
+
+/**
+ * The most of `factor` a stamp can take without either side leaving range.
+ *
+ * One number for both sides. Clamping each side on its own is what turns a car
+ * into a square: the short side pins at the floor while the long side carries
+ * on.
+ */
+function clampFactor(factor: number, width: number, height: number): number {
+  const shortest = Math.max(1, Math.min(width, height));
+  const longest = Math.max(1, Math.max(width, height));
+  return Math.min(Math.max(factor, MIN_SIZE / shortest), MAX_SIZE / longest);
+}
+
+/**
+ * Scales a freehand path's points about their own centre.
+ *
+ * Clamped on the path's longest extent alone, not on a box. A straight skid
+ * mark has no thickness — `pathBounds` floors it at one unit so the box is not
+ * degenerate — and treating that floor as a real dimension demands a ninefold
+ * scale-up to give the line a width it is not supposed to have.
+ */
+export function scalePath(shape: Shape, factor: number): Shape {
+  const bounds = pathBounds(shape.points);
+  const extent = Math.max(1, bounds.width, bounds.height);
+  const applied = Math.min(Math.max(factor, MIN_SIZE / extent), MAX_SIZE / extent);
+  return {
+    ...shape,
+    points: shape.points.map((p) => ({
+      x: bounds.x + (p.x - bounds.x) * applied,
+      y: bounds.y + (p.y - bounds.y) * applied,
+    })),
+  };
+}
+
+/** Sets an exact size, for the handle drag. Clamped the same way. */
+export function setSize(diagram: Diagram, id: string, width: number, height: number): Diagram {
+  const shape = diagram.shapes.find((s) => s.id === id);
+  if (!shape) return diagram;
+  const clamp = (v: number) => Math.round(Math.max(MIN_SIZE, Math.min(MAX_SIZE, v)));
+  return updateShape(diagram, id, { width: clamp(width), height: clamp(height) });
+}
+
 /** Keeps a shape's centre on the canvas, so nothing can be lost off-screen. */
 export function clampToCanvas(shape: Shape, diagram: Diagram): Shape {
   return {
@@ -146,6 +291,19 @@ export function clampToCanvas(shape: Shape, diagram: Diagram): Shape {
     y: Math.max(0, Math.min(diagram.height, shape.y)),
   };
 }
+
+/**
+ * Signs whose text is part of the fact being recorded.
+ *
+ * A speed limit sign with no number on it and a street name sign with no
+ * street on it are both worse than useless in a diagram — they say something
+ * was there without saying what. Seeded with a placeholder so it is obviously
+ * unfilled rather than silently blank.
+ */
+export const SIGN_TEXT_DEFAULT: Record<string, string> = {
+  'sign-speed': '35',
+  'sign-street': 'Street',
+};
 
 export function createShape(spec: StampSpec, at: Point, id: string, label = ''): Shape {
   return {
@@ -156,7 +314,7 @@ export function createShape(spec: StampSpec, at: Point, id: string, label = ''):
     rotation: 0,
     width: spec.width,
     height: spec.height,
-    label: label || (spec.kind === 'label' ? 'Text' : ''),
+    label: label || SIGN_TEXT_DEFAULT[spec.variant] || (spec.kind === 'label' ? 'Text' : ''),
     unitNumber: null,
     variant: spec.variant,
     points: [],
@@ -253,6 +411,9 @@ export function variantForUnit(unit: { kind: string; model: string; make: string
   if (/freightliner|peterbilt|kenworth|semi|tractor/.test(text)) return 'truck';
   return 'car';
 }
+
+/** Whether this shape's label is drawn on the sign face. */
+export const takesSignText = (variant: string): boolean => variant in SIGN_TEXT_DEFAULT;
 
 export function stampFor(variant: string): StampSpec {
   return (

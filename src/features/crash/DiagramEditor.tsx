@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Copy,
   Layers,
+  Maximize2,
+  Minimize2,
   Redo2,
   RotateCw,
   Trash2,
@@ -18,12 +20,16 @@ import {
   pathBounds,
   pushHistory,
   removeShape,
+  resizeShape,
   sendToBack,
+  setSize,
   simplifyPath,
+  SIZE_STEP,
   snap,
   stampFor,
   STAMP_GROUPS,
   STAMPS,
+  takesSignText,
   unitStamps,
   updateShape,
   type Diagram,
@@ -77,6 +83,22 @@ export function DiagramEditor({
   const [drawing, setDrawing] = useState<{ variant: string; points: Point[] } | null>(null);
   const dragOffset = useRef<Point>({ x: 0, y: 0 });
 
+  /*
+    A resize in progress. Like the drag, it stays out of the store until the
+    pointer lifts — and it remembers the shape's starting size so the handle
+    scales from where the drag began rather than compounding every frame.
+  */
+  const [resizing, setResizing] = useState<{
+    id: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const resizeFrom = useRef<{ width: number; height: number; distance: number }>({
+    width: 0,
+    height: 0,
+    distance: 1,
+  });
+
   const [history, setHistory] = useState<Diagram[]>([]);
   const [future, setFuture] = useState<Diagram[]>([]);
 
@@ -123,6 +145,15 @@ export function DiagramEditor({
     };
   }, []);
 
+  /** Bigger or smaller by one step, about the shape's own centre. */
+  const resizeBy = useCallback(
+    (factor: number) => {
+      if (!selectedId) return;
+      commit(resizeShape(diagram, selectedId, factor));
+    },
+    [selectedId, diagram, commit],
+  );
+
   /* ---- Placing ----------------------------------------------------- */
 
   const placeAt = (at: Point) => {
@@ -156,6 +187,25 @@ export function DiagramEditor({
     if (drawing) {
       const at = toCanvas(event);
       setDrawing((d) => (d ? { ...d, points: [...d.points, at] } : d));
+      return;
+    }
+    if (resizing) {
+      const at = toCanvas(event);
+      const shape = diagram.shapes.find((s) => s.id === resizing.id);
+      if (!shape) return;
+      /*
+        Scaled by how far the pointer is from the centre against how far it was
+        when the drag started. Measuring from the centre rather than the
+        opposite corner keeps the shape where it is while it grows, which is
+        what somebody sizing a stamp next to a road actually wants.
+      */
+      const distance = Math.max(1, Math.hypot(at.x - shape.x, at.y - shape.y));
+      const factor = distance / resizeFrom.current.distance;
+      setResizing({
+        id: resizing.id,
+        width: Math.round(resizeFrom.current.width * factor),
+        height: Math.round(resizeFrom.current.height * factor),
+      });
       return;
     }
     if (dragging) {
@@ -193,6 +243,12 @@ export function DiagramEditor({
       setPending(null);
       return;
     }
+    if (resizing) {
+      // One history entry per resize, not one per pointer event.
+      commit(setSize(diagram, resizing.id, resizing.width, resizing.height));
+      setResizing(null);
+      return;
+    }
     if (dragging) {
       // One history entry per drag, not one per pointer event.
       commit(updateShape(diagram, dragging.id, { x: dragging.x, y: dragging.y }));
@@ -210,6 +266,19 @@ export function DiagramEditor({
     dragOffset.current = { x: at.x - shape.x, y: at.y - shape.y };
     (event.currentTarget as Element).closest('svg')?.setPointerCapture(event.pointerId);
     setDragging({ id: shape.id, x: shape.x, y: shape.y });
+  };
+
+  const onResizePointerDown = (event: React.PointerEvent, shape: Shape) => {
+    if (readOnly) return;
+    event.stopPropagation();
+    const at = toCanvas(event);
+    resizeFrom.current = {
+      width: shape.width,
+      height: shape.height,
+      distance: Math.max(1, Math.hypot(at.x - shape.x, at.y - shape.y)),
+    };
+    (event.currentTarget as Element).closest('svg')?.setPointerCapture(event.pointerId);
+    setResizing({ id: shape.id, width: shape.width, height: shape.height });
   };
 
   /* ---- Keyboard ----------------------------------------------------- */
@@ -240,6 +309,12 @@ export function DiagramEditor({
         setSelectedId(null);
       } else if (e.key.toLowerCase() === 'r') {
         commit(updateShape(diagram, selected.id, { rotation: (selected.rotation + (e.shiftKey ? -15 : 15) + 360) % 360 }));
+      } else if (e.key === '+' || e.key === '=' || e.key === ']') {
+        e.preventDefault();
+        resizeBy(SIZE_STEP);
+      } else if (e.key === '-' || e.key === '_' || e.key === '[') {
+        e.preventDefault();
+        resizeBy(1 / SIZE_STEP);
       } else if (e.key.startsWith('Arrow')) {
         e.preventDefault();
         const step = e.shiftKey ? GRID * 5 : GRID;
@@ -250,7 +325,7 @@ export function DiagramEditor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, diagram, commit, undo, redo, readOnly]);
+  }, [selected, diagram, commit, undo, redo, readOnly, resizeBy]);
 
   /* ---- Render -------------------------------------------------------- */
 
@@ -306,6 +381,14 @@ export function DiagramEditor({
             {selected && (
               <>
                 <span className="mx-1 h-4 w-px bg-line" />
+                <Button size="sm" onClick={() => resizeBy(SIZE_STEP)} title="Bigger  ( + )">
+                  <Maximize2 size={13} aria-hidden />
+                  Bigger
+                </Button>
+                <Button size="sm" onClick={() => resizeBy(1 / SIZE_STEP)} title="Smaller  ( − )">
+                  <Minimize2 size={13} aria-hidden />
+                  Smaller
+                </Button>
                 <Button
                   size="sm"
                   onClick={() =>
@@ -354,12 +437,23 @@ export function DiagramEditor({
           </div>
         )}
 
-        {selected?.kind === 'label' && !readOnly && (
+        {/*
+          A speed limit sign with no number and a street sign with no street
+          say something was there without saying what, so the same field that
+          types a text label types their faces.
+        */}
+        {selected && !readOnly && (selected.kind === 'label' || takesSignText(selected.variant)) && (
           <input
             autoFocus
             value={selected.label}
             onChange={(e) => onChange(updateShape(diagram, selected.id, { label: e.target.value }))}
-            placeholder="Label text"
+            placeholder={
+              selected.variant === 'sign-speed'
+                ? 'Posted limit'
+                : selected.variant === 'sign-street'
+                  ? 'Street name'
+                  : 'Label text'
+            }
             className="mb-2 w-full rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink"
           />
         )}
@@ -391,8 +485,10 @@ export function DiagramEditor({
           <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#diagram-grid)" />
 
           {shapes.map((shape) => {
-            const live =
-              dragging?.id === shape.id ? { ...shape, x: dragging.x, y: dragging.y } : shape;
+            let live = shape;
+            if (dragging?.id === shape.id) live = { ...shape, x: dragging.x, y: dragging.y };
+            if (resizing?.id === shape.id)
+              live = { ...shape, width: resizing.width, height: resizing.height };
             return (
               <g
                 key={shape.id}
@@ -403,6 +499,27 @@ export function DiagramEditor({
               </g>
             );
           })}
+
+          {/*
+            The size handle, drawn last so it sits above every stamp.
+
+            Only on the selected shape, and outside the selection outline so it
+            cannot be mistaken for part of the drawing. Dragging it scales from
+            the centre; the toolbar buttons and the + / − keys do the same
+            thing for somebody who would rather not aim at a handle at all.
+          */}
+          {!readOnly && selected && selected.kind !== 'path' && (
+            <SizeHandle
+              shape={
+                resizing?.id === selected.id
+                  ? { ...selected, width: resizing.width, height: resizing.height }
+                  : dragging?.id === selected.id
+                    ? { ...selected, x: dragging.x, y: dragging.y }
+                    : selected
+              }
+              onGrab={(event) => onResizePointerDown(event, selected)}
+            />
+          )}
 
           {/* The line being drawn right now, before it is committed. */}
           {drawing && (
@@ -424,7 +541,7 @@ export function DiagramEditor({
               ? pending.spec.kind === 'path'
                 ? 'Drag on the diagram to draw the mark.'
                 : 'Click on the diagram to place it.'
-              : 'Pick something on the left, then click the diagram. Drag to move · R to turn · arrows to nudge · Delete to remove · Ctrl-Z to undo.'}
+              : 'Pick something on the left, then click the diagram. Drag to move · corner grip or + / − to resize · R to turn · arrows to nudge · Delete to remove · Ctrl-Z to undo.'}
           </p>
         )}
       </div>
@@ -463,5 +580,42 @@ function StampButton({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * The corner grip that resizes a stamp.
+ *
+ * Deliberately large and deliberately outside the selection outline: the
+ * complaint that started this work was that things were too hard to grab, and
+ * a four-pixel handle would be the same mistake in a new place. The visible
+ * grip is small; the invisible circle around it is not.
+ */
+function SizeHandle({
+  shape,
+  onGrab,
+}: {
+  shape: Shape;
+  onGrab: (event: React.PointerEvent) => void;
+}) {
+  const x = shape.x + shape.width / 2 + 14;
+  const y = shape.y + shape.height / 2 + 14;
+  return (
+    <g
+      onPointerDown={onGrab}
+      style={{ cursor: 'nwse-resize' }}
+      role="button"
+      aria-label="Resize"
+    >
+      <circle cx={x} cy={y} r={26} fill="transparent" />
+      <circle cx={x} cy={y} r={9} fill="var(--c-accent)" stroke="var(--c-surface)" strokeWidth={2.5} />
+      <path
+        d={`M ${x - 4} ${y + 4} L ${x + 4} ${y - 4} M ${x + 1} ${y + 4} L ${x + 4} ${y + 1}`}
+        stroke="#fff"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        fill="none"
+      />
+    </g>
   );
 }
