@@ -29,6 +29,7 @@ import { PublicRecordsView } from '@/features/records/PublicRecordsView';
 import { ExemptionRules } from '@/features/records/ExemptionRules';
 import { StatuteTable } from '@/features/statutes/StatuteTable';
 import { GisSetup } from '@/features/setup/GisSetup';
+import { CrimeTrends } from '@/features/trends/CrimeTrends';
 import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
@@ -44,6 +45,7 @@ type Tab =
   | 'audit'
   | 'nibrs'
   | 'activity'
+  | 'trends'
   | 'stops'
   | 'import'
   | 'evidence'
@@ -62,6 +64,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   audit: 'Audit log',
   nibrs: 'NIBRS export',
   activity: 'Activity report',
+  trends: 'Crime trends',
   stops: 'Traffic stops',
   import: 'Import records',
   evidence: 'Property room',
@@ -179,6 +182,16 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
             Activity report
           </TabButton>
           {/*
+            Deployment figures, so supervisors and command staff rather than
+            everyone. An officer's own activity is theirs to look at; where the
+            department puts cars next month is not the same question.
+          */}
+          {(can('reports.approve') || mayManageUsers) && (
+            <TabButton active={tab === 'trends'} onClick={() => setTab('trends')}>
+              Crime trends
+            </TabButton>
+          )}
+          {/*
             Everyone's own second factor, so everyone can reach it. The most
             common thing that happens to one is a new phone, and that must not
             need an administrator.
@@ -225,6 +238,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'nibrs' && mayExport && <NibrsExport />}
           {tab === 'stops' && <StopLog />}
           {tab === 'activity' && <ActivityReportView />}
+          {tab === 'trends' && <CrimeTrends />}
           {tab === 'import' && mayConfigure && <ImportWizard />}
           {tab === 'evidence' && <PropertyRoom />}
           {tab === 'retention' && mayHandleRecords && <RetentionView />}

@@ -18,11 +18,23 @@ import { cn } from '@/lib/cn';
  * to place a pin and read off a patrol area, and it keeps crime-scene
  * coordinates from being sent to a third party on every keystroke.
  */
+export interface MapSpot {
+  lon: number;
+  lat: number;
+  /** How much happened here. Drives the circle's area, not its radius. */
+  count: number;
+  label: string;
+  /** The same place last period, so the pin can say which way it is going. */
+  previous?: number;
+}
+
 export function ZoneMap({
   boundary,
   zones,
   point,
+  spots,
   onPick,
+  onPickSpot,
   zoneLabel = 'Beat',
   height = 260,
   className,
@@ -30,7 +42,10 @@ export function ZoneMap({
   boundary: GeoFeatureCollection | null;
   zones: GeoFeatureCollection | null;
   point?: { lon: number; lat: number } | null;
+  /** Graduated circles — where crime clustered, rather than one address. */
+  spots?: MapSpot[];
   onPick?: (lon: number, lat: number) => void;
+  onPickSpot?: (spot: MapSpot) => void;
   zoneLabel?: string;
   height?: number;
   className?: string;
@@ -142,6 +157,54 @@ export function ZoneMap({
                   )}
                 >
                   {name}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/*
+          Graduated circles, sized by area rather than radius.
+          Doubling a circle's radius quadruples the ink, so a place with twice
+          the crime of its neighbour would read as four times worse. Area is
+          the only scaling that lets somebody compare two pins by eye.
+        */}
+        {(spots ?? []).map((spot, i) => {
+          const xy = projection.toXY(spot.lon, spot.lat);
+          const biggest = Math.max(...(spots ?? []).map((s) => s.count), 1);
+          const radius = 4 + 14 * Math.sqrt(spot.count / biggest);
+          const rising = spot.previous !== undefined && spot.count > spot.previous;
+          return (
+            <g
+              key={`s${i}`}
+              onClick={onPickSpot ? () => onPickSpot(spot) : undefined}
+              className={onPickSpot ? 'cursor-pointer' : undefined}
+            >
+              <title>
+                {spot.label} — {spot.count}
+                {spot.previous !== undefined ? ` (was ${spot.previous})` : ''}
+              </title>
+              <circle
+                cx={xy[0]}
+                cy={xy[1]}
+                r={radius}
+                className={cn(
+                  'stroke-surface transition',
+                  rising ? 'fill-danger/45' : 'fill-accent/40',
+                )}
+                strokeWidth={1.25}
+              />
+              {/* Only where the circle can hold it. A number wider than its
+                  own pin is not a label, it is a smudge. */}
+              {radius >= 14 && (
+                <text
+                  x={xy[0]}
+                  y={xy[1]}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  className="pointer-events-none select-none fill-ink text-[13px] font-semibold"
+                >
+                  {spot.count}
                 </text>
               )}
             </g>
