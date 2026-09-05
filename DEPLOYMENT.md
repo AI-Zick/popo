@@ -148,12 +148,53 @@ leaves no trace is a back door, so there is no way to run this quietly.
 
 ## Backups
 
-Everything is two things: `aegis.db` and `attachments/`. SQLite in WAL mode
-should be copied with `sqlite3 aegis.db ".backup out.db"` rather than `cp`,
-which can catch a write mid-flight. Back up the attachment directory alongside
-it — a database referencing files that no longer exist is worse than neither.
+Two commands, and the second one is the point.
 
-Restore is a matter of putting both back and starting the container.
+```
+npm run backup -- --to /var/backups/aegis
+npm run restore -- --from /var/backups/aegis/aegis-2026-09-05T15-29-42-225Z
+```
+
+`backup` writes a timestamped directory holding the database, both file
+directories — `attachments/` and `photos/`, not just the one — and a manifest
+of what it should contain. It uses SQLite's `VACUUM INTO`, so the copy comes
+from a single read transaction and the server does not have to be stopped;
+`cp` on a live database can catch one page written and its partner not.
+
+Then it reads the copy back. Not the original: the copy. It checks SQLite's own
+integrity, that every table holds the row count the manifest recorded, that the
+audit chain still verifies end to end, and that every attachment and photograph
+the database references is present with the digest it expects. It exits
+non-zero if any of that fails, so a scheduled job that has been writing rubbish
+since March shows up as a failed job rather than a directory full of files.
+
+Run `npm run backup -- --check <directory>` against the backup you intend to
+rely on, on a schedule. A backup nobody has read is a hypothesis with a
+filename.
+
+`restore` verifies before it writes anything, and refuses over an existing
+database unless given `--force`. Stop the server first. Everybody signed in
+when the backup was taken is signed out afterwards.
+
+### The rehearsal
+
+Done on 5 September 2026, against a seeded installation with a record written
+immediately before the backup was taken:
+
+| Step | Result |
+| --- | --- |
+| Backup, server running | 0.6s, verified |
+| Backup with one audit row altered | Refused: "the audit chain in the copy does not verify" |
+| Restore of that altered backup | Refused before writing anything |
+| Restore over a live directory without `--force` | Refused |
+| Restore into an empty directory | 0.6s |
+| Sign in to the restored installation | Password and authenticator both worked |
+| The record written just before the backup | Present |
+| Audit chain on the restored copy | Verifies |
+
+Those numbers are from a small database. Re-time it on a real one, and write
+the number down where whoever is on call can find it — the useful thing about
+a rehearsal is knowing how long the outage will be before you are in one.
 
 ## What this does not do
 
