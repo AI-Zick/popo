@@ -69,6 +69,7 @@ import { readAuditLog, recordAudit, verifyAuditLog } from './audit';
 import { mfaState } from '../src/domain/mfa';
 import { seedDatabase } from './seed';
 import { checkPassword, hashPassword, verifyPassword } from '../src/domain/credentials';
+import { describeDevice } from '../src/domain/session';
 import {
   can,
   canAssignRole,
@@ -110,7 +111,12 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
 
   app.post('/api/auth/sign-in', signInLimiter, async (req: Request, res: Response) => {
     const { username, password } = req.body ?? {};
-    const result = await attemptSignIn(db, String(username ?? ''), String(password ?? ''));
+    const result = await attemptSignIn(
+      db,
+      String(username ?? ''),
+      String(password ?? ''),
+      describeDevice(String(req.get('user-agent') ?? '')),
+    );
     if (result.ok && result.session) setSessionCookie(res, result.session.id);
     res.status(result.status).json(result.body);
   });
@@ -153,6 +159,69 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
         recoveryRemaining: state.recoveryRemaining,
       },
     });
+  });
+
+  /**
+   * Where this account is signed in.
+   *
+   * Its own sessions and nobody else's — this is not an administrative view,
+   * and there is no version of it that shows one officer another officer's
+   * devices. The row for the browser asking is marked, because the first thing
+   * somebody does with this list is work out which one not to end.
+   *
+   * Each row says a coarse device and two times, and nothing else. No
+   * addresses: an agency's own officers are the subjects here, and a
+   * per-session record of where each of them was is nobody's business and
+   * exists for no operational reason.
+   */
+  app.get('/api/auth/sessions', requireAuth, (req: Request, res: Response) => {
+    const rows = db
+      .prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY last_seen_at DESC')
+      .all(req.user!.id) as Record<string, string>[];
+    res.json({
+      sessions: rows.map((row) => ({
+        id: row.id,
+        startedAt: row.started_at,
+        lastSeenAt: row.last_seen_at,
+        device: row.device || 'Unknown device',
+        factor: row.factor === 'password' ? 'password' : 'full',
+        current: row.id === req.session!.id,
+      })),
+    });
+  });
+
+  /**
+   * Ends one of them.
+   *
+   * Only your own, checked by the row's owner rather than by trusting the id:
+   * session ids are unguessable, but "unguessable" is not an authorisation
+   * check and should never be the only thing between one account and another.
+   *
+   * Ending the current one is allowed and signs the browser out, because
+   * refusing would mean somebody on a machine they are about to walk away from
+   * cannot use the obvious button.
+   */
+  app.delete('/api/auth/sessions/:id', requireAuth, async (req: Request, res: Response) => {
+    const row = db.prepare('SELECT user_id FROM sessions WHERE id = ?').get(req.params.id) as
+      | { user_id: string }
+      | undefined;
+    if (!row || row.user_id !== req.user!.id) {
+      res.status(404).json({ error: 'No such session on this account.' });
+      return;
+    }
+
+    const isCurrent = req.params.id === req.session!.id;
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id);
+    if (isCurrent) clearSessionCookie(res);
+
+    await recordAudit(db, {
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      action: 'auth.sessionEnded',
+      target: '',
+      detail: isCurrent ? 'Signed out of this browser' : 'Ended another signed-in device',
+    });
+    res.json({ ok: true, signedOut: isCurrent });
   });
 
   /**

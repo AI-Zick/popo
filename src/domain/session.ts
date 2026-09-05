@@ -36,6 +36,8 @@ export interface Session {
   startedAt: string;
   lastSeenAt: string;
   factor: SessionFactor;
+  /** "Chrome on Windows", so somebody can pick their own row out of a list. */
+  device: string;
 }
 
 /** Per-account sign-in state. Separate from the user record on purpose. */
@@ -128,9 +130,10 @@ export function createSession(
   id: UUID,
   now = Date.now(),
   factor: SessionFactor = 'full',
+  device = '',
 ): Session {
   const at = new Date(now).toISOString();
-  return { id, userId, startedAt: at, lastSeenAt: at, factor };
+  return { id, userId, startedAt: at, lastSeenAt: at, factor, device };
 }
 
 export type SessionState = 'active' | 'idle-expired' | 'expired';
@@ -173,4 +176,64 @@ export interface SignInOutcome {
   ok: boolean;
   reason?: string;
   mustChangePassword?: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Telling one session from another                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A short description of the thing a session was started from.
+ *
+ * Deliberately coarse — "Chrome on Windows", not the user agent string and not
+ * an address. Two things follow from that.
+ *
+ * It has to be enough to choose by. A list of four identical rows saying
+ * "signed in" is a list nobody can act on, and the whole point of showing
+ * somebody their sessions is so they can end the one on the phone they left in
+ * a patrol car.
+ *
+ * It must not become a movement record. An agency's own officers are the
+ * subjects here, and a per-session log of exact browser builds and IP
+ * addresses is a record of where each officer was and when — kept for no
+ * operational reason, discoverable, and nobody's business. The browser and the
+ * platform are enough to pick a row; anything finer is surveillance of staff
+ * dressed as a security feature.
+ */
+export function describeDevice(userAgent: string): string {
+  const agent = userAgent.slice(0, 400);
+  if (!agent.trim()) return 'Unknown device';
+
+  const platform = /Windows NT/i.test(agent)
+    ? 'Windows'
+    : /iPhone|iPad|iPod/i.test(agent)
+      ? 'iOS'
+      : /Android/i.test(agent)
+        ? 'Android'
+        : /Mac OS X/i.test(agent)
+          ? 'macOS'
+          : /Linux/i.test(agent)
+            ? 'Linux'
+            : '';
+
+  /*
+    Order matters: every one of these puts "Safari" in its agent string, and
+    most put "Chrome" there too, so the specific ones have to be asked first.
+  */
+  const browser = /Edg\//i.test(agent)
+    ? 'Edge'
+    : /OPR\/|Opera/i.test(agent)
+      ? 'Opera'
+      : /Firefox\//i.test(agent)
+        ? 'Firefox'
+        : /Chrome\//i.test(agent)
+          ? 'Chrome'
+          : /Safari\//i.test(agent)
+            ? 'Safari'
+            : '';
+
+  if (browser && platform) return `${browser} on ${platform}`;
+  if (browser) return browser;
+  if (platform) return platform;
+  return 'Unknown device';
 }

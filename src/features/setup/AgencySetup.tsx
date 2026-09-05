@@ -35,6 +35,7 @@ import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 import { YourPassword } from '@/features/auth/YourPassword';
+import { YourDevices } from '@/features/auth/YourDevices';
 import { MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
 import { Readiness } from '@/features/setup/Readiness';
 
@@ -280,6 +281,7 @@ export function AgencySetup({
             <>
               <YourPassword />
               <YourSecondFactor />
+              <YourDevices />
             </>
           )}
           {tab === 'feedback' && <FeedbackQueue />}

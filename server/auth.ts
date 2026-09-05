@@ -180,12 +180,27 @@ export function createServerSession(
   db: DatabaseSync,
   userId: string,
   factor: SessionFactor = 'full',
+  device = '',
 ): Session {
   const at = new Date().toISOString();
-  const session: Session = { id: newSessionId(), userId, startedAt: at, lastSeenAt: at, factor };
+  const session: Session = {
+    id: newSessionId(),
+    userId,
+    startedAt: at,
+    lastSeenAt: at,
+    factor,
+    device,
+  };
   db.prepare(
-    'INSERT INTO sessions (id, user_id, started_at, last_seen_at, factor) VALUES (?, ?, ?, ?, ?)',
-  ).run(session.id, session.userId, session.startedAt, session.lastSeenAt, session.factor);
+    'INSERT INTO sessions (id, user_id, started_at, last_seen_at, factor, device) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    session.id,
+    session.userId,
+    session.startedAt,
+    session.lastSeenAt,
+    session.factor,
+    session.device,
+  );
   return session;
 }
 
@@ -199,7 +214,8 @@ export function createServerSession(
  */
 export function upgradeSession(db: DatabaseSync, session: Session): Session {
   destroySession(db, session.id);
-  return createServerSession(db, session.userId, 'full');
+  // The description carries over: it is the same browser on the same machine.
+  return createServerSession(db, session.userId, 'full', session.device);
 }
 
 export function destroySession(db: DatabaseSync, id: string): void {
@@ -217,6 +233,7 @@ function readSession(db: DatabaseSync, id: string): Session | null {
     startedAt: row.started_at,
     lastSeenAt: row.last_seen_at,
     factor: row.factor === 'password' ? 'password' : 'full',
+    device: row.device ?? '',
   };
 }
 
@@ -342,6 +359,9 @@ export async function attemptSignIn(
   db: DatabaseSync,
   usernameRaw: string,
   password: string,
+  /** Coarse description of the browser, so the officer can tell their own
+      sessions apart later. Never the raw user agent — see describeDevice(). */
+  device = '',
 ): Promise<SignInResult & { session?: Session }> {
   const username = String(usernameRaw ?? '').trim();
   const user = username ? getUserByUsername(db, username) : null;
@@ -417,6 +437,7 @@ export async function attemptSignIn(
     user.id,
     // A new session id on every sign-in, so a pre-set one cannot be fixated.
     needsSecondFactor ? 'password' : 'full',
+    device,
   );
 
   if (needsSecondFactor) {

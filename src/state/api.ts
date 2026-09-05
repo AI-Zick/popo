@@ -38,6 +38,17 @@ import type { Bulletin, BulletinState } from '@/domain/bulletin';
  * same function, but the two must never be able to drift.
  */
 export type PostedBulletin = Bulletin & { state: BulletinState };
+
+/** One place this account is signed in, as the sessions list reports it. */
+export interface SignedInDevice {
+  id: string;
+  startedAt: string;
+  lastSeenAt: string;
+  device: string;
+  factor: 'password' | 'full';
+  /** True for the browser that asked. */
+  current: boolean;
+}
 import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
 import type { AddressCandidate, GisSource } from '@/domain/gis';
@@ -820,6 +831,18 @@ export const api = {
 
   signOut(): Promise<{ ok: true }> {
     return request('/api/auth/sign-out', { method: 'POST' });
+  },
+
+  /* ---- Where you are signed in ---------------------------------------- */
+
+  /** This account's own sessions. There is no view of anybody else's. */
+  sessions(): Promise<{ sessions: SignedInDevice[] }> {
+    return request('/api/auth/sessions');
+  },
+
+  /** Ends one. `signedOut` is true when it was this browser's own. */
+  endSession(id: string): Promise<{ ok: true; signedOut: boolean }> {
+    return request(`/api/auth/sessions/${id}`, { method: 'DELETE' });
   },
 
   /* ---- Getting back in ------------------------------------------------ */

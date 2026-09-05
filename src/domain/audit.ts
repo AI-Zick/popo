@@ -24,6 +24,7 @@ export type AuditAction =
   | 'auth.signInFailed'
   | 'auth.lockout'
   | 'auth.signOut'
+  | 'auth.sessionEnded'
   | 'auth.passwordChanged'
   | 'auth.mfaEnrolled'
   | 'auth.mfaFailed'
@@ -133,6 +134,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'auth.signInFailed': 'Failed sign-in',
   'auth.lockout': 'Account locked',
   'auth.signOut': 'Signed out',
+  'auth.sessionEnded': 'Signed-in device ended',
   'auth.passwordChanged': 'Password changed',
   'auth.mfaEnrolled': 'Second factor set up',
   'auth.mfaFailed': 'Failed second factor',

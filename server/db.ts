@@ -91,7 +91,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- How far this session got. A password alone buys nothing but the right to
   -- present a second factor: 'password' reaches the enrolment and verification
   -- routes and nothing else, 'full' is a signed-in session.
-  factor       TEXT NOT NULL DEFAULT 'full'
+  factor       TEXT NOT NULL DEFAULT 'full',
+  -- "Chrome on Windows". Coarse on purpose: enough to pick a row out of a
+  -- list, never a record of where an officer was. See describeDevice().
+  device       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
@@ -630,6 +633,7 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   */
   ['sessions', 'factor', "TEXT NOT NULL DEFAULT 'full'"],
   ['users', 'email', "TEXT NOT NULL DEFAULT ''"],
+  ['sessions', 'device', "TEXT NOT NULL DEFAULT ''"],
 ];
 
 function addMissingColumns(db: DatabaseSync): void {
