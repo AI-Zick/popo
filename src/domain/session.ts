@@ -17,6 +17,28 @@ export const ABSOLUTE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
  */
 export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * How long before the end an officer is warned.
+ *
+ * Two minutes is enough to reach for the mouse and not enough to be worth
+ * ignoring. The warning exists because the alternative — a session that ends
+ * silently — means somebody comes back to a sign-in screen with no idea
+ * whether what they had typed survived.
+ */
+export const IDLE_WARNING_MS = 2 * 60 * 1000;
+
+/**
+ * How long the browser may be busy without telling the server.
+ *
+ * The two clocks are separate: the server marks a session used when a request
+ * arrives, and an officer typing a long narrative may not cause one for half
+ * an hour. Without this they would be warned by their own browser at
+ * twenty-eight minutes, press "stay signed in", and find the server had
+ * already given up. So local activity sends a cheap request when it has been
+ * this long since the last one, which keeps the two in step.
+ */
+export const KEEPALIVE_AFTER_MS = 5 * 60 * 1000;
+
 export const MAX_FAILED_ATTEMPTS = 5;
 export const LOCKOUT_MS = 15 * 60 * 1000;
 
@@ -236,4 +258,63 @@ export function describeDevice(userAgent: string): string {
   if (browser) return browser;
   if (platform) return platform;
   return 'Unknown device';
+}
+
+/* ------------------------------------------------------------------ */
+/* Being about to be signed out                                        */
+/* ------------------------------------------------------------------ */
+
+export type IdleStanding = 'active' | 'warning' | 'over';
+
+export interface IdleCheck {
+  standing: IdleStanding;
+  /** Milliseconds until the session ends. Zero once it has. */
+  msLeft: number;
+  /** Whether the server should be told the browser is still in use. */
+  keepAlive: boolean;
+}
+
+/**
+ * How close this browser is to being signed out, and whether to say so.
+ *
+ * Takes both clocks because there are two. `lastActivity` is the last time the
+ * person did something — a key, a click. `lastContact` is the last time the
+ * browser spoke to the server, which is what the server's own idle timer
+ * measures.
+ *
+ * What counts as activity is a real decision. Mouse movement does not, and
+ * must not: a laptop bolted into a car gets jogged at every pothole, and a
+ * timeout that any vibration defeats is not a timeout. A key or a deliberate
+ * press is somebody using the machine; movement is the machine being moved.
+ */
+export function idleCheck(
+  lastActivity: number,
+  lastContact: number,
+  now: number,
+): IdleCheck {
+  const idleFor = now - Math.max(lastActivity, lastContact);
+  const msLeft = Math.max(0, IDLE_TIMEOUT_MS - idleFor);
+  const standing: IdleStanding =
+    msLeft === 0 ? 'over' : msLeft <= IDLE_WARNING_MS ? 'warning' : 'active';
+  return {
+    standing,
+    msLeft,
+    /*
+      Only while somebody is actually using it. A browser left open on a
+      desk must be allowed to time out — a keepalive that fired regardless
+      would keep every abandoned terminal in the building signed in.
+    */
+    keepAlive:
+      standing !== 'over' &&
+      // Recently, not merely at some point in the last half hour: a terminal
+      // last touched 29 minutes ago is one somebody walked away from.
+      now - lastActivity < KEEPALIVE_AFTER_MS &&
+      now - lastContact >= KEEPALIVE_AFTER_MS,
+  };
+}
+
+/** "1:58" — a countdown somebody reads at a glance. */
+export function countdown(msLeft: number): string {
+  const total = Math.max(0, Math.ceil(msLeft / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }

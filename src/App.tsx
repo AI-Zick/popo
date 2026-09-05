@@ -10,6 +10,7 @@ import { CommandSearch, useSearchHotkey } from '@/features/search/CommandSearch'
 import { SendFeedback } from '@/features/feedback/SendFeedback';
 import { FeedbackButton } from '@/features/feedback/FeedbackButton';
 import { SignIn } from '@/features/auth/SignIn';
+import { IdleWarning } from '@/components/layout/IdleWarning';
 import { ResetPassword } from '@/features/auth/ForgotPassword';
 import { ChangePassword } from '@/features/auth/ChangePassword';
 import { SecondFactor } from '@/features/auth/SecondFactor';
@@ -206,6 +207,9 @@ export default function App() {
         nobody sends: the moment worth capturing is the one where somebody is
         annoyed, which is on whatever screen annoyed them.
       */}
+      {/* Two minutes' notice before the server gives up on this browser. */}
+      <IdleWarning />
+
       <FeedbackButton onClick={() => setFeedbackOpen(true)} />
       <SendFeedback open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
