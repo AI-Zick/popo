@@ -196,6 +196,47 @@ Those numbers are from a small database. Re-time it on a real one, and write
 the number down where whoever is on call can find it — the useful thing about
 a rehearsal is knowing how long the outage will be before you are in one.
 
+## When something goes wrong
+
+Errors thrown out of a route no longer vanish. Each gets a six-character
+reference, which is what the officer sees — "quote 2E0868 if you report it" —
+rather than a stack trace, which tells an attacker about the software and the
+officer nothing.
+
+They go three places. `<data>/faults.log`, one JSON object per line. The
+console, so whatever collects container output has them. And `/api/health`
+reports a running count, so anything already polling that can alert on it
+climbing without any of the configuration below.
+
+```
+AEGIS_ALERT_URL=https://...   # optional; a short notice is POSTed here
+```
+
+Point it at whatever you already watch. The requirement is that somebody is
+told, not that this software is the one telling them. Sending is fire and
+forget and never awaited by a request: an alerting endpoint that is down must
+not make the failure it is being told about any worse.
+
+An unhandled rejection is recorded and the process carries on. An uncaught
+exception is recorded and the process stops, which is Node's own guidance and
+the honest position — the process is in a state nobody reasoned about, and a
+supervisor restarting it is safer than it continuing to serve records from
+that state. Run this under something that restarts it.
+
+### What the error log holds, and what it must not
+
+Request bodies, query strings and path parameters are never written. The route
+pattern is recorded instead of the path, and identifiers are stripped out of
+messages and stack traces before they are stored.
+
+That last part matters more than it looks. **The error log is not in the purge
+registry.** Nothing in it is removed when a court orders a record destroyed, so
+anything about a person that reaches it outlives the expungement of the record
+it came from. The stripping catches identifiers; it cannot catch a name
+somebody interpolated into an error message. Treat the file accordingly: it is
+operational, not evidential, and it should be rotated and discarded on a
+schedule like any other log.
+
 ## Upgrading
 
 The database records every schema change it has been through, in

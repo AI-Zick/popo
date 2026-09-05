@@ -30,6 +30,8 @@ export interface ServerConfig {
   tls: { keyPath: string; certPath: string } | null;
   /** Trust X-Forwarded-* — only true behind a reverse proxy you control. */
   trustProxy: boolean;
+  /** Where a short notice about an error is posted. Empty for nowhere. */
+  alertUrl: string;
   /**
    * The mail relay password, from AEGIS_SMTP_PASSWORD.
    *
@@ -102,6 +104,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
   const smtpPassword = env.AEGIS_SMTP_PASSWORD ?? '';
 
   /*
+    Where a short notice about an error is posted, or nowhere. Deliberately
+    just a URL: whatever the hosting already has — a chat webhook, an incident
+    tool, a script — is better than anything invented here, and the requirement
+    is that somebody is told rather than that we are the ones telling them.
+  */
+  const alertUrl = env.AEGIS_ALERT_URL ?? '';
+  if (production && !alertUrl) {
+    problems.push({
+      fatal: false,
+      message:
+        'No AEGIS_ALERT_URL. Errors are written to faults.log and counted on /api/health, but nothing will tell anybody. Point it at whatever you already watch.',
+    });
+  }
+
+  /*
     Every install gets its own key at provisioning, so one leaked key is one
     agency to rotate rather than a hole anybody can post through. Without one
     the receiver has no way to know a request is really from this agency.
@@ -140,6 +157,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): {
       feedbackUrl,
       feedbackKey,
       smtpPassword,
+      alertUrl,
     },
     problems,
   };
@@ -339,9 +357,26 @@ export function installGracefulShutdown(
   process.on('SIGINT', () => stop('SIGINT'));
 }
 
-export function installHealthCheck(app: Express, started = Date.now()): void {
+export function installHealthCheck(
+  app: Express,
+  /**
+   * How many errors this process has recorded.
+   *
+   * Reported so that something outside can alert on it without any webhook
+   * being configured: whatever polls the health check already exists, and a
+   * count that goes up is the cheapest possible signal that somebody should
+   * look. A number only — never a message, because this endpoint is
+   * unauthenticated.
+   */
+  faults: () => number = () => 0,
+  started = Date.now(),
+): void {
   // Unauthenticated on purpose, and says nothing that is not already public.
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, uptimeSeconds: Math.floor((Date.now() - started) / 1000) });
+    res.json({
+      ok: true,
+      uptimeSeconds: Math.floor((Date.now() - started) / 1000),
+      faults: faults(),
+    });
   });
 }

@@ -40,6 +40,7 @@ import { registerGisRoutes } from './gis';
 import { registerBookingRoutes } from './bookings';
 import { registerBulletinRoutes } from './bulletins';
 import { registerPasswordResetRoutes } from './passwordReset';
+import { createFaultLog, installFaultHandler, installProcessHandlers } from './faults';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
@@ -90,7 +91,18 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   app.disable('x-powered-by');
   app.use(securityHeaders(config));
   app.use(requestLog(config));
-  installHealthCheck(app);
+  /*
+    Errors go somewhere. Installed early so anything thrown during setup is
+    recorded too, and the handler itself goes on last — see the bottom of this
+    function.
+  */
+  const faults = createFaultLog({
+    dataDir: config.dataDir,
+    alertUrl: config.alertUrl,
+    production: config.production,
+  });
+  installProcessHandlers(faults);
+  installHealthCheck(app, () => faults.count);
 
   // Reports carry narratives and many records; 4 MB is generous for JSON and
   // still small enough that a single request cannot exhaust memory.
@@ -777,6 +789,13 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
     app.get('*', (_req, res) => res.sendFile(join(dist, 'index.html')));
   }
+
+  /*
+    Last, because Express only treats a four-argument middleware as the error
+    handler when everything it is meant to catch is already registered above
+    it.
+  */
+  installFaultHandler(app, faults);
 
   return app;
 }
