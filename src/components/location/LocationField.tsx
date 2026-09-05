@@ -7,7 +7,7 @@ import { locationLabel, type MasterLocation } from '@/domain/location';
 import { formatDistance } from '@/domain/geo';
 import { LOCATION_TYPES, STATES } from '@/domain/codes';
 import { Badge, Button } from '@/components/ui/primitives';
-import { useFieldIssues } from '@/components/ui/fields';
+import { SelectField, useFieldIssues } from '@/components/ui/fields';
 import { cn } from '@/lib/cn';
 import { PremiseNotes } from './PremiseNotes';
 
@@ -545,21 +545,22 @@ function NewLocationForm({
             />
           </label>
         </div>
-        <label className="col-span-2">
-          <span className="mb-1.5 block text-[13px] font-medium text-ink">Premises type</span>
-          <select
+        {/*
+          The same typeable picker every other coded field uses. It was the one
+          plain <select> left in the app, and it is on the form somebody
+          reaches at the end of a search — so the one place the list is longest
+          was the one place it could not be typed into.
+        */}
+        <div className="col-span-2">
+          <SelectField
+            path="newLocation.locationType"
+            label="Premises type"
+            showCodes
+            options={LOCATION_TYPES}
             value={draft.locationType}
-            onChange={(e) => setDraft({ ...draft, locationType: e.target.value })}
-            className={field}
-          >
-            <option value="">Select…</option>
-            {LOCATION_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.value} — {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => setDraft({ ...draft, locationType: v })}
+          />
+        </div>
 
         <div className="col-span-2 rounded-xl border border-line bg-raised p-3">
           <label className="flex items-start gap-2.5">

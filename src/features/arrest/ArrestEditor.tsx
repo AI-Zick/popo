@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Check,
   ChevronLeft,
   CornerUpLeft,
@@ -28,15 +27,14 @@ import {
   type ChargeOutcome,
   type ChargeSeverity,
   type Disposition,
-  type Problem,
 } from '@/domain/arrest';
 import { canReopen, canReview, REVIEW_ACTION_LABEL, STATUS_LABEL } from '@/domain/review';
 import { displayName } from '@/domain/person';
 import { Badge, Button, FieldGrid, Panel, RecordCard } from '@/components/ui/primitives';
+import { CheckRail, type CheckItem } from '@/components/validation/CheckRail';
 import { SelectField, TextField, TextareaField, ToggleField } from '@/components/ui/fields';
 import { Dictate } from '@/components/ui/Dictate';
 import { relativeTime } from '@/lib/format';
-import { cn } from '@/lib/cn';
 
 /**
  * Writing up an arrest.
@@ -90,7 +88,19 @@ export function ArrestEditor() {
   const reopen = canReopen(currentUser, arrest.status);
 
   const errors = blockingProblems(arrestProblems);
-  const warnings = arrestProblems.filter((p) => p.severity === 'warning');
+
+  /*
+    The same problems in the shape the shared rail reads. An arrest is one
+    column rather than tabs, so there is no group to switch to — the jump is
+    the whole job.
+  */
+  const checks: CheckItem[] = arrestProblems.map((problem, index) => ({
+    key: `${problem.path}-${index}`,
+    path: problem.path,
+    message: problem.title,
+    tip: [problem.message, problem.tip].filter(Boolean).join(' '),
+    severity: problem.severity,
+  }));
   const incident = incidents.find((i) => i.id === arrest.caseId) ?? null;
   const bond = totalBond(arrest);
 
@@ -446,16 +456,6 @@ export function ArrestEditor() {
               </Panel>
             </fieldset>
 
-            {(errors.length > 0 || warnings.length > 0) && writable && (
-              <Panel title={`Arrest check (${errors.length + warnings.length})`}>
-                <ul className="space-y-2">
-                  {[...errors, ...warnings].map((problem, i) => (
-                    <ProblemRow key={`${problem.path}-${i}`} problem={problem} />
-                  ))}
-                </ul>
-              </Panel>
-            )}
-
             {(review.ok || reopen.ok) && (
               <Panel
                 title="Supervisor review"
@@ -531,6 +531,18 @@ export function ArrestEditor() {
             )}
           </div>
         </main>
+
+        {/*
+          The rail an incident report has. The list used to sit at the foot of
+          the form: correct, and a round trip per problem — scroll to the end
+          to read what is missing, scroll back to fix it, repeat eleven times.
+        */}
+        {writable && (
+          <CheckRail
+            items={checks}
+            ready="Nothing outstanding. A magistrate could read this as it stands."
+          />
+        )}
       </div>
 
       {pickingPerson && (
@@ -555,44 +567,6 @@ export function ArrestEditor() {
  * The click is the point. A list that names a field the officer then has to
  * hunt for is a list they stop reading.
  */
-function ProblemRow({ problem }: { problem: Problem }) {
-  const go = () => {
-    const el = document.querySelector<HTMLElement>(`[data-field-path="${CSS.escape(problem.path)}"]`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const focusable = el.matches('input, select, textarea, button')
-      ? el
-      : el.querySelector<HTMLElement>('input, select, textarea, button');
-    focusable?.focus({ preventScroll: true });
-  };
-
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={go}
-        className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-raised"
-      >
-        <AlertTriangle
-          size={14}
-          className={cn(
-            'mt-0.5 shrink-0',
-            problem.severity === 'error' ? 'text-danger' : 'text-warn',
-          )}
-          aria-hidden
-        />
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium text-ink">{problem.title}</span>
-          <span className="block text-[12.5px] leading-relaxed text-muted">{problem.message}</span>
-          {problem.tip && (
-            <span className="mt-0.5 block text-[12px] leading-relaxed text-faint">{problem.tip}</span>
-          )}
-        </span>
-      </button>
-    </li>
-  );
-}
-
 function ChargeCard({
   index,
   charge,

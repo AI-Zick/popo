@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { cn } from '@/lib/cn';
+import type { SectionKey, Tab as HubTab } from '@/features/setup/AgencySetup';
 import { Loader2, ServerCrash } from 'lucide-react';
 import { useStore } from '@/state/store';
 import { Dashboard } from '@/features/dashboard/Dashboard';
@@ -37,6 +38,12 @@ const CrashEditor = lazy(() =>
 const ArrestEditor = lazy(() =>
   import('@/features/arrest/ArrestEditor').then((m) => ({ default: m.ArrestEditor })),
 );
+const PeopleIndex = lazy(() =>
+  import('@/features/index/IndexPages').then((m) => ({ default: m.PeopleIndex })),
+);
+const VehicleIndex = lazy(() =>
+  import('@/features/index/IndexPages').then((m) => ({ default: m.VehicleIndex })),
+);
 
 /**
  * Shown while one of those arrives. Deliberately quiet: on any normal
@@ -67,7 +74,19 @@ export default function App() {
     loading,
     connectionError,
   } = useStore();
-  const [setupOpen, setSetupOpen] = useState(false);
+  /*
+    Where the app is, when it is not on a report.
+
+    One piece of state rather than a flag per destination: the home page now
+    opens several screens, and a set of independent booleans is how two of them
+    end up on screen at once.
+  */
+  const [away, setAway] = useState<
+    | null
+    | { kind: 'hub'; section: SectionKey; start?: HubTab }
+    | { kind: 'people' }
+    | { kind: 'vehicles' }
+  >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   useSearchHotkey(() => setSearchOpen(true));
@@ -145,9 +164,15 @@ export default function App() {
       <SendFeedback open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
       <div className={cn(DEMO ? 'min-h-0 flex-1' : 'h-full')}>
-      {setupOpen && !incident ? (
+      {away && !incident ? (
         <Suspense fallback={<ScreenLoading />}>
-          <AgencySetup onClose={() => setSetupOpen(false)} />
+          {away.kind === 'people' ? (
+            <PeopleIndex onClose={() => setAway(null)} />
+          ) : away.kind === 'vehicles' ? (
+            <VehicleIndex onClose={() => setAway(null)} />
+          ) : (
+            <AgencySetup section={away.section} start={away.start} onClose={() => setAway(null)} />
+          )}
         </Suspense>
       ) : arrest ? (
         // Same reasoning as a crash report, and more so: an arrest outlives the
@@ -169,7 +194,10 @@ export default function App() {
       ) : incident ? (
         <IncidentEditor />
       ) : (
-        <Dashboard onOpenSetup={() => setSetupOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
+        <Dashboard
+          onGo={setAway}
+          onOpenSearch={() => setSearchOpen(true)}
+        />
       )}
       </div>
     </div>

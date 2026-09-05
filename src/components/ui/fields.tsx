@@ -141,6 +141,15 @@ interface TextProps {
   className?: string;
   inputClassName?: string;
   maxLength?: number;
+  /**
+   * Floor for a number field, enforced rather than suggested.
+   *
+   * The browser's own `min` only colours the box; it still hands the value
+   * through, and a spinner will still count down past it. A count of premises
+   * has no negative, so this drops what a negative would have been rather than
+   * storing it and arguing about it in a validation message later.
+   */
+  min?: number;
 }
 
 export function TextField({
@@ -156,6 +165,7 @@ export function TextField({
   className,
   inputClassName,
   maxLength,
+  min,
 }: TextProps) {
   const { revealField } = useStore();
   return (
@@ -167,10 +177,15 @@ export function TextField({
           value={value}
           disabled={disabled}
           maxLength={maxLength}
+          min={min}
           placeholder={placeholder}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            const typed = e.target.value;
+            if (min !== undefined && typed !== '' && Number(typed) < min) return;
+            onChange(typed);
+          }}
           onBlur={() => revealField(path)}
           className={controlClass(invalid, inputClassName)}
         />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Building2,
   Check,
@@ -40,7 +40,7 @@ import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
  * files come from whatever the agency already has — county GIS, the CAD
  * vendor, or the 911 addressing authority.
  */
-type Tab =
+export type Tab =
   | 'jurisdiction'
   | 'accounts'
   | 'audit'
@@ -59,6 +59,50 @@ type Tab =
   | 'gis'
   | 'security'
   | 'feedback';
+
+/**
+ * Which of the three places a screen belongs to.
+ *
+ * They were all one screen behind a gear icon, and a tester's verdict on that
+ * was exact: the property room, the fleet, the stop log, the activity report
+ * and the feedback queue are not settings. They are the work. Sorting them by
+ * what they are for rather than by who happened to build them first:
+ *
+ *   `work`    — what somebody does on shift. Reached from the home page.
+ *   `agency`  — what an administrator sets up once. Reached from the home page
+ *               too, but only by the people who may.
+ *   `me`      — this account: how I sign in, what I have raised. The gear.
+ */
+export type SectionKey = 'work' | 'agency' | 'me';
+
+const SECTION_OF: Record<Tab, SectionKey> = {
+  jurisdiction: 'agency',
+  accounts: 'agency',
+  audit: 'agency',
+  nibrs: 'agency',
+  import: 'agency',
+  retention: 'agency',
+  exemptions: 'agency',
+  statutes: 'agency',
+  gis: 'agency',
+
+  evidence: 'work',
+  fleet: 'work',
+  stops: 'work',
+  custody: 'work',
+  publicRecords: 'work',
+  activity: 'work',
+  trends: 'work',
+
+  security: 'me',
+  feedback: 'me',
+};
+
+export const SECTION_TITLE: Record<SectionKey, string> = {
+  work: 'Tools',
+  agency: 'Agency setup',
+  me: 'Settings',
+};
 
 const SCREEN_NAME: Record<Tab, string> = {
   jurisdiction: 'Jurisdiction',
@@ -81,7 +125,16 @@ const SCREEN_NAME: Record<Tab, string> = {
   feedback: 'Feedback',
 };
 
-export function AgencySetup({ onClose }: { onClose: () => void }) {
+export function AgencySetup({
+  section,
+  start,
+  onClose,
+}: {
+  section: SectionKey;
+  /** Which screen to land on. Omitted lands on the section's first. */
+  start?: Tab;
+  onClose: () => void;
+}) {
   const { agency, updateAgency, can } = useStore();
 
   const mayConfigure = can('agency.configure');
@@ -91,11 +144,48 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
   const mayHandleRecords = can('records.seal');
   // Records staff run the state submission; so does anyone who reviews reports.
   const mayExport = can('agency.configure') || can('reports.approve');
-  // Everyone can reach the activity screens: an officer logging their own
-  // stops and running their own numbers needs no permission at all.
-  const [tab, setTab] = useState<Tab>(
-    mayConfigure ? 'jurisdiction' : mayManageUsers ? 'accounts' : mayViewAudit ? 'audit' : 'activity',
+
+  /** Whether this account may see a given screen at all. */
+  const allowed = useCallback(
+    (key: Tab): boolean => {
+      switch (key) {
+        case 'jurisdiction':
+        case 'import':
+        case 'exemptions':
+        case 'statutes':
+        case 'gis':
+          return mayConfigure;
+        case 'accounts':
+          return mayManageUsers;
+        case 'audit':
+          return mayViewAudit;
+        case 'nibrs':
+          return mayExport;
+        case 'retention':
+          return mayHandleRecords;
+        case 'trends':
+          return can('reports.approve') || mayManageUsers;
+        default:
+          // Property, fleet, stops, custody, public records, activity,
+          // signing in and feedback are open to every officer.
+          return true;
+      }
+    },
+    [mayConfigure, mayManageUsers, mayViewAudit, mayExport, mayHandleRecords, can],
   );
+
+  /*
+    The screens in this section, in the order they are shown. Whichever comes
+    first is where the section opens, so nothing lands on somebody else's
+    screen — the activity report used to open on the jurisdiction form because
+    there was one shared default for nineteen tabs.
+  */
+  const tabs = useMemo(
+    () => (Object.keys(SECTION_OF) as Tab[]).filter((key) => SECTION_OF[key] === section && allowed(key)),
+    [section, allowed],
+  );
+
+  const [tab, setTab] = useState<Tab>(() => (start && allowed(start) ? start : tabs[0]));
 
   const control =
     'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint';
@@ -107,118 +197,19 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           <ChevronLeft size={16} aria-hidden />
           Reports
         </Button>
-        <h1 className="text-[14px] font-semibold text-ink">Setup</h1>
+        <h1 className="text-[14px] font-semibold text-ink">{SECTION_TITLE[section]}</h1>
 
-        <nav className="ml-4 flex gap-1">
-          {mayConfigure && (
-            <TabButton active={tab === 'jurisdiction'} onClick={() => setTab('jurisdiction')}>
-              Jurisdiction
+        {/*
+          Driven by the section rather than written out, so a screen appears in
+          exactly one place and the tab that opens is the first one this
+          account may actually see.
+        */}
+        <nav className="ml-4 flex flex-wrap gap-1">
+          {tabs.map((key) => (
+            <TabButton key={key} active={tab === key} onClick={() => setTab(key)}>
+              {SCREEN_NAME[key]}
             </TabButton>
-          )}
-          {mayManageUsers && (
-            <TabButton active={tab === 'accounts'} onClick={() => setTab('accounts')}>
-              Accounts
-            </TabButton>
-          )}
-          {mayViewAudit && (
-            <TabButton active={tab === 'audit'} onClick={() => setTab('audit')}>
-              Audit log
-            </TabButton>
-          )}
-          {mayExport && (
-            <TabButton active={tab === 'nibrs'} onClick={() => setTab('nibrs')}>
-              NIBRS export
-            </TabButton>
-          )}
-          {mayConfigure && (
-            <TabButton active={tab === 'import'} onClick={() => setTab('import')}>
-              Import records
-            </TabButton>
-          )}
-          {mayHandleRecords && (
-            <TabButton active={tab === 'retention'} onClick={() => setTab('retention')}>
-              Retention
-            </TabButton>
-          )}
-          {/*
-            Open to everybody, because logging a request is open to everybody:
-            one that goes unlogged because the only clerk was at lunch is a
-            statutory clock that never started. Deciding what leaves the
-            building is gated inside.
-          */}
-          <TabButton active={tab === 'publicRecords'} onClick={() => setTab('publicRecords')}>
-            Public records
-          </TabButton>
-          {mayConfigure && (
-            <TabButton active={tab === 'exemptions'} onClick={() => setTab('exemptions')}>
-              Exemptions
-            </TabButton>
-          )}
-          {mayConfigure && (
-            <TabButton active={tab === 'statutes'} onClick={() => setTab('statutes')}>
-              Statutes
-            </TabButton>
-          )}
-          {mayConfigure && (
-            <TabButton active={tab === 'gis'} onClick={() => setTab('gis')}>
-              County GIS
-            </TabButton>
-          )}
-          {/*
-            Open to every officer: seizing property and signing it in or out is
-            police work. What a clerk may do beyond that is gated inside.
-          */}
-          <TabButton active={tab === 'evidence'} onClick={() => setTab('evidence')}>
-            Property
-          </TabButton>
-          {/*
-            Open to every officer. Checking the car you are about to drive and
-            saying when it is broken is not an administrative privilege.
-          */}
-          <TabButton active={tab === 'fleet'} onClick={() => setTab('fleet')}>
-            Fleet
-          </TabButton>
-          <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
-            Traffic stops
-          </TabButton>
-          {/*
-            Open to every officer. Who is in a cell is what a shift briefing
-            reads, and a roster only a supervisor can open is a roster nobody
-            checks at three in the morning.
-          */}
-          <TabButton active={tab === 'custody'} onClick={() => setTab('custody')}>
-            Custody
-          </TabButton>
-          <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>
-            Activity report
-          </TabButton>
-          {/*
-            Deployment figures, so supervisors and command staff rather than
-            everyone. An officer's own activity is theirs to look at; where the
-            department puts cars next month is not the same question.
-          */}
-          {(can('reports.approve') || mayManageUsers) && (
-            <TabButton active={tab === 'trends'} onClick={() => setTab('trends')}>
-              Crime trends
-            </TabButton>
-          )}
-          {/*
-            Everyone's own second factor, so everyone can reach it. The most
-            common thing that happens to one is a new phone, and that must not
-            need an administrator.
-          */}
-          <TabButton active={tab === 'security'} onClick={() => setTab('security')}>
-            Signing in
-          </TabButton>
-          {/*
-            Open to everyone, not gated on configuration rights. An officer
-            reading what their colleagues have raised, and the answers, is the
-            thing that keeps people using the channel — and answering is gated
-            separately, inside the queue.
-          */}
-          <TabButton active={tab === 'feedback'} onClick={() => setTab('feedback')}>
-            Feedback
-          </TabButton>
+          ))}
         </nav>
       </header>
 

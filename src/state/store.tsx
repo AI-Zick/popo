@@ -316,6 +316,15 @@ interface StoreValue {
   update: (mutator: Mutator) => void;
   setSection: (section: SectionId) => void;
   goToIssue: (issue: Issue) => void;
+  /**
+   * Scrolls to a field and lights it up, by path alone.
+   *
+   * The same machinery `goToIssue` uses, minus the incident section — so the
+   * crash and arrest editors can have the check panel an incident report has
+   * rather than a list at the bottom of the page that names a problem and
+   * leaves finding it to the reader.
+   */
+  focusField: (path: string) => void;
   applyQuickFix: (issue: Issue) => void;
   /**
    * What the narrative appears to say that the report does not.
@@ -1063,6 +1072,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pendingFocus.current = issue.path;
     },
     [setSection, revealField],
+  );
+
+  const focusField = useCallback(
+    (path: string) => {
+      revealField(path);
+      pendingFocus.current = path;
+      // Nudges the render that flushes pendingFocus, since nothing else changed.
+      setRevealedPaths((prev) => new Set(prev).add(path));
+    },
+    [revealField],
   );
 
   /* -------------------------------------------------- mutation --------- */
@@ -3321,6 +3340,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     update,
     setSection,
     goToIssue,
+    focusField,
     applyQuickFix,
     crashes,
     crash,

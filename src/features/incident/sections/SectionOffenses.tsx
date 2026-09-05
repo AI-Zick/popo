@@ -172,9 +172,10 @@ function OffenseCard({
             />
             <TextField
               path={at('premisesEntered')}
-              label="Premises entered"
+              label="# of premises entered"
               type="number"
-              hint="1 for a single home or unit."
+              min={0}
+              hint="1 for a single home or unit. Higher only where one entry got into several — a block of lock-ups, a row of storage units."
               value={offense.premisesEntered}
               onChange={(v) => onChange({ premisesEntered: v })}
             />

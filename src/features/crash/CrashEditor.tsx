@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import {
-  AlertTriangle,
+  Car,
   Check,
   ChevronLeft,
   CornerUpLeft,
+  FileText,
   Loader2,
+  MapPin,
+  PenTool,
   Plus,
   Printer,
   Send,
@@ -31,6 +34,7 @@ import { canReopen, canReview, REVIEW_ACTION_LABEL, STATUS_LABEL } from '@/domai
 import { displayName } from '@/domain/person';
 import { STATES } from '@/domain/codes';
 import { Badge, Button, FieldGrid, Panel } from '@/components/ui/primitives';
+import { CheckRail, type CheckItem } from '@/components/validation/CheckRail';
 import { SelectField, TextField, TextareaField } from '@/components/ui/fields';
 import { Dictate } from '@/components/ui/Dictate';
 import { relativeTime } from '@/lib/format';
@@ -47,6 +51,40 @@ import { emptyDiagram } from '@/domain/diagram';
  * and argued about — "unit 2 failed to yield". Everything the officer already
  * ran on the radio sits in the panel on the right and goes in with a click.
  */
+/* ------------------------------------------------------------------ */
+/* Tabs                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Four parts, because a crash report is four jobs.
+ *
+ * It used to be one column: the crash, the severity, every unit with every
+ * occupant, the diagram and the narrative, in one scroll. Two units with two
+ * occupants each is already past a screen and a half before the narrative
+ * starts, and the diagram — the part that needs the most room — was the part
+ * you had to scroll furthest to reach.
+ */
+type CrashTab = 'details' | 'units' | 'diagram' | 'narrative';
+
+const CRASH_TABS: { key: CrashTab; label: string; icon: typeof Car; hint: string }[] = [
+  { key: 'details', label: 'Details', icon: MapPin, hint: 'Where, when, and the road' },
+  { key: 'units', label: 'Units', icon: Car, hint: 'Vehicles and people' },
+  { key: 'diagram', label: 'Diagram', icon: PenTool, hint: 'The scene' },
+  { key: 'narrative', label: 'Narrative', icon: FileText, hint: 'What happened' },
+];
+
+/**
+ * Which tab a problem is on.
+ *
+ * Without this the check panel jumps to a field on a tab that is not showing,
+ * which scrolls to nothing and reads as a broken button.
+ */
+function tabForField(field: string): CrashTab {
+  if (field === 'units' || field === 'towedTo') return 'units';
+  if (field === 'narrative') return 'narrative';
+  return 'details';
+}
+
 export function CrashEditor() {
   const {
     crash,
@@ -77,7 +115,34 @@ export function CrashEditor() {
   const review = canReview(currentUser, crash);
   const reopen = canReopen(currentUser, crash.status);
   const errors = crashProblems.filter((p) => p.severity === 'error');
-  const warnings = crashProblems.filter((p) => p.severity === 'warning');
+
+  const [tab, setTab] = useState<CrashTab>('details');
+
+  /*
+    The same problems, in the shape the shared check rail reads — each tagged
+    with the tab it lives on so clicking it lands somewhere.
+  */
+  const checks: CheckItem[] = crashProblems.map((problem, index) => {
+    const on = tabForField(problem.field);
+    return {
+      key: `${problem.field}-${problem.unitId ?? ''}-${index}`,
+      /*
+        The paths the form actually registers: `unit.<id>.<field>` on a unit,
+        `crash.<field>` otherwise. Inventing a path here would make every jump
+        land on nothing, which is exactly the failure this rail replaces.
+      */
+      path: problem.unitId ? `unit.${problem.unitId}.${problem.field}` : `crash.${problem.field}`,
+      message: problem.message,
+      tip: problem.tip,
+      severity: problem.severity,
+      group: on,
+      groupLabel: CRASH_TABS.find((t) => t.key === on)?.label ?? '',
+    };
+  });
+
+  /** How many blocking problems sit on each tab, for the rail. */
+  const countOn = (key: CrashTab, severity: 'error' | 'warning') =>
+    crashProblems.filter((p) => tabForField(p.field) === key && p.severity === severity).length;
   const derived = worstInjury(crash);
 
   const run = async (action: () => Promise<{ ok: boolean; reason?: string }>) => {
@@ -142,6 +207,58 @@ export function CrashEditor() {
       )}
 
       <div className="flex min-h-0 flex-1">
+        {/*
+          The same rail the incident editor has, for the same reason: the
+          diagram wants a screen to itself, and two units with two occupants
+          each is a screen and a half before the narrative even starts.
+          The bottom padding keeps the last row clear of the floating
+          feedback button.
+        */}
+        <nav className="w-52 shrink-0 overflow-y-auto border-r border-line bg-canvas p-3 pb-16">
+          <ol className="space-y-0.5">
+            {CRASH_TABS.map(({ key, label, icon: Icon, hint }) => {
+              const active = key === tab;
+              const errs = countOn(key, 'error');
+              const warns = countOn(key, 'warning');
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => setTab(key)}
+                    aria-current={active ? 'step' : undefined}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition',
+                      active ? 'bg-surface shadow-sm ring-1 ring-line' : 'hover:bg-surface/60',
+                    )}
+                  >
+                    <Icon
+                      size={16}
+                      className={cn('shrink-0', active ? 'text-accent' : 'text-faint')}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          'block truncate text-[13px] font-medium',
+                          active ? 'text-ink' : 'text-muted',
+                        )}
+                      >
+                        {label}
+                      </span>
+                      <span className="block truncate text-[11px] text-faint">{hint}</span>
+                    </span>
+                    {errs > 0 ? (
+                      <Badge tone="danger">{errs}</Badge>
+                    ) : warns > 0 ? (
+                      <Badge tone="warn">{warns}</Badge>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
             {error && (
@@ -149,6 +266,8 @@ export function CrashEditor() {
             )}
 
             <fieldset disabled={!editable || !mine} className="min-w-0 space-y-4 border-0 p-0">
+              {tab === 'details' && (
+                <>
               <Panel
                 title="The crash"
                 description="Where and when, and what the road was doing at the time."
@@ -285,7 +404,11 @@ export function CrashEditor() {
                   )}
                 </div>
               </Panel>
+                </>
+              )}
 
+              {tab === 'units' && (
+                <>
               {/*
                 "Unit" is the word the state crash form uses, and it is the
                 right word on the form — a unit is a vehicle *or* a pedestrian
@@ -319,6 +442,10 @@ export function CrashEditor() {
                 {crash.units.length === 0 ? 'Add a vehicle or person' : 'Add another unit'}
               </Button>
 
+                </>
+              )}
+
+              {tab === 'diagram' && (
               <Panel
                 title="Scene diagram"
                 description="Place the units, turn them to face the way they were going, and draw the marks. It prints with the report."
@@ -338,7 +465,9 @@ export function CrashEditor() {
                   }
                 />
               </Panel>
+              )}
 
+              {tab === 'narrative' && (
               <Panel
                 title="Narrative"
                 description="How the units came together, in unit numbers. An adjuster and possibly a jury will read this."
@@ -359,32 +488,10 @@ export function CrashEditor() {
                   disabled={!editable || !mine}
                 />
               </Panel>
+              )}
             </fieldset>
 
-            {(errors.length > 0 || warnings.length > 0) && editable && mine && (
-              <Panel title={`Report check (${errors.length + warnings.length})`}>
-                <ul className="space-y-2">
-                  {[...errors, ...warnings].map((problem, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <AlertTriangle
-                        size={14}
-                        className={cn(
-                          'mt-0.5 shrink-0',
-                          problem.severity === 'error' ? 'text-danger' : 'text-warn',
-                        )}
-                        aria-hidden
-                      />
-                      <div>
-                        <p className="text-[13px] text-ink">{problem.message}</p>
-                        <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{problem.tip}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            )}
-
-            {(review.ok || reopen.ok) && (
+            {tab === 'details' && (review.ok || reopen.ok) && (
               <Panel
                 title="Supervisor review"
                 description={review.ok ? 'Approve it, or send it back.' : 'Reopening puts it back to its author.'}
@@ -419,7 +526,18 @@ export function CrashEditor() {
               </Panel>
             )}
 
-            {crash.reviewHistory.length > 0 && (
+            {/*
+              What CAD and the registries sent about this call. It used to have
+              the right-hand rail to itself; the report check has that now, so
+              it sits on the details tab where the rest of the scene lives.
+            */}
+            {tab === 'details' && editable && mine && (
+              <div className="rounded-xl border border-line bg-surface p-4">
+                <InboundPanel />
+              </div>
+            )}
+
+            {tab === 'details' && crash.reviewHistory.length > 0 && (
               <Panel title="History">
                 <ul className="space-y-1.5">
                   {[...crash.reviewHistory].reverse().map((entry) => (
@@ -435,9 +553,17 @@ export function CrashEditor() {
           </div>
         </main>
 
-        <aside className="w-96 shrink-0 overflow-y-auto border-l border-line bg-canvas p-4">
-          <InboundPanel />
-        </aside>
+        {editable && mine ? (
+          <CheckRail
+            items={checks}
+            onGoTo={(item) => setTab((item.group as CrashTab) ?? 'details')}
+            ready="Everything the state file checks for is here. Submit when you are ready."
+          />
+        ) : (
+          <aside className="w-96 shrink-0 overflow-y-auto border-l border-line bg-canvas p-4">
+            <InboundPanel />
+          </aside>
+        )}
       </div>
     </div>
   );
