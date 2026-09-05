@@ -301,9 +301,13 @@ Read this part.
   give you is phishing resistance — a code typed into a convincing fake sign-in
   page can be replayed inside its thirty seconds. WebAuthn is the follow-on, and
   a CJIS assessor may ask for it depending on how the access is characterised.
-- **No encryption at rest.** SQLite writes plaintext. Use full-disk or
-  volume-level encryption that is FIPS 140-2 validated; do not assume the
-  filesystem default qualifies.
+- **No encryption at rest.** SQLite writes plaintext, so what protects the
+  records is the volume they sit on. Use full-disk or volume-level encryption
+  that is FIPS 140-2 validated, and do not assume the hosting provider's
+  default qualifies. The setup screen records who confirmed this and on what
+  date, and says on its face that it is taking their word for it — the software
+  cannot see the disk it runs on and does not pretend to. Until somebody
+  confirms it, the readiness screen treats it as blocking.
 - **Single instance.** Rate limiting is in-process memory, and SQLite is one
   writer. Fine for one agency; a second instance needs a shared limiter store
   and a different database.

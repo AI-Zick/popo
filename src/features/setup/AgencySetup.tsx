@@ -36,7 +36,7 @@ import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
 import { YourPassword } from '@/features/auth/YourPassword';
 import { YourDevices } from '@/features/auth/YourDevices';
-import { MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
+import { EncryptionAttestation, MailSetup, ShiftSetup } from '@/features/setup/MailSetup';
 import { Readiness } from '@/features/setup/Readiness';
 
 /**
@@ -130,7 +130,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   exemptions: 'Exemptions',
   statutes: 'Statutes',
   gis: 'County GIS',
-  mail: 'Email and shifts',
+  mail: 'Email, shifts and disk',
   security: 'Signing in',
   feedback: 'Feedback',
 };
@@ -265,6 +265,7 @@ export function AgencySetup({
             <>
               <MailSetup />
               <ShiftSetup />
+              <EncryptionAttestation />
             </>
           )}
           {tab === 'fleet' && (

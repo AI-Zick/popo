@@ -231,6 +231,28 @@ export function review(context: Context): Finding[] {
     });
   }
 
+  /* ---- Things the software cannot see ------------------------------- */
+
+  /*
+    The one finding here that nothing in this system can verify. SQLite writes
+    plaintext, so what protects these records at rest is the volume they sit on
+    — a hosting decision, made by somebody else, and invisible from inside.
+
+    So it asks for a name and a date instead. "We assumed the provider did it"
+    is the answer an assessor hears most often, and the point of recording who
+    confirmed it is that there is then somebody to ask.
+  */
+  if (!agency.encryptionAtRest.confirmedOn) {
+    add({
+      id: 'encryption-at-rest',
+      weight: 'blocking',
+      says: 'Nobody has confirmed the disk under this installation is encrypted.',
+      because:
+        'The database is written in plain text, so the volume is what protects it. This software cannot check that and is not claiming to — it needs somebody to have looked, and to have said so here.',
+      screen: 'mail',
+    });
+  }
+
   /* ---- Tables an agency has to own --------------------------------- */
 
   const unverified = agency.statutes.filter((statute) => !isVerified(statute));

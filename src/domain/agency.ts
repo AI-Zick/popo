@@ -146,6 +146,26 @@ export interface AgencyProfile {
    */
   requireMfa: boolean;
 
+  /**
+   * Somebody's word that the disk under this installation is encrypted.
+   *
+   * The software cannot check this and never claims to. SQLite writes
+   * plaintext, so what protects the records at rest is the volume they sit on,
+   * and that is a hosting decision made by whoever holds the hardware.
+   *
+   * Recorded rather than assumed, because "we thought the provider did it by
+   * default" is the answer an assessor hears most often, and a name against a
+   * date is what turns it into something anybody can check. The screen says in
+   * plain words that this is being taken on trust.
+   */
+  encryptionAtRest: {
+    confirmedBy: string;
+    /** ISO date. Empty until somebody confirms. */
+    confirmedOn: string;
+    /** What they checked — the volume, the provider, the FIPS validation. */
+    note: string;
+  };
+
   /** False until someone has been through setup. */
   configured: boolean;
 }
@@ -191,6 +211,7 @@ export function emptyAgency(): AgencyProfile {
     gis: emptyGisSource(),
     mail: emptyMailSettings(),
     shifts: DEFAULT_PATTERN,
+    encryptionAtRest: { confirmedBy: '', confirmedOn: '', note: '' },
     publicRecords: defaultPolicy(),
     requireMfa: true,
     configured: false,

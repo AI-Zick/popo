@@ -23,6 +23,7 @@ const goodAgency = (): AgencyProfile => ({
     baseUrl: 'https://rms.cedarfalls.gov',
   },
   gis: { ...emptyAgency().gis, kind: 'arcgis', checkedOn: '2026-03-01' },
+  encryptionAtRest: { confirmedBy: 'R. Vance', confirmedOn: '2026-03-01', note: 'LUKS on the data volume' },
   statutes: [{ cite: '13A-6-20', verifiedOn: '2026-02-01' } as never],
   exemptions: [],
   retention: [],
@@ -76,6 +77,23 @@ describe('what stops an agency working', () => {
     // Every submission would sit in the queue permanently.
     const onlyOfficers = [createUser({ id: 'u1', name: 'Officer', role: 'officer' })];
     expect(ids(context({ users: onlyOfficers }))).toContain('no-approver');
+  });
+
+  it('nobody having confirmed the disk is encrypted', () => {
+    /*
+      The one finding nothing in this system can verify. It is blocking anyway:
+      until somebody has looked, the records are readable by anybody who can
+      read the disk, including anybody holding a backup.
+    */
+    const unconfirmed = {
+      ...goodAgency(),
+      encryptionAtRest: { confirmedBy: '', confirmedOn: '', note: '' },
+    };
+    const found = review(context({ agency: unconfirmed })).find(
+      (f) => f.id === 'encryption-at-rest',
+    );
+    expect(found?.weight).toBe('blocking');
+    expect(found?.because).toMatch(/not claiming to/);
   });
 
   it('the second factor switched off', () => {

@@ -340,3 +340,110 @@ export function ShiftSetup() {
     </Panel>
   );
 }
+
+/**
+ * Somebody's word that the disk is encrypted.
+ *
+ * The one setting in this system that records a fact the software cannot
+ * check. SQLite writes plaintext, so what protects these records at rest is
+ * the volume they sit on, and that is a decision made by whoever holds the
+ * hardware — invisible from in here, and not something a tick box can prove.
+ *
+ * So it asks for a name, a date, and what they actually checked. "We assumed
+ * the provider encrypted it by default" is the answer an assessor hears most
+ * often, and the value of writing a name down is that there is then somebody
+ * to ask. The panel says plainly that it is taking their word for it, because
+ * a green tick that implied verification would be worse than no panel at all.
+ */
+export function EncryptionAttestation() {
+  const { agency, updateAgency, can, currentUser } = useStore();
+  const mayEdit = can('agency.configure');
+  const held = agency.encryptionAtRest ?? { confirmedBy: '', confirmedOn: '', note: '' };
+  const confirmed = Boolean(held.confirmedOn);
+
+  const field =
+    'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-[13.5px] text-ink placeholder:text-faint disabled:opacity-60';
+
+  return (
+    <Panel
+      title="Encryption at rest"
+      description="The database is written in plain text. What protects it is the volume it sits on — which this software cannot see."
+      aside={confirmed ? <Badge tone="ok">Confirmed</Badge> : <Badge tone="danger">Not confirmed</Badge>}
+    >
+      {confirmed ? (
+        <div className="rounded-lg border border-line bg-surface p-3">
+          <p className="text-[13px] text-ink">
+            {held.confirmedBy} confirmed this on {held.confirmedOn}.
+          </p>
+          {held.note && (
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{held.note}</p>
+          )}
+          {/*
+            Said even after it is confirmed. The record is somebody's word, and
+            a panel that stopped saying so once it went green would be quietly
+            upgrading a claim into a check.
+          */}
+          <p className="mt-2 text-[11.5px] leading-relaxed text-faint">
+            Recorded, not verified. This software takes their word for it, and so does anybody
+            reading this.
+          </p>
+          {mayEdit && (
+            <Button
+              className="mt-3"
+              onClick={() =>
+                updateAgency({ encryptionAtRest: { confirmedBy: '', confirmedOn: '', note: '' } })
+              }
+            >
+              It has changed — clear this
+            </Button>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="mb-3 rounded-lg border border-danger/40 bg-danger-soft p-3 text-[12.5px] leading-relaxed text-danger">
+            Until somebody has checked, assume the records are readable by anybody who can read the
+            disk — including anybody holding a backup. Use full-disk or volume encryption that is
+            FIPS 140-2 validated, and do not assume the hosting provider&apos;s default qualifies.
+          </p>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-medium text-ink">
+              What was checked
+            </span>
+            <input
+              value={held.note}
+              disabled={!mayEdit}
+              onChange={(e) =>
+                updateAgency({ encryptionAtRest: { ...held, note: e.target.value } })
+              }
+              placeholder="LUKS on the data volume, key in the HSM — checked with county IT"
+              className={field}
+            />
+          </label>
+          {mayEdit && (
+            <Button
+              variant="primary"
+              className="mt-3"
+              disabled={!held.note.trim()}
+              onClick={() =>
+                updateAgency({
+                  encryptionAtRest: {
+                    ...held,
+                    confirmedBy: currentUser.name,
+                    confirmedOn: new Date().toISOString().slice(0, 10),
+                  },
+                })
+              }
+            >
+              I have checked — record it against my name
+            </Button>
+          )}
+          {!held.note.trim() && mayEdit && (
+            <p className="mt-2 text-[11.5px] text-faint">
+              Say what you checked first. A confirmation with nothing behind it is a tick box.
+            </p>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
