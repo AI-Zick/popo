@@ -120,7 +120,7 @@ export function ArrestEditor() {
       <header className="flex shrink-0 items-center gap-4 border-b border-line bg-surface px-4 py-2.5">
         <Button variant="ghost" onClick={closeArrest} aria-label="Back to reports">
           <ChevronLeft size={16} aria-hidden />
-          Reports
+          Back
         </Button>
         <div className="flex min-w-0 items-center gap-2.5">
           <h1 className="truncate font-mono text-[14px] font-semibold text-ink">

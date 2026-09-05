@@ -18,6 +18,8 @@ import { emptyAgency, type AgencyProfile } from '@/domain/agency';
 import { statutePack } from '@/domain/statutes';
 import { createStopCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
+import { createArrest, createCharge as createArrestCharge, type Arrest } from '@/domain/arrest';
+import { DEFAULT_PATTERN, outgoingShift } from '@/domain/shift';
 import { createUser, type User } from '@/domain/auth';
 
 /**
@@ -242,11 +244,28 @@ function isoDaysAgo(days: number, hour = 14, minute = 30): string {
 }
 
 /**
+ * A moment inside the shift that has just ended.
+ *
+ * The briefing opens on the outgoing shift, so records anchored to a fixed
+ * hour would land in it only some of the time — a screen that is full at eight
+ * in the morning and empty at four in the afternoon teaches a tester that the
+ * feature does not work. Anchoring to the shift itself means the briefing has
+ * something to show whenever somebody opens the demo.
+ */
+function inLastShift(hoursIn: number, minute = 0): string {
+  const start = new Date(outgoingShift(DEFAULT_PATTERN).start);
+  start.setHours(start.getHours() + hoursIn, minute, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`;
+}
+
+/**
  * Demo data. The second report is deliberately incomplete — it is the fastest
  * way to see how the validation surface behaves on a real, half-written case.
  */
 export function seedState(): {
   incidents: Incident[];
+  arrests: Arrest[];
   stops: TrafficStop[];
   returns: QueryReturn[];
   bulletins: Bulletin[];
@@ -555,6 +574,170 @@ export function seedState(): {
   // index: one identity, many reports.
   const priorSuspect = samePerson(arrestee, 'suspect', { offenseIds: [] });
   incomplete.persons.push(priorSuspect);
+
+  /* ---- 4. The shift that has just ended -------------------------------- */
+  /*
+    Two calls and two arrests inside the outgoing shift, so the briefing has
+    something to brief. They are chosen to be the two halves of that screen:
+    the domestic is the case the next shift may still be standing in, and the
+    shoplift is the one that belongs in a tally and nowhere else. A briefing
+    that treated them the same would be a call log.
+  */
+  const perch = place({
+    address: '88 Perch St',
+    city: 'Cedar Falls',
+    state: 'AL',
+    zip: '35004',
+    locationType: '20',
+    beat: '2C',
+  });
+
+  const assault = createOffense({
+    code: '13A',
+    statute: '13A-6-20',
+    attemptCompleted: 'C',
+    locationType: '20',
+    biasMotivation: '88',
+    weapons: ['20'],
+  });
+
+  const dvSuspect = person(
+    'suspect',
+    {
+      lastName: 'Hollins',
+      firstName: 'Dwayne',
+      dob: '1988-06-14',
+      sex: 'M',
+      race: 'B',
+      address: '88 Perch St',
+      city: 'Cedar Falls',
+      state: 'AL',
+    },
+    { offenseIds: [assault.id], armedWith: ['20'] },
+  );
+  const dvVictim = person(
+    'victim',
+    {
+      lastName: 'Hollins',
+      firstName: 'Renata',
+      dob: '1990-01-23',
+      sex: 'F',
+      race: 'B',
+      address: '88 Perch St',
+      city: 'Cedar Falls',
+      state: 'AL',
+      phone: '(205) 555-0177',
+    },
+    {
+      victimType: 'I',
+      injuries: ['M'],
+      offenseIds: [assault.id],
+      // The relationship, not the checkbox. Both are set here; the briefing
+      // reads either, which is what makes it right when only one is.
+      relationships: [{ offenderId: dvSuspect.id, relationship: 'SE' }],
+    },
+  );
+
+  const domesticCall = createIncident({
+    caseNumber: '2026-000437',
+    status: 'pending_review',
+    reportedAt: inLastShift(1, 20),
+    occurredFrom: inLastShift(1, 5),
+    locationId: perch.id,
+    createdBy: 'u-tam',
+    reportingOfficer: 'D. Tam',
+    reportingBadge: '4482',
+    unit: 'Patrol 7',
+    supervisor: 'Sgt. A. Boone',
+    isDomestic: true,
+    clearanceStatus: 'open',
+    offenses: [assault],
+    persons: [dvVictim, dvSuspect],
+    narrative:
+      'Dispatched to 88 Perch St for a disturbance with a weapon. On arrival Renata Hollins met me at the front door with a laceration to her left forearm, which she stated her husband Dwayne Hollins had caused with a kitchen knife during an argument. ' +
+      'Hollins had left on foot before my arrival and was not located on a canvass of the block. A knife matching the description was recovered from the kitchen sink and photographed in place.\n\n' +
+      'Renata Hollins was treated on scene by Cedar Falls Fire Medic 2 and declined transport. She was provided with a domestic violence information card and assisted in completing a protection order petition. Warrant application to follow.',
+  });
+
+  /* ---- Arrests made during that shift ---------------------------------- */
+  /*
+    Standalone arrests rather than roles on a report, because that is what an
+    arrest is: it outlives the report it came from and is answered for on its
+    own. One is in a cell and one went home on a citation, which is the
+    difference the shift going out actually needs.
+  */
+  const ARRESTS: Arrest[] = [
+    createArrest({
+      id: 'arr_seed_1',
+      arrestNumber: '2026-A00073',
+      caseId: complete.id,
+      caseNumber: complete.caseNumber,
+      masterId: PEOPLE[Object.keys(PEOPLE).find((id) => PEOPLE[id].lastName === 'Mercer')!].id,
+      personName: 'Travis R. Mercer',
+      arrestedAt: inLastShift(4, 40),
+      arrestLocation: '1140 Ashwood Ln',
+      arrestType: 'T',
+      arrestingOfficerId: 'u-reyes',
+      arrestingOfficerName: 'M. Reyes',
+      status: 'pending_review',
+      charges: [
+        createArrestCharge({
+          statute: '13A-7-5',
+          description: 'Burglary, first degree',
+          severity: 'felony',
+          degree: 'B',
+          counts: '1',
+          nibrsCode: '220',
+        }),
+        createArrestCharge({
+          statute: '13A-8-4',
+          description: 'Theft of property, second degree',
+          severity: 'felony',
+          degree: 'C',
+          counts: '1',
+          nibrsCode: '23H',
+        }),
+      ],
+      disposition: 'jail',
+      bookingNumber: 'CF-26-00812',
+      bookedAt: inLastShift(5, 25),
+      bookedByName: 'K. Doyle',
+      heldAt: 'Cedar Falls Holding',
+      photographed: true,
+      fingerprinted: true,
+      bondAmount: '$25,000',
+      courtDate: isoDaysAgo(-11).slice(0, 10),
+      courtLocation: 'Cedar Falls Municipal Court',
+      narrative:
+        'Served warrant CF-2026-0148 on Travis Ray Mercer at 1140 Ashwood Ln following information from the resident that he had returned to the address. Mercer was taken into custody without incident and transported to holding.',
+    }),
+    createArrest({
+      id: 'arr_seed_2',
+      arrestNumber: '2026-A00074',
+      masterId: '',
+      personName: 'Ashley N. Prewitt',
+      arrestedAt: inLastShift(6, 10),
+      arrestLocation: 'Cedar Falls Market, 210 Marion St',
+      arrestType: 'O',
+      arrestingOfficerId: 'u-tam',
+      arrestingOfficerName: 'D. Tam',
+      status: 'draft',
+      charges: [
+        createArrestCharge({
+          statute: '13A-8-4.1',
+          description: 'Theft of property, fourth degree (shoplifting)',
+          severity: 'misdemeanor',
+          degree: 'A',
+          counts: '1',
+          nibrsCode: '23C',
+        }),
+      ],
+      disposition: 'citedReleased',
+      releasedAt: inLastShift(6, 55),
+      courtDate: isoDaysAgo(-24).slice(0, 10),
+      courtLocation: 'Cedar Falls Municipal Court',
+    }),
+  ];
 
   /* ---- Traffic stops --------------------------------------------------- */
 
@@ -1133,7 +1316,8 @@ export function seedState(): {
   ];
 
   return {
-    incidents: [incomplete, complete, approved],
+    incidents: [incomplete, complete, approved, domesticCall],
+    arrests: ARRESTS,
     bulletins: BULLETINS,
     stops: STOPS,
     returns: RETURNS,

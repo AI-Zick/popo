@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Clock,
   FileWarning,
   KeyRound,
+  Gavel,
   Megaphone,
   Moon,
   Printer,
@@ -20,6 +22,7 @@ import {
   officersOn,
   type Loose,
 } from '@/domain/briefing';
+import { notable, type Notable } from '@/domain/notable';
 import {
   currentShift,
   DEFAULT_PATTERN,
@@ -58,7 +61,7 @@ import { cn } from '@/lib/cn';
  * briefing is worse than none, since it is read aloud with authority.
  */
 export function Briefing({ onClose }: { onClose: () => void }) {
-  const { agency, incidents, arrests, crashes, stops, can } = useStore();
+  const { agency, incidents, arrests, crashes, stops, locations, can } = useStore();
   /*
     Field contacts and citations across the whole agency are a supervisor and
     records view. An officer opening the briefing sees their own, and is told
@@ -131,6 +134,19 @@ export function Briefing({ onClose }: { onClose: () => void }) {
     [incidents, arrests, crashes, stops, contacts, citations, bookings, board, shift],
   );
 
+  /*
+    What gets read out, worked out separately from the tallies because it
+    needs the location index and the tallies do not. Passing it in rather than
+    resolving addresses inside the domain keeps `notable` a function of its
+    arguments, which is what makes it testable.
+  */
+  const read = useMemo(() => notable(result.happened, locations), [result.happened, locations]);
+
+  const quieter = useMemo(() => {
+    const named = new Set(read.filter((r) => r.kind === 'case').map((r) => r.id));
+    return result.happened.incidents.filter((i) => !named.has(i.id));
+  }, [read, result.happened.incidents]);
+
   const isCurrent = shift.start === currentShift(pattern).start;
   const total = callCount(result.happened);
   const officers = officersOn(result.happened);
@@ -141,7 +157,7 @@ export function Briefing({ onClose }: { onClose: () => void }) {
       <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-4 py-2.5 print:hidden">
         <Button variant="ghost" onClick={onClose}>
           <ChevronLeft size={16} aria-hidden />
-          Reports
+          Home
         </Button>
         <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
           <Moon size={17} aria-hidden />
@@ -305,24 +321,54 @@ export function Briefing({ onClose }: { onClose: () => void }) {
                   </p>
                 )}
 
-                {result.happened.incidents.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {result.happened.incidents.map((incident) => (
-                      <li
-                        key={incident.id}
-                        className="rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px]"
-                      >
-                        <span className="font-mono text-ink">
-                          {incident.caseNumber || 'No number yet'}
-                        </span>
-                        <span className="text-muted">
-                          {' · '}
-                          {formatDateTime(incident.reportedAt)}
-                          {incident.reportingOfficer && ` · ${incident.reportingOfficer}`}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                {/*
+                  The part somebody says out loud. Every arrest, and the cases
+                  the next shift may still be standing in — named, with the
+                  address and the one fact that changes what they do about it.
+                  A case number and a timestamp is a call log; this is a
+                  briefing.
+                */}
+                {read.length > 0 && (
+                  <>
+                    <p className="mb-2 mt-4 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                      Worth saying out loud
+                    </p>
+                    <ul className="space-y-2">
+                      {read.map((item) => (
+                        <NotableRow key={`${item.kind}:${item.id}`} item={item} />
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                {/*
+                  The rest of the reports, still listed. Somebody in the room
+                  always asks what the other four were, and a list that only
+                  showed the loud ones would make them go and look.
+                */}
+                {quieter.length > 0 && (
+                  <>
+                    <p className="mb-2 mt-4 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                      {read.length > 0 ? 'Everything else' : 'Reports'}
+                    </p>
+                    <ul className="space-y-1.5">
+                      {quieter.map((incident) => (
+                        <li
+                          key={incident.id}
+                          className="rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px]"
+                        >
+                          <span className="font-mono text-ink">
+                            {incident.caseNumber || 'No number yet'}
+                          </span>
+                          <span className="text-muted">
+                            {' · '}
+                            {formatDateTime(incident.reportedAt)}
+                            {incident.reportingOfficer && ` · ${incident.reportingOfficer}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
                 )}
               </>
             )}
@@ -386,6 +432,63 @@ function Count({ label, value }: { label: string; value: number }) {
       <p className="text-[18px] font-semibold tabular text-ink">{value}</p>
       <p className="text-[11.5px] text-muted">{label}</p>
     </div>
+  );
+}
+
+/**
+ * One thing that gets said.
+ *
+ * The flags are badges because a badge is read at a glance from the back of a
+ * room, and the detail is a sentence because that is what gets repeated over
+ * the radio ten minutes later. Both, deliberately: neither one alone survives
+ * the trip from this screen to a car.
+ */
+function NotableRow({ item }: { item: Notable }) {
+  const loud = item.tone === 'danger';
+  return (
+    <li
+      className={cn(
+        'rounded-lg border px-3 py-2',
+        loud ? 'border-danger/35 bg-danger-soft' : 'border-line bg-surface',
+      )}
+    >
+      <p className="flex flex-wrap items-center gap-2">
+        {/*
+          The icon says what kind of thing it is and the colour says how loud.
+          Letting the icon carry the volume instead would put a gavel beside a
+          vehicle theft nobody was arrested for, which is a small lie told
+          several times a shift.
+        */}
+        {item.kind === 'arrest' ? (
+          <Gavel
+            size={13}
+            className={cn('shrink-0', loud ? 'text-danger' : 'text-muted')}
+            aria-hidden
+          />
+        ) : (
+          <ClipboardList
+            size={13}
+            className={cn('shrink-0', loud ? 'text-danger' : 'text-muted')}
+            aria-hidden
+          />
+        )}
+        <span className="text-[13.5px] font-medium text-ink">{item.headline}</span>
+        {item.flags.map((flag) => (
+          <Badge key={flag} tone={loud ? 'danger' : 'neutral'}>
+            {flag}
+          </Badge>
+        ))}
+      </p>
+      {item.detail && (
+        <p className="mt-0.5 pl-5 text-[12.5px] leading-relaxed text-ink/80">{item.detail}</p>
+      )}
+      <p className="mt-0.5 pl-5 text-[12px] text-muted">
+        <span className="font-mono">{item.number}</span>
+        {' · '}
+        {formatDateTime(item.at)}
+        {item.who && ` · ${item.who}`}
+      </p>
+    </li>
   );
 }
 

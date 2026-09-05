@@ -148,7 +148,7 @@ export function fresh(): DemoState {
     crashes: [],
     stops: seed.stops,
     returns: seed.returns,
-    arrests: [],
+    arrests: seed.arrests,
     bookings: [],
     bulletins: seed.bulletins,
     caseTasks: [],

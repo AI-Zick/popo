@@ -243,7 +243,7 @@ export function BoardScreen({ onClose }: { onClose: () => void }) {
       <header className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
         <Button variant="ghost" onClick={onClose}>
           <ChevronLeft size={16} aria-hidden />
-          Reports
+          Home
         </Button>
         <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
           <Megaphone size={17} aria-hidden />
