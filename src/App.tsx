@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cn } from '@/lib/cn';
-import type { SectionKey, Tab as HubTab } from '@/features/setup/AgencySetup';
 import { Loader2, ServerCrash } from 'lucide-react';
 import { useStore } from '@/state/store';
-import { Dashboard } from '@/features/dashboard/Dashboard';
+import { Home, type Destination } from '@/features/dashboard/Home';
+import { CaseList } from '@/features/dashboard/Dashboard';
 import { IncidentEditor } from '@/features/incident/IncidentEditor';
 import { SupplementEditor } from '@/features/supplements/SupplementEditor';
 import { CommandSearch, useSearchHotkey } from '@/features/search/CommandSearch';
@@ -40,11 +40,8 @@ const CrashEditor = lazy(() =>
 const ArrestEditor = lazy(() =>
   import('@/features/arrest/ArrestEditor').then((m) => ({ default: m.ArrestEditor })),
 );
-const PeopleIndex = lazy(() =>
-  import('@/features/index/IndexPages').then((m) => ({ default: m.PeopleIndex })),
-);
-const VehicleIndex = lazy(() =>
-  import('@/features/index/IndexPages').then((m) => ({ default: m.VehicleIndex })),
+const MasterSearch = lazy(() =>
+  import('@/features/index/IndexPages').then((m) => ({ default: m.MasterSearch })),
 );
 const BoardScreen = lazy(() =>
   import('@/features/board/Board').then((m) => ({ default: m.BoardScreen })),
@@ -102,14 +99,7 @@ export default function App() {
     opens several screens, and a set of independent booleans is how two of them
     end up on screen at once.
   */
-  const [away, setAway] = useState<
-    | null
-    | { kind: 'hub'; section: SectionKey; start?: HubTab }
-    | { kind: 'people' }
-    | { kind: 'vehicles' }
-    | { kind: 'board' }
-    | { kind: 'briefing' }
-  >(null);
+  const [away, setAway] = useState<Destination | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   useSearchHotkey(() => setSearchOpen(true));
@@ -216,10 +206,10 @@ export default function App() {
       <div className={cn(DEMO ? 'min-h-0 flex-1' : 'h-full')}>
       {away && !incident ? (
         <Suspense fallback={<ScreenLoading />}>
-          {away.kind === 'people' ? (
-            <PeopleIndex onClose={() => setAway(null)} />
-          ) : away.kind === 'vehicles' ? (
-            <VehicleIndex onClose={() => setAway(null)} />
+          {away.kind === 'cases' ? (
+            <CaseList onOpenSearch={() => setSearchOpen(true)} onClose={() => setAway(null)} />
+          ) : away.kind === 'master' ? (
+            <MasterSearch start={away.start} onClose={() => setAway(null)} />
           ) : away.kind === 'board' ? (
             <BoardScreen onClose={() => setAway(null)} />
           ) : away.kind === 'briefing' ? (
@@ -248,10 +238,7 @@ export default function App() {
       ) : incident ? (
         <IncidentEditor />
       ) : (
-        <Dashboard
-          onGo={setAway}
-          onOpenSearch={() => setSearchOpen(true)}
-        />
+        <Home onGo={setAway} onOpenSearch={() => setSearchOpen(true)} />
       )}
       </div>
     </div>

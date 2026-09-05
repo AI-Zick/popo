@@ -2,41 +2,25 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
-  BarChart3,
-  Boxes,
-  Building2,
   Car,
   CheckCircle2,
+  ChevronLeft,
   ClipboardList,
   CornerUpLeft,
   FileEdit,
   FilePlus2,
   Gavel,
-  Inbox,
-  KeyRound,
   ListTodo,
-  Megaphone,
-  Moon,
   Search,
   Send,
-  Settings,
-  Shield,
-  SignpostBig,
-  TrendingUp,
-  Users,
-  Wrench,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
-import { BoardPanel } from '@/features/board/Board';
-import type { SectionKey, Tab as HubTab } from '@/features/setup/AgencySetup';
 import { runRules } from '@/validation/engine';
 import { ALL_RULES } from '@/validation/rules';
 import { OFFENSE_BY_CODE } from '@/domain/codes';
 import { describeCharges, DISPOSITION_LABEL } from '@/domain/arrest';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { Badge, Button, EmptyState } from '@/components/ui/primitives';
-import { ThemeToggle } from '@/components/layout/ThemeToggle';
-import { UserMenu } from '@/components/layout/UserMenu';
 import { buildQueue, describeWait, STATUS_LABEL } from '@/domain/review';
 import { supplementLabel } from '@/domain/supplement';
 import type { Incident, ReportStatus } from '@/domain/types';
@@ -88,20 +72,21 @@ type QueueItem = {
   open: () => void;
 };
 
-export function Dashboard({
-  onGo,
+/**
+ * The case list: what somebody is working on, and what is waiting on them.
+ *
+ * This used to be the home page, with the board and every destination stacked
+ * on top of it. A tester's verdict on that was that the home page had become
+ * the place everything happens, which is another way of saying nothing on it
+ * stood out. So the work has its own screen now, reached by a button, and the
+ * home page is what a shift reads on the way out of the door.
+ */
+export function CaseList({
   onOpenSearch,
+  onClose,
 }: {
-  /** Where to send the app when something on this page is chosen. */
-  onGo: (
-    to:
-      | { kind: 'hub'; section: SectionKey; start?: HubTab }
-      | { kind: 'people' }
-      | { kind: 'vehicles' }
-      | { kind: 'board' }
-      | { kind: 'briefing' },
-  ) => void;
   onOpenSearch: () => void;
+  onClose: () => void;
 }) {
   const {
     incidents,
@@ -129,9 +114,6 @@ export function Dashboard({
   const [query, setQuery] = useState('');
 
   const mayReview = can('reports.approve');
-  /* Anybody with a reason to open the agency's own configuration at all. */
-  const mayConfigureAgency =
-    can('agency.configure') || can('users.manage') || can('audit.view') || can('records.seal');
 
   /*
     Reports and supplements queue together. A supervisor asks "what is waiting
@@ -325,13 +307,30 @@ export function Dashboard({
   return (
     <div className="flex h-full flex-col bg-canvas">
       <header className="flex shrink-0 items-center gap-4 border-b border-line bg-surface px-5 py-3">
+        {/*
+          Out, before anything else on the row. Cases is a page somebody
+          arrived at rather than the place they start, so the way back is the
+          first thing under the cursor and not a thing to hunt for on the far
+          side of a toolbar.
+        */}
+        <Button variant="ghost" onClick={onClose}>
+          <ChevronLeft size={16} aria-hidden />
+          Home
+        </Button>
+
+        {/*
+          The page says what page it is. The agency's name and the badge
+          belong to the home page, which is where somebody arrives; repeating
+          them on every screen underneath spends the top of the window saying
+          what nobody has forgotten since they signed in.
+        */}
         <div className="flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-white">
-            <Shield size={17} aria-hidden />
+          <span className="flex size-8 items-center justify-center rounded-lg bg-accent/12 text-accent">
+            <ClipboardList size={17} aria-hidden />
           </span>
           <div>
-            <h1 className="text-[15px] font-semibold tracking-tight text-ink">Aegis RMS</h1>
-            <p className="text-[11.5px] text-faint">{agency.name || 'Agency not configured'}</p>
+            <h1 className="text-[15px] font-semibold tracking-tight text-ink">Cases</h1>
+            <p className="text-[11.5px] text-faint">Reports, crashes and arrests</p>
           </div>
         </div>
 
@@ -370,26 +369,6 @@ export function Dashboard({
           </kbd>
         </button>
 
-        <UserMenu />
-
-        {/*
-          A gear that means what a gear means: this account. How I sign in,
-          what I have raised. Everything else that used to live behind it —
-          the property room, the fleet, the stop log — is work rather than
-          settings, and is on the page below where the work is.
-        */}
-        <button
-          type="button"
-          onClick={() => onGo({ kind: 'hub', section: 'me' })}
-          aria-label="Settings"
-          title="Settings — signing in, feedback"
-          className="flex size-9 items-center justify-center rounded-lg border border-line text-muted transition hover:bg-raised hover:text-ink"
-        >
-          <Settings size={16} aria-hidden />
-        </button>
-
-        <ThemeToggle />
-
         <Button onClick={() => void startCrash('')}>
           <Car size={15} aria-hidden />
           New crash
@@ -413,87 +392,6 @@ export function Dashboard({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-6 py-6">
-          {/*
-            Everywhere else the agency keeps something, named and on the page.
-
-            These used to be nineteen tabs behind a gear icon, which meant the
-            property room and the master name index were filed under settings.
-            A tester looked for people search and vehicle search twice and
-            concluded there wasn't any — so they are here, spelled out, on the
-            page somebody starts their shift on.
-          */}
-          <nav className="mb-5 flex flex-wrap gap-2" aria-label="Where else to go">
-            <Destination
-              icon={<Megaphone size={14} />}
-              label="Board"
-              onClick={() => onGo({ kind: 'board' })}
-            />
-            <Destination
-              icon={<Moon size={14} />}
-              label="Shift briefing"
-              onClick={() => onGo({ kind: 'briefing' })}
-            />
-            <Destination icon={<Users size={14} />} label="People" onClick={() => onGo({ kind: 'people' })} />
-            <Destination icon={<Car size={14} />} label="Vehicles" onClick={() => onGo({ kind: 'vehicles' })} />
-            <Destination
-              icon={<Boxes size={14} />}
-              label="Property"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'evidence' })}
-            />
-            <Destination
-              icon={<Wrench size={14} />}
-              label="Fleet"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'fleet' })}
-            />
-            <Destination
-              icon={<SignpostBig size={14} />}
-              label="Traffic stops"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'stops' })}
-            />
-            <Destination
-              icon={<KeyRound size={14} />}
-              label="Custody"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'custody' })}
-            />
-            <Destination
-              icon={<Inbox size={14} />}
-              label="Public records"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'publicRecords' })}
-            />
-            <Destination
-              icon={<BarChart3 size={14} />}
-              label="Activity report"
-              onClick={() => onGo({ kind: 'hub', section: 'work', start: 'activity' })}
-            />
-            {mayReview && (
-              <Destination
-                icon={<TrendingUp size={14} />}
-                label="Crime trends"
-                onClick={() => onGo({ kind: 'hub', section: 'work', start: 'trends' })}
-              />
-            )}
-            {/* Setting the agency up is a different job from working in it. */}
-            {mayConfigureAgency && (
-              <Destination
-                icon={<Building2 size={14} />}
-                label="Agency setup"
-                onClick={() => onGo({ kind: 'hub', section: 'agency' })}
-              />
-            )}
-          </nav>
-
-          {/*
-            The board, above the counts.
-
-            Deliberately the first thing under the navigation rather than a
-            page somebody visits. A BOLO nobody happened to click on is a BOLO
-            nobody was told, and the officer this is for is about to walk out
-            of the door.
-          */}
-          <div className="mb-5">
-            <BoardPanel onOpenBoard={() => onGo({ kind: 'board' })} />
-          </div>
-
           {/* Tiles double as filters — the number and the way in are the same
               thing, so there is nothing to hunt for after reading it. */}
           <div className="mb-5 grid grid-cols-4 gap-3">
@@ -893,33 +791,6 @@ function ReportRow({
         )}
         <span className="text-[11.5px] text-faint">Updated {relativeTime(incident.updatedAt)}</span>
       </div>
-    </button>
-  );
-}
-
-/**
- * One way out of the home page.
- *
- * A chip rather than a tile: these are places, not counts, and giving them a
- * number would invent a statistic nobody asked for.
- */
-function Destination({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] font-medium text-muted transition hover:border-accent/45 hover:text-ink"
-    >
-      <span className="text-faint">{icon}</span>
-      {label}
     </button>
   );
 }
