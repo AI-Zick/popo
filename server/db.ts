@@ -240,6 +240,32 @@ CREATE INDEX IF NOT EXISTS arrests_case ON arrests(case_id);
 -- One person's history at this agency, which is the other way it is read.
 CREATE INDEX IF NOT EXISTS arrests_person ON arrests(master_id, arrested_at);
 
+-- Booking: what happened to a person after the arrest. Its own record rather
+-- than fields on the arrest, because it is a different event, usually done by
+-- a different officer in a different building, and it holds somebody's
+-- property and the things that keep them alive in a cell.
+--
+-- There is no in_custody column here on purpose. Custody is derived from the
+-- booking and release times every time it is read; a stored flag and a release
+-- time disagree the first time somebody records one and not the other, and the
+-- roster is what the next shift briefs from.
+CREATE TABLE IF NOT EXISTS bookings (
+  id             TEXT PRIMARY KEY,
+  version        INTEGER NOT NULL DEFAULT 1,
+  booking_number TEXT NOT NULL DEFAULT '',
+  arrest_id      TEXT NOT NULL DEFAULT '',
+  master_id      TEXT NOT NULL DEFAULT '',
+  booked_at      TEXT NOT NULL DEFAULT '',
+  released_at    TEXT NOT NULL DEFAULT '',
+  updated_at     TEXT NOT NULL,
+  doc            TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bookings_number ON bookings(booking_number);
+CREATE INDEX IF NOT EXISTS bookings_arrest ON bookings(arrest_id);
+-- The roster reads "booked, not yet released", which is this index.
+CREATE INDEX IF NOT EXISTS bookings_open ON bookings(released_at, booked_at);
+CREATE INDEX IF NOT EXISTS bookings_person ON bookings(master_id, booked_at);
+
 -- Court orders to seal or destroy records, and the certificates left behind.
 -- Not a document in the review sense: an order is proposed by one person and
 -- carried out by another, and once carried out it keeps only what a court
@@ -599,6 +625,7 @@ export interface DocTable {
     | 'feedback'
     | 'evidence'
     | 'arrests'
+    | 'bookings'
     | 'case_tasks'
     | 'person_photos'
     | 'cruisers'
@@ -674,6 +701,18 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       status: String(doc.status ?? 'draft'),
       arrested_at: String(doc.arrestedAt ?? ''),
+    }),
+  },
+  bookings: {
+    name: 'bookings',
+    columns: (doc) => ({
+      booking_number: String(doc.bookingNumber ?? ''),
+      arrest_id: String(doc.arrestId ?? ''),
+      master_id: String(doc.masterId ?? ''),
+      booked_at: String(doc.bookedAt ?? ''),
+      /* Flattened so the roster can ask the database for "still here" rather
+         than reading every booking to find out. */
+      released_at: String((doc.release as { at?: string } | null)?.at ?? ''),
     }),
   },
   disposalOrders: {

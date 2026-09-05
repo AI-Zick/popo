@@ -202,6 +202,18 @@ const HOLDERS: Holder[] = [
     purge: del('arrests'),
   },
   {
+    /*
+      A booking holds a property inventory and somebody's medical concerns,
+      which is exactly the material a sealing order is about. Registered here
+      so an expungement takes it with the arrest rather than leaving it behind.
+    */
+    kind: 'Booking records',
+    byCase: () => [],
+    byPerson: (db, masterId) =>
+      query(db, 'bookings', 'master_id', masterId, (d) => String(d.bookingNumber ?? '')),
+    purge: del('bookings'),
+  },
+  {
     kind: 'Crash reports',
     byCase: (db, id) => query(db, 'crashes', 'id', id, (d) => String(d.caseNumber ?? '')),
     byPerson: () => [],

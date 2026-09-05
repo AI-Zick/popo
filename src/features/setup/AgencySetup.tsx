@@ -30,6 +30,7 @@ import { ExemptionRules } from '@/features/records/ExemptionRules';
 import { StatuteTable } from '@/features/statutes/StatuteTable';
 import { GisSetup } from '@/features/setup/GisSetup';
 import { CrimeTrends } from '@/features/trends/CrimeTrends';
+import { CustodyView } from '@/features/booking/CustodyView';
 import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
@@ -46,6 +47,7 @@ type Tab =
   | 'nibrs'
   | 'activity'
   | 'trends'
+  | 'custody'
   | 'stops'
   | 'import'
   | 'evidence'
@@ -65,6 +67,7 @@ const SCREEN_NAME: Record<Tab, string> = {
   nibrs: 'NIBRS export',
   activity: 'Activity report',
   trends: 'Crime trends',
+  custody: 'Custody',
   stops: 'Traffic stops',
   import: 'Import records',
   evidence: 'Property room',
@@ -178,6 +181,14 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           <TabButton active={tab === 'stops'} onClick={() => setTab('stops')}>
             Traffic stops
           </TabButton>
+          {/*
+            Open to every officer. Who is in a cell is what a shift briefing
+            reads, and a roster only a supervisor can open is a roster nobody
+            checks at three in the morning.
+          */}
+          <TabButton active={tab === 'custody'} onClick={() => setTab('custody')}>
+            Custody
+          </TabButton>
           <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>
             Activity report
           </TabButton>
@@ -237,6 +248,7 @@ export function AgencySetup({ onClose }: { onClose: () => void }) {
           {tab === 'audit' && mayViewAudit && <AuditLog />}
           {tab === 'nibrs' && mayExport && <NibrsExport />}
           {tab === 'stops' && <StopLog />}
+          {tab === 'custody' && <CustodyView />}
           {tab === 'activity' && <ActivityReportView />}
           {tab === 'trends' && <CrimeTrends />}
           {tab === 'import' && mayConfigure && <ImportWizard />}

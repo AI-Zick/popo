@@ -128,6 +128,12 @@ interface TextProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Read-only, because the record is closed rather than because the field is
+   * unavailable. A released custody record and an approved report are both
+   * things somebody should still be able to read and no longer change.
+   */
+  disabled?: boolean;
   required?: boolean;
   hint?: string;
   placeholder?: string;
@@ -142,6 +148,7 @@ export function TextField({
   label,
   value,
   onChange,
+  disabled,
   required,
   hint,
   placeholder,
@@ -158,6 +165,7 @@ export function TextField({
           id={id}
           type={type}
           value={value}
+          disabled={disabled}
           maxLength={maxLength}
           placeholder={placeholder}
           aria-invalid={invalid || undefined}
@@ -176,6 +184,7 @@ export function TextareaField({
   label,
   value,
   onChange,
+  disabled,
   required,
   hint,
   placeholder,
@@ -190,6 +199,7 @@ export function TextareaField({
           id={id}
           rows={rows}
           value={value}
+          disabled={disabled}
           placeholder={placeholder}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
@@ -216,6 +226,8 @@ interface SelectProps {
   hint?: string;
   placeholder?: string;
   className?: string;
+  /** Read-only, for a record that is closed rather than a field unavailable. */
+  disabled?: boolean;
   /** Show the code alongside the label, e.g. "20 — Residence / Home". */
   showCodes?: boolean;
 }
@@ -256,6 +268,7 @@ export function SelectField({
   value,
   onChange,
   options,
+  disabled,
   required,
   hint,
   placeholder = 'Type to search…',
@@ -345,10 +358,12 @@ export function SelectField({
             aria-activedescendant={open && matches[active] ? `${id}-opt-${active}` : undefined}
             autoComplete="off"
             value={query ?? display}
+            disabled={disabled}
             placeholder={placeholder}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
             onFocus={() => {
+              if (disabled) return;
               setOpen(true);
               setActive(0);
             }}
@@ -522,12 +537,14 @@ export function ToggleField({
   label,
   description,
   checked,
+  disabled,
   onChange,
 }: {
   path: string;
   label: string;
   description?: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   const { registerField } = useStore();
@@ -539,9 +556,11 @@ export function ToggleField({
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
           'flex w-full items-start gap-3 rounded-lg border p-3 text-left transition',
+          'disabled:cursor-not-allowed disabled:opacity-60',
           checked ? 'border-accent/45 bg-accent-soft' : 'border-line bg-surface hover:bg-raised',
         )}
       >

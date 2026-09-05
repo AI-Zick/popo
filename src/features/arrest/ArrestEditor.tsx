@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -12,6 +12,8 @@ import {
   Send,
 } from 'lucide-react';
 import { useStore } from '@/state/store';
+import { api, ApiError } from '@/state/api';
+import { CUSTODY_LABEL, custody as bookingCustody, type Booking } from '@/domain/booking';
 import {
   ARREST_TYPE_LABEL,
   DISPOSITION_LABEL,
@@ -346,6 +348,8 @@ export function ArrestEditor() {
                   />
                 </FieldGrid>
               </Panel>
+
+              <BookIn arrest={arrest} />
 
               {/* ---- Booking identifiers ---------------------------------- */}
               <Panel
@@ -797,4 +801,94 @@ function fromLocalInput(value: string): string {
   if (!value) return '';
   const at = new Date(value);
   return Number.isNaN(at.getTime()) ? '' : at.toISOString();
+}
+
+/* ------------------------------------------------------------------ */
+/* Booking                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The way into custody.
+ *
+ * Booking is a different event from arresting — a different officer, an hour
+ * later, in a different building — so it is its own record rather than more
+ * fields on this form. This is the door: it opens one, and from then on the
+ * person is on the custody roster and their property has somewhere to live.
+ *
+ * Only offered where somebody actually went into a cell. An arrest that ended
+ * in a citation has nothing to book.
+ */
+function BookIn({ arrest }: { arrest: Arrest }) {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const reply = await api.bookings({ arrestId: arrest.id });
+      setBookings(reply.bookings);
+    } catch {
+      // A missing booking list is not a reason to block writing the arrest up.
+    }
+  }, [arrest.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (arrest.disposition !== 'jail' && bookings.length === 0) return null;
+
+  const open = bookings.find((b) => !b.release?.at);
+
+  const start = async () => {
+    setBusy(true);
+    setFailed('');
+    try {
+      await api.openBooking({ arrestId: arrest.id, facility: arrest.heldAt });
+      await load();
+    } catch (error) {
+      setFailed(error instanceof ApiError ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel
+      title="Custody"
+      description="Booking is its own record — usually a different officer, in a different building. Opening one puts this person on the custody roster and gives their property somewhere to live."
+    >
+      {bookings.length > 0 && (
+        <ul className="mb-3 space-y-1.5">
+          {bookings.map((booking) => (
+            <li
+              key={booking.id}
+              className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                {booking.bookingNumber}
+                {booking.facility && <span className="text-muted"> · {booking.facility}</span>}
+              </span>
+              <Badge tone={booking.release?.at ? 'neutral' : 'accent'}>
+                {CUSTODY_LABEL[bookingCustody(booking)]}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open ? (
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          Open on the Custody screen, under Setup — that is where the property inventory, the
+          concerns and the release live.
+        </p>
+      ) : (
+        <Button variant="primary" disabled={busy} onClick={() => void start()}>
+          {busy ? 'Opening…' : 'Book them in'}
+        </Button>
+      )}
+
+      {failed && <p className="mt-2 text-[12.5px] text-danger">{failed}</p>}
+    </Panel>
+  );
 }

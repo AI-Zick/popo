@@ -14,6 +14,15 @@ import { can, createUser, sanitizeUserInput, type Permission } from '@/domain/au
 import { canHandOff, canRecall, canReopen, canReview, canSubmit, handOffPatch } from '@/domain/review';
 import { checkArrest, blockingProblems as arrestBlocking, createArrest, createCharge, nextArrestNumber } from '@/domain/arrest';
 import { createTask, sortTasks } from '@/domain/caseTask';
+import {
+  createBooking,
+  createConcern,
+  createItem,
+  custody,
+  nextBookingNumber,
+  releaseBlockers as custodyBlockers,
+  roster,
+} from '@/domain/booking';
 import { canDecide, canRequestRemoval, photosFor } from '@/domain/photo';
 import { displayName } from '@/domain/person';
 import {
@@ -553,6 +562,161 @@ export async function handle(method: string, url: string, body: unknown): Promis
     }
 
     /* ---- Arrests ---------------------------------------------------- */
+    /* ---- Booking ----------------------------------------------------------- */
+    case 'bookings': {
+      /*
+        The same rules as the server, not a looser copy. A demo that lets
+        somebody walk out with property unaccounted for is demonstrating the
+        wrong software — the refusal is the feature.
+      */
+      if (method === 'GET' && parts[1] === 'roster') {
+        const open = state.bookings.filter((b) => !b.release?.at);
+        return ok({ roster: roster(open), asOf: at() });
+      }
+
+      if (method === 'GET' && !parts[1]) {
+        const arrestId = query.get('arrestId') ?? '';
+        const masterId = query.get('masterId') ?? '';
+        return ok({
+          bookings: state.bookings.filter(
+            (b) => (!arrestId || b.arrestId === arrestId) && (!masterId || b.masterId === masterId),
+          ),
+        });
+      }
+
+      if (method === 'POST' && !parts[1]) {
+        const arrest = state.arrests.find((a) => a.id === text(input.arrestId, 64));
+        if (!arrest)
+          return fail(
+            400,
+            'Which arrest is this? A booking hangs off an arrest — it is what says on whose authority this person is being held.',
+          );
+        if (state.bookings.some((b) => b.arrestId === arrest.id && !b.release?.at))
+          return fail(409, `${arrest.personName || 'This person'} is already booked in on this arrest.`);
+
+        const booking = createBooking({
+          id: newId('bkg'),
+          bookingNumber: nextBookingNumber(state.bookings.map((b) => b.bookingNumber)),
+          arrestId: arrest.id,
+          arrestNumber: arrest.arrestNumber,
+          masterId: arrest.masterId,
+          personName: arrest.personName,
+          bookedAt: text(input.bookedAt, 40) || at(),
+          bookedByName: user.name,
+          facility: text(input.facility, 160),
+          createdBy: user.id,
+        });
+        state.bookings.push(booking);
+        await audit({ actorId: user.id, actorName: user.name, action: 'booking.opened', target: booking.bookingNumber, detail: booking.personName });
+        return ok({ booking });
+      }
+
+      const booking = state.bookings.find((b) => b.id === parts[1]);
+      if (!booking) return fail(404, 'No such booking.');
+
+      if (method === 'GET' && !parts[2])
+        return ok({ booking, blockers: custodyBlockers(booking), custody: custody(booking) });
+
+      if (method === 'PUT' && !parts[2]) {
+        if (booking.release?.at) return fail(409, 'This person has been released. The booking is closed.');
+        Object.assign(booking, {
+          bookedAt: input.bookedAt !== undefined ? text(input.bookedAt, 40) : booking.bookedAt,
+          bookedByName: input.bookedByName !== undefined ? text(input.bookedByName, 120) : booking.bookedByName,
+          facility: input.facility !== undefined ? text(input.facility, 160) : booking.facility,
+          cell: input.cell !== undefined ? text(input.cell, 60) : booking.cell,
+          searchedByName: input.searchedByName !== undefined ? text(input.searchedByName, 120) : booking.searchedByName,
+          photographed: input.photographed !== undefined ? input.photographed === true : booking.photographed,
+          fingerprinted: input.fingerprinted !== undefined ? input.fingerprinted === true : booking.fingerprinted,
+          inventoryAcknowledged:
+            input.inventoryAcknowledged !== undefined ? input.inventoryAcknowledged === true : booking.inventoryAcknowledged,
+          inventoryWitnessName:
+            input.inventoryWitnessName !== undefined ? text(input.inventoryWitnessName, 120) : booking.inventoryWitnessName,
+          updatedAt: at(),
+        });
+        return ok({ booking, blockers: custodyBlockers(booking), custody: custody(booking) });
+      }
+
+      if (method === 'POST' && parts[2] === 'items') {
+        const existing = booking.items.find((i) => i.id === text(input.id, 64));
+        const item = createItem({
+          ...(existing ?? {}),
+          id: existing?.id ?? newId('itm'),
+          kind: oneOf(input.kind, ['money', 'valuables', 'clothing', 'electronics', 'documents', 'medication', 'other'] as const, existing?.kind ?? 'other'),
+          description: text(input.description ?? existing?.description, 240),
+          quantity: text(input.quantity ?? existing?.quantity, 40),
+          amount: text(input.amount ?? existing?.amount, 20),
+          storedAt: text(input.storedAt ?? existing?.storedAt, 80),
+          outcome: oneOf(input.outcome, ['', 'returned', 'toEvidence', 'contraband', 'releasedToOther', 'destroyed'] as const, existing?.outcome ?? ''),
+          releasedTo: text(input.releasedTo ?? existing?.releasedTo, 160),
+          reference: text(input.reference ?? existing?.reference, 120),
+          note: text(input.note ?? existing?.note, 500),
+        });
+        if (item.outcome && item.outcome !== existing?.outcome) item.outcomeAt = at();
+        booking.items = existing ? booking.items.map((i) => (i.id === item.id ? item : i)) : [...booking.items, item];
+        booking.updatedAt = at();
+        await audit({ actorId: user.id, actorName: user.name, action: existing ? 'booking.item.changed' : 'booking.item.added', target: booking.bookingNumber, detail: item.description || item.kind });
+        return ok({ booking, blockers: custodyBlockers(booking) });
+      }
+
+      if (method === 'DELETE' && parts[2] === 'items' && parts[3]) {
+        const item = booking.items.find((i) => i.id === parts[3]);
+        if (!item) return fail(404, 'No such item on this inventory.');
+        if (item.outcome)
+          return fail(409, 'This line says where the item went. It cannot be struck off — correct what it says instead.');
+        booking.items = booking.items.filter((i) => i.id !== item.id);
+        booking.updatedAt = at();
+        await audit({ actorId: user.id, actorName: user.name, action: 'booking.item.removed', target: booking.bookingNumber, detail: item.description || item.kind });
+        return ok({ booking, blockers: custodyBlockers(booking) });
+      }
+
+      if (method === 'POST' && parts[2] === 'concerns' && !parts[3]) {
+        const concern = createConcern({
+          id: newId('cnc'),
+          kind: oneOf(input.kind, ['medical', 'medication', 'mentalHealth', 'suicideRisk', 'withdrawal', 'keepSeparate', 'mobility', 'communication', 'other'] as const, 'other'),
+          detail: text(input.detail, 1000),
+          keepSeparateFrom: text(input.keepSeparateFrom, 160),
+          raisedAt: at(),
+          raisedByName: user.name,
+        });
+        booking.concerns.push(concern);
+        booking.updatedAt = at();
+        await audit({ actorId: user.id, actorName: user.name, action: 'booking.concern.raised', target: booking.bookingNumber, detail: `${concern.kind}: ${concern.detail.slice(0, 120)}` });
+        return ok({ booking });
+      }
+
+      if (method === 'POST' && parts[2] === 'concerns' && parts[4] === 'clear') {
+        if (!can(user, 'notes.retract'))
+          return fail(403, 'Clearing a custody concern is a supervisor’s decision. Anybody can raise one.');
+        const concern = booking.concerns.find((c) => c.id === parts[3]);
+        if (!concern) return fail(404, 'No such concern on this booking.');
+        const reason = text(input.reason, 1000).trim();
+        if (!reason)
+          return fail(400, 'Say why this no longer applies. Somebody raised it because they saw something.');
+        Object.assign(concern, { clearedAt: at(), clearedByName: user.name, clearedReason: reason });
+        booking.updatedAt = at();
+        await audit({ actorId: user.id, actorName: user.name, action: 'booking.concern.cleared', target: booking.bookingNumber, detail: `${concern.kind} — ${reason.slice(0, 160)}` });
+        return ok({ booking });
+      }
+
+      if (method === 'POST' && parts[2] === 'release') {
+        if (booking.release?.at) return fail(409, 'This person has already been released.');
+        const blockers = custodyBlockers(booking);
+        if (blockers.length > 0) return fail(409, `${blockers[0].reason} ${blockers[0].tip}`);
+        booking.release = {
+          at: at(),
+          reason: oneOf(input.reason, ['', 'bond', 'ownRecognisance', 'citation', 'chargesDropped', 'timeServed', 'courtOrder', 'transferred', 'toHospital'] as const, ''),
+          to: text(input.to, 200),
+          releasedByName: user.name,
+          note: text(input.note, 1000),
+        };
+        booking.updatedAt = at();
+        await audit({ actorId: user.id, actorName: user.name, action: 'booking.released', target: booking.bookingNumber, detail: `${booking.personName} — ${booking.release.reason || 'reason not stated'}` });
+        return ok({ booking, custody: custody(booking) });
+      }
+
+      return fail(404, 'Not found.');
+    }
+
     case 'arrests': {
       if (method === 'GET' && !parts[1]) return ok({ arrests: state.arrests });
       if (method === 'POST' && !parts[1]) {
@@ -1903,6 +2067,7 @@ function manifestFor(order: DisposalOrder): { lines: ManifestLine[]; work: { row
   const work = [
     { kind: 'Incident reports', rows: incidentRows.map((i) => ({ id: i.id, label: i.caseNumber })), purge: () => remove(state.incidents, incidentIds) },
     { kind: 'Supplements', rows: state.supplements.filter((s) => incidentIds.has(s.caseId)).map((s) => ({ id: s.id, label: `Supplement ${s.number}` })), purge: () => remove(state.supplements, new Set(state.supplements.filter((s) => incidentIds.has(s.caseId)).map((s) => s.id))) },
+    { kind: 'Booking records', rows: byCase ? [] : state.bookings.filter((b) => b.masterId === id).map((b) => ({ id: b.id, label: b.bookingNumber })), purge: () => remove(state.bookings, new Set(state.bookings.filter((b) => b.masterId === id).map((b) => b.id))) },
     { kind: 'Arrest records', rows: state.arrests.filter((a) => (byCase ? a.caseId === id : a.masterId === id)).map((a) => ({ id: a.id, label: a.arrestNumber })), purge: () => remove(state.arrests, new Set(state.arrests.filter((a) => (byCase ? a.caseId === id : a.masterId === id)).map((a) => a.id))) },
     { kind: 'Case to-do items', rows: state.caseTasks.filter((t) => incidentIds.has(t.caseId)).map((t) => ({ id: t.id, label: t.text })), purge: () => remove(state.caseTasks, new Set(state.caseTasks.filter((t) => incidentIds.has(t.caseId)).map((t) => t.id))) },
     { kind: 'Photographs', rows: byCase ? [] : state.photos.filter((p) => p.masterId === id).map((p) => ({ id: p.id, label: `${p.kind || 'photograph'} ${p.takenOn}`.trim() })), purge: () => remove(state.photos, new Set(state.photos.filter((p) => !byCase && p.masterId === id).map((p) => p.id))) },

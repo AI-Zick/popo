@@ -99,6 +99,15 @@ export type AuditAction =
   | 'arrest.approved'
   | 'arrest.returned'
   | 'arrest.reopened'
+  /* Custody. Every one of these is somebody's liberty or somebody's property,
+     and each is asked about by name after the fact. */
+  | 'booking.opened'
+  | 'booking.item.added'
+  | 'booking.item.changed'
+  | 'booking.item.removed'
+  | 'booking.concern.raised'
+  | 'booking.concern.cleared'
+  | 'booking.released'
   | 'evidence.booked'
   | 'evidence.released'
   | 'evidence.destroyed'
@@ -192,6 +201,13 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'arrest.approved': 'Arrest approved',
   'arrest.returned': 'Arrest returned',
   'arrest.reopened': 'Arrest reopened',
+  'booking.opened': 'Booked into custody',
+  'booking.item.added': 'Property taken at booking',
+  'booking.item.changed': 'Booking property line changed',
+  'booking.item.removed': 'Booking property line struck off',
+  'booking.concern.raised': 'Custody concern raised',
+  'booking.concern.cleared': 'Custody concern cleared',
+  'booking.released': 'Released from custody',
   'evidence.booked': 'Evidence booked in',
   'evidence.released': 'Evidence released',
   'evidence.destroyed': 'Evidence destroyed',

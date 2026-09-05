@@ -31,6 +31,15 @@ import type { FieldContact } from '@/domain/fieldContact';
 import type { Investigation, LimitationStanding, InvestigationStatus, ReviewDecision } from '@/domain/investigation';
 import type { Citation } from '@/domain/citation';
 import type { AddressCandidate, GisSource } from '@/domain/gis';
+import type {
+  Booking,
+  Concern,
+  Custody,
+  HeldItem,
+  ReleaseBlocker,
+  ReleaseReason,
+  RosterRow,
+} from '@/domain/booking';
 import type { Proposal } from '@/domain/redaction';
 import type {
   AttachmentDecision,
@@ -449,6 +458,63 @@ export const api = {
     body: Record<string, unknown> = {},
   ): Promise<{ arrest: Arrest; problems: ArrestProblem[] }> {
     return request(`/api/arrests/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /* ---- Booking ------------------------------------------------------ */
+
+  /** Who is in the building. What a shift briefing reads. */
+  custodyRoster(): Promise<{ roster: RosterRow[]; asOf: string }> {
+    return request('/api/bookings/roster');
+  },
+
+  bookings(query: { arrestId?: string; masterId?: string } = {}): Promise<{ bookings: Booking[] }> {
+    const search = new URLSearchParams(
+      Object.entries(query).filter(([, v]) => v) as [string, string][],
+    ).toString();
+    return request(`/api/bookings${search ? `?${search}` : ''}`);
+  },
+
+  booking(id: string): Promise<{ booking: Booking; blockers: ReleaseBlocker[]; custody: Custody }> {
+    return request(`/api/bookings/${id}`);
+  },
+
+  openBooking(input: { arrestId: string; bookedAt?: string; facility?: string }): Promise<{ booking: Booking }> {
+    return request('/api/bookings', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  saveBooking(id: string, patch: Partial<Booking>): Promise<{
+    booking: Booking;
+    blockers: ReleaseBlocker[];
+    custody: Custody;
+  }> {
+    return request(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  /** Adds a property line, or amends one. The same call either way. */
+  saveBookingItem(id: string, item: Partial<HeldItem>): Promise<{ booking: Booking; blockers: ReleaseBlocker[] }> {
+    return request(`/api/bookings/${id}/items`, { method: 'POST', body: JSON.stringify(item) });
+  },
+
+  removeBookingItem(id: string, itemId: string): Promise<{ booking: Booking; blockers: ReleaseBlocker[] }> {
+    return request(`/api/bookings/${id}/items/${itemId}`, { method: 'DELETE' });
+  },
+
+  raiseConcern(id: string, concern: Partial<Concern>): Promise<{ booking: Booking }> {
+    return request(`/api/bookings/${id}/concerns`, { method: 'POST', body: JSON.stringify(concern) });
+  },
+
+  clearConcern(id: string, concernId: string, reason: string): Promise<{ booking: Booking }> {
+    return request(`/api/bookings/${id}/concerns/${concernId}/clear`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  releaseFromCustody(
+    id: string,
+    body: { reason: ReleaseReason; to?: string; note?: string },
+  ): Promise<{ booking: Booking; custody: Custody }> {
+    return request(`/api/bookings/${id}/release`, { method: 'POST', body: JSON.stringify(body) });
   },
 
   /* ---- Case to-do list ---------------------------------------------- */
