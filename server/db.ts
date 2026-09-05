@@ -481,6 +481,28 @@ CREATE INDEX IF NOT EXISTS warrants_number ON warrants(number);
 -- cleared, has expired or has been withdrawn is still the record of something
 -- the agency told its officers, and the only time anybody looks one up is
 -- after something went wrong.
+-- Who is working, where, and in what.
+--
+-- One row per shift, keyed on the instant that shift began rather than on a
+-- name and a date: the shift itself is derived from the agency's changeover
+-- times, so a key made of "Night" and "11 March" would come apart the first
+-- time an agency moved its pattern. Unique on that instant, because two
+-- line-ups for one shift is two answers to a question with one answer.
+--
+-- Deliberately not in the purge registry. A roster is an employment record
+-- about the agency's own staff, not case material about a subject, and a
+-- sealing order for a person's arrest has no business reaching into who was
+-- on duty that night.
+CREATE TABLE IF NOT EXISTS rosters (
+  id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 1,
+  shift_start TEXT NOT NULL DEFAULT '',
+  shift_name  TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL,
+  doc         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS rosters_shift ON rosters(shift_start);
+
 CREATE TABLE IF NOT EXISTS bulletins (
   id          TEXT PRIMARY KEY,
   version     INTEGER NOT NULL DEFAULT 1,
@@ -824,6 +846,7 @@ export interface DocTable {
     | 'warrants'
     | 'field_contacts'
     | 'bulletins'
+    | 'rosters'
     | 'investigations'
     | 'citations'
     | 'public_requests'
@@ -940,6 +963,13 @@ export const DOC_TABLES: Record<string, DocTable> = {
       master_id: String(doc.masterId ?? ''),
       taken_on: String(doc.takenOn ?? ''),
       removal: String(doc.removal ?? ''),
+    }),
+  },
+  rosters: {
+    name: 'rosters',
+    columns: (doc) => ({
+      shift_start: String(doc.shiftStart ?? ''),
+      shift_name: String(doc.shiftName ?? ''),
     }),
   },
   bulletins: {

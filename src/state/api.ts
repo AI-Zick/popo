@@ -29,6 +29,7 @@ import type { Trespass, TrespassState } from '@/domain/trespass';
 import type { ServiceAttempt, Warrant, WarrantState } from '@/domain/warrant';
 import type { FieldContact } from '@/domain/fieldContact';
 import type { Bulletin, BulletinState } from '@/domain/bulletin';
+import type { Roster, RosterProblem } from '@/domain/roster';
 
 /**
  * A board entry as the server hands it over, with the state it worked out.
@@ -490,6 +491,26 @@ export const api = {
 
   /* ---- The board ---------------------------------------------------- */
 
+
+  /**
+   * The line-up for one shift.
+   *
+   * `suggested` says the sheet coming back is last week's squad rather than
+   * anything anybody has saved for tonight — the screen has to say so, or a
+   * sergeant reads a filled-in roster as confirmation that somebody filled it
+   * in.
+   */
+  roster(
+    shiftStart: string,
+    shiftName: string,
+  ): Promise<{ roster: Roster; suggested: boolean; problems: RosterProblem[] }> {
+    const query = new URLSearchParams({ shiftStart, shiftName });
+    return request(`/api/roster?${query.toString()}`);
+  },
+
+  setRoster(roster: Roster): Promise<{ roster: Roster; suggested: boolean; problems: RosterProblem[] }> {
+    return request('/api/roster', { method: 'PUT', body: JSON.stringify(roster) });
+  },
 
   /** Live entries, in the order a shift reads them. `all` for the history. */
   bulletins(include?: 'all'): Promise<{ bulletins: PostedBulletin[]; asOf: string }> {

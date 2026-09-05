@@ -19,6 +19,7 @@ import { statutePack } from '@/domain/statutes';
 import { createStopCitation, createTrafficStop, type TrafficStop } from '@/domain/activity';
 import { createQueryReturn, type QueryReturn } from '@/domain/inbound';
 import { createArrest, createCharge as createArrestCharge, type Arrest } from '@/domain/arrest';
+import { createEntry, createRoster, type Roster } from '@/domain/roster';
 import { DEFAULT_PATTERN, outgoingShift } from '@/domain/shift';
 import { createUser, type User } from '@/domain/auth';
 
@@ -266,6 +267,7 @@ function inLastShift(hoursIn: number, minute = 0): string {
 export function seedState(): {
   incidents: Incident[];
   arrests: Arrest[];
+  rosters: Roster[];
   stops: TrafficStop[];
   returns: QueryReturn[];
   bulletins: Bulletin[];
@@ -736,6 +738,69 @@ export function seedState(): {
       releasedAt: inLastShift(6, 55),
       courtDate: isoDaysAgo(-24).slice(0, 10),
       courtLocation: 'Cedar Falls Municipal Court',
+    }),
+  ];
+
+  /* ---- The line-up for that shift -------------------------------------- */
+  /*
+    Four beats and three officers on them, which is the ordinary state of a
+    small agency and the reason the coverage panel exists: 4D has nobody on
+    it, and on a whiteboard that is a blank space among blank spaces. One
+    officer is at court, so the sheet shows the difference between "not
+    listed" and "listed and elsewhere".
+  */
+  const ROSTERS: Roster[] = [
+    createRoster({
+      id: 'ros_seed_1',
+      shiftStart: new Date(outgoingShift(DEFAULT_PATTERN).start).toISOString(),
+      shiftName: outgoingShift(DEFAULT_PATTERN).name,
+      entries: [
+        createEntry({
+          id: 'rse_seed_1',
+          officerId: 'u-boone',
+          officerName: 'Sgt. A. Boone',
+          badge: '2210',
+          beat: '',
+          callSign: 'Sgt 1',
+          vehicle: '',
+          standing: 'on',
+          note: 'Supervisor. Roaming.',
+        }),
+        createEntry({
+          id: 'rse_seed_2',
+          officerId: 'u-reyes',
+          officerName: 'M. Reyes',
+          badge: '4417',
+          beat: '3B',
+          vehicle: '12',
+          callSign: 'Patrol 12',
+          standing: 'on',
+        }),
+        createEntry({
+          id: 'rse_seed_3',
+          officerId: 'u-tam',
+          officerName: 'D. Tam',
+          badge: '3388',
+          beat: '1A',
+          vehicle: '7',
+          callSign: 'Patrol 7',
+          standing: 'on',
+        }),
+        createEntry({
+          id: 'rse_seed_4',
+          officerId: 'u-doyle',
+          officerName: 'K. Doyle',
+          badge: '771',
+          beat: '2C',
+          vehicle: '9',
+          callSign: 'Patrol 9',
+          standing: 'court',
+          note: 'District court all morning. Back after lunch.',
+        }),
+      ],
+      updatedById: 'u-boone',
+      updatedByName: 'Sgt. A. Boone',
+      updatedAt: new Date().toISOString(),
     }),
   ];
 
@@ -1318,6 +1383,7 @@ export function seedState(): {
   return {
     incidents: [incomplete, complete, approved, domesticCall],
     arrests: ARRESTS,
+    rosters: ROSTERS,
     bulletins: BULLETINS,
     stops: STOPS,
     returns: RETURNS,

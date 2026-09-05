@@ -39,6 +39,7 @@ import { registerPublicRecordsRoutes } from './publicRecords';
 import { registerGisRoutes } from './gis';
 import { registerBookingRoutes } from './bookings';
 import { registerBulletinRoutes } from './bulletins';
+import { registerRosterRoutes } from './roster';
 import { registerPasswordResetRoutes } from './passwordReset';
 import { createFaultLog, installFaultHandler, installProcessHandlers } from './faults';
 import { registerRetentionRoutes, listSeals } from './retention';
@@ -769,6 +770,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   registerGisRoutes(app, db);
   registerBookingRoutes(app, db);
   registerBulletinRoutes(app, db);
+  registerRosterRoutes(app, db);
   registerPasswordResetRoutes(app, db, config);
   registerRetentionRoutes(app, db, config.dataDir);
   registerMfaRoutes(app, db);

@@ -23,6 +23,7 @@ import {
   type Loose,
 } from '@/domain/briefing';
 import { notable, type Notable } from '@/domain/notable';
+import { RosterPanel } from './RosterPanel';
 import {
   currentShift,
   DEFAULT_PATTERN,
@@ -192,6 +193,13 @@ export function Briefing({ onClose }: { onClose: () => void }) {
                 }`}
             {isCurrent && ' · this shift is still running'}
           </p>
+
+          {/*
+            The line-up, first. Everything else on this screen is context for
+            the people named here, and it is what the room is looking at when
+            the sergeant starts talking.
+          */}
+          <RosterPanel shift={shift} />
 
           {/* ---- Still live ---- */}
           <Section title="Still live" hint="True right now, whenever it happened.">

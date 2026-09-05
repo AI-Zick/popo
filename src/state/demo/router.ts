@@ -174,6 +174,24 @@ import {
   type Bulletin,
   type BulletinKind,
 } from '@/domain/bulletin';
+import {
+  check as checkRoster,
+  createEntry as createRosterEntry,
+  createRoster,
+  startFrom as startRosterFrom,
+  type Standing,
+} from '@/domain/roster';
+
+const STANDINGS: Standing[] = ['on', 'off', 'leave', 'training', 'court'];
+
+/** What the fleet says is off the road, read here as the server reads it. */
+const fleetView = () => ({
+  outOfService: Object.fromEntries(
+    db().cruisers
+      .filter((c) => c.status !== 'inService' && c.unit)
+      .map((c) => [c.unit, c.statusNote || 'Marked out of service in the fleet.']),
+  ),
+});
 
 export interface Reply {
   status: number;
@@ -586,6 +604,78 @@ export async function handle(method: string, url: string, body: unknown): Promis
         const comment = comments.find((c) => c.id === parts[3]);
         if (comment) Object.assign(comment, { resolvedAt: at(), resolvedBy: user.name });
         return ok({ ok: true, report: incident });
+      }
+      return fail(404, 'Not found.');
+    }
+
+    /* ---- The shift roster ------------------------------------------- */
+    case 'roster': {
+      /*
+        The same shape as the server, including the suggestion: a GET for a
+        shift nobody has filled in comes back with the last sheet for that
+        shift name, marked as a suggestion. Losing that here would make the
+        demo show an empty roster where the real thing shows last week's
+        squad, which is the difference between a feature somebody would use
+        and one they would not.
+      */
+      const shiftStart = text(query.get('shiftStart'), 40);
+      const shiftName = text(query.get('shiftName'), 40);
+
+      if (method === 'GET') {
+        if (!shiftStart) return fail(400, 'Say which shift, as an instant its start falls on.');
+        const existing = state.rosters.find((r) => r.shiftStart === shiftStart);
+        if (existing) {
+          return ok({ roster: existing, suggested: false, problems: checkRoster(existing, fleetView()) });
+        }
+        const previous = state.rosters
+          .filter((r) => r.shiftName === shiftName && r.shiftStart < shiftStart)
+          .sort((a, b) => b.shiftStart.localeCompare(a.shiftStart))[0];
+        return ok({
+          roster: startRosterFrom(previous ?? null, shiftStart, shiftName),
+          suggested: Boolean(previous),
+          problems: [],
+        });
+      }
+
+      if (method === 'PUT') {
+        const denied = need('roster.set');
+        if (denied) return denied;
+        const me = currentUser();
+        const start = text(input.shiftStart, 40);
+        if (!start) return fail(400, 'Say which shift this roster is for.');
+
+        const existing = state.rosters.find((r) => r.shiftStart === start);
+        const roster = createRoster({
+          id: existing?.id ?? newId('ros'),
+          shiftStart: start,
+          shiftName: text(input.shiftName, 40),
+          entries: (Array.isArray(input.entries) ? input.entries.slice(0, 200) : []).map(
+            (raw: Record<string, unknown>) =>
+              createRosterEntry({
+                id: text(raw.id, 64) || newId('rse'),
+                officerId: text(raw.officerId, 64),
+                officerName: text(raw.officerName, 120),
+                badge: text(raw.badge, 20),
+                beat: text(raw.beat, 40),
+                vehicle: text(raw.vehicle, 40),
+                cruiserId: text(raw.cruiserId, 64),
+                callSign: text(raw.callSign, 40),
+                standing: oneOf(raw.standing, STANDINGS, 'on'),
+                note: text(raw.note, 500),
+              }),
+          ),
+          updatedById: me.id,
+          updatedByName: me.name,
+          updatedAt: at(),
+        });
+
+        const problems = checkRoster(roster, fleetView());
+        const blocking = problems.filter((p) => p.severity === 'error');
+        if (blocking.length > 0) return fail(400, blocking[0].message);
+
+        if (existing) Object.assign(existing, roster);
+        else state.rosters.push(roster);
+        return ok({ roster, suggested: false, problems });
       }
       return fail(404, 'Not found.');
     }

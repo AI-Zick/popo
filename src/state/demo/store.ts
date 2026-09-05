@@ -41,6 +41,7 @@ import type { QueryReturn } from '@/domain/inbound';
 import type { Arrest } from '@/domain/arrest';
 import type { Booking } from '@/domain/booking';
 import type { Bulletin } from '@/domain/bulletin';
+import type { Roster } from '@/domain/roster';
 import type { CaseTask } from '@/domain/caseTask';
 import type { PersonPhoto } from '@/domain/photo';
 import type { Cruiser, CruiserCheck, MaintenanceRequest } from '@/domain/fleet';
@@ -80,6 +81,7 @@ export interface DemoState {
   arrests: Arrest[];
   bookings: Booking[];
   bulletins: Bulletin[];
+  rosters: Roster[];
   caseTasks: CaseTask[];
   photos: PersonPhoto[];
   evidence: EvidenceItem[];
@@ -151,6 +153,7 @@ export function fresh(): DemoState {
     arrests: seed.arrests,
     bookings: [],
     bulletins: seed.bulletins,
+    rosters: seed.rosters,
     caseTasks: [],
     photos: [],
     evidence: [],

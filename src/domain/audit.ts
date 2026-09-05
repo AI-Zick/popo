@@ -66,6 +66,7 @@ export type AuditAction =
   | 'bulletin.edited'
   | 'bulletin.cleared'
   | 'bulletin.removed'
+  | 'roster.set'
   | 'contact.recorded'
   | 'contact.corrected'
   | 'publicRecords.logged'
@@ -146,6 +147,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'bulletin.edited': 'Board entry changed',
   'bulletin.cleared': 'Board entry cleared',
   'bulletin.removed': 'Board entry taken down',
+  'roster.set': 'Shift roster set',
   'user.created': 'Account created',
   'user.updated': 'Account changed',
   'user.deactivated': 'Account deactivated',

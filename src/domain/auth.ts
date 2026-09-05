@@ -153,7 +153,21 @@ export type Permission =
    * Not held by the vendor. Standing up an agency's software is not authority
    * to send that agency's records to a member of the public.
    */
-  | 'records.release';
+  | 'records.release'
+  /**
+   * Set the shift roster — who is working, on what beat, in what car.
+   *
+   * Supervisors, dispatch and administrators. A sergeant fills it in at
+   * changeover because they are the person holding the line-up; dispatch is on
+   * the list because dispatch is who finds out first that somebody called in,
+   * and a roster that only a sergeant can correct is one that is wrong from
+   * about an hour into every shift.
+   *
+   * Reading it is open to everybody signed in. An officer needs to know who
+   * else is out there and what to raise them as, and gating that behind rank
+   * would be gating the one fact a briefing exists to convey.
+   */
+  | 'roster.set';
 
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'notes.add': 'Add location notes',
@@ -172,6 +186,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'trespass.lift': 'Lift a trespass notice early',
   'bulletins.post': 'Post BOLOs and bulletins',
   'bulletins.remove': 'Take a BOLO or bulletin off the board',
+  'roster.set': 'Set the shift roster',
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -186,6 +201,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'notes.viewRestricted',
     'bulletins.post',
     'bulletins.remove',
+    'roster.set',
   ],
   supervisor: [
     'notes.add',
@@ -197,6 +213,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'reports.approve',
     'evidence.manage',
     'audit.view',
+    'roster.set',
   ],
   records: [
     'notes.add',
@@ -226,6 +243,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'records.seal',
     'records.release',
     'records.expunge',
+    'roster.set',
   ],
   /*
     Deliberately without `records.expunge`. The vendor stands up agencies and
@@ -247,6 +265,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'evidence.manage',
     'audit.view',
     'records.seal',
+    'roster.set',
   ],
 };
 
