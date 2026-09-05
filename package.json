@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "server": "tsx watch server/index.ts",
     "typecheck:server": "tsc -p tsconfig.server.json",
-    "build:demo": "VITE_DEMO=1 vite build && node scripts/build-demo.mjs"
+    "build:demo": "VITE_DEMO=1 vite build && node scripts/build-demo.mjs",
+    "recover": "tsx scripts/recover.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

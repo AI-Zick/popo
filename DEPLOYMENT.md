@@ -101,6 +101,32 @@ Every send is written to the audit log as `feedback.sent`, so what has left the
 building is answerable from your own records rather than the vendor's, and every
 item stays in your database whether or not it was forwarded.
 
+## When the administrator is locked out
+
+An agency with one administrator who forgets their password, on an installation
+with no mail server, cannot be administered at all — no accounts, no
+permissions, no approvals. The way back is a command on the server console,
+where access to the machine is what authenticates you:
+
+```
+npm run recover -- --list
+npm run recover -- --user rvance --reason "Sole admin locked out, ticket 412"
+```
+
+It issues that account a temporary password, ends its sessions, cancels any
+outstanding reset link, and prints the password once. The account must change
+it at next sign-in.
+
+Two things it deliberately does not do. It will not create an account, change a
+role or grant a permission — it restores access to authority that already
+exists rather than manufacturing any. And it does not touch the second factor,
+which is still required afterwards; if the phone is gone too, that needs a
+recovery code, or another administrator once this one is back in.
+
+Every run writes an audit entry attributed to "Server console" with the reason
+you gave, sealed into the same hash chain as everything else. Break-glass that
+leaves no trace is a back door, so there is no way to run this quietly.
+
 ## Backups
 
 Everything is two things: `aegis.db` and `attachments/`. SQLite in WAL mode
@@ -132,7 +158,11 @@ Read this part.
 - **Single instance.** Rate limiting is in-process memory, and SQLite is one
   writer. Fine for one agency; a second instance needs a shared limiter store
   and a different database.
-- **No secrets management.** There are no application secrets yet beyond TLS
-  material. When there are, they belong in a secret store, not the environment.
+- **A secret is stored in the database.** The SMTP password for password-reset
+  email lives in the agency profile. It is stripped from every payload leaving
+  the server and never returned to a browser, but it is plaintext in the same
+  file as the records — so the encryption-at-rest note above is not optional
+  once mail is configured. Other secrets belong in a secret store rather than
+  the environment.
 - **Personnel screening, physical security, incident response and the audit
   review process** are all required by CJIS and none of them are software.

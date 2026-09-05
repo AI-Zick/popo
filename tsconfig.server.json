@@ -16,5 +16,5 @@
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
   },
-  "include": ["server", "src/domain", "src/state/seed.ts"]
+  "include": ["server", "scripts", "src/domain", "src/state/seed.ts"]
 }
