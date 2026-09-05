@@ -34,6 +34,7 @@ import { CustodyView } from '@/features/booking/CustodyView';
 import { withStatutePack } from '@/domain/agency';
 import { cn } from '@/lib/cn';
 import { YourSecondFactor } from '@/features/auth/YourSecondFactor';
+import { YourPassword } from '@/features/auth/YourPassword';
 
 /**
  * One-time configuration. Everything here is per-install, and the boundary
@@ -255,7 +256,16 @@ export function AgencySetup({
               {mayConfigure && <ChecklistEditor />}
             </>
           )}
-          {tab === 'security' && <YourSecondFactor />}
+          {/*
+            Both halves of how this account signs in, password first: it is
+            the thing somebody comes here to change.
+          */}
+          {tab === 'security' && (
+            <>
+              <YourPassword />
+              <YourSecondFactor />
+            </>
+          )}
           {tab === 'feedback' && <FeedbackQueue />}
 
           {tab === 'jurisdiction' && mayConfigure && (

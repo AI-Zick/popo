@@ -782,6 +782,11 @@ export const api = {
     return request('/api/auth/sign-out', { method: 'POST' });
   },
 
+  /** When this account last changed its password. */
+  passwordStatus(): Promise<{ changedAt: string; mustChange: boolean }> {
+    return request('/api/auth/password');
+  },
+
   changePassword(current: string, next: string): Promise<{ ok: true }> {
     return request('/api/auth/password', {
       method: 'POST',

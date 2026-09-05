@@ -9,6 +9,12 @@
 
 import type { Express, NextFunction, Request, Response } from 'express';
 import { resolveFeedbackUrl } from './vendor';
+import {
+  expired,
+  spend as spendAttempt,
+  waitSeconds as attemptWait,
+  type Attempts,
+} from '../src/domain/attempts';
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -213,6 +219,45 @@ export function createRateLimiter(options: { windowMs: number; max: number; name
       return;
     }
     next();
+  };
+}
+
+/**
+ * A limiter that is spent by hand rather than by arriving.
+ *
+ * The blanket middleware above counts every request that reaches the route,
+ * which is right for signing in — every attempt there is a guess. It is wrong
+ * for changing a password, where most refusals are not guesses at all: too
+ * short, contains your username, same as the old one. Those are somebody
+ * choosing a password with the rules in front of them, and counting them
+ * against a brute-force budget locks out the one person doing it properly
+ * while barely inconveniencing an attacker, who only ever sends the current
+ * password and so only ever spends on the attempts that matter.
+ *
+ * So the route asks first and spends afterwards, and only on the failure that
+ * is actually a guess.
+ */
+export function createAttemptGuard(options: { windowMs: number; max: number }) {
+  const buckets = new Map<string, Attempts>();
+
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [key, bucket] of buckets) if (expired(bucket, now)) buckets.delete(key);
+  }, options.windowMs);
+  sweep.unref?.();
+
+  const keyOf = (req: Request): string => `${req.ip ?? 'unknown'}`;
+
+  return {
+    /** How long to wait, or 0 when there is budget left. */
+    waitSeconds(req: Request): number {
+      return attemptWait(buckets.get(keyOf(req)), Date.now(), options.max);
+    },
+    /** Called once a request turns out to have been a guess. */
+    spend(req: Request): void {
+      const key = keyOf(req);
+      buckets.set(key, spendAttempt(buckets.get(key), Date.now(), options.windowMs));
+    },
   };
 }
 

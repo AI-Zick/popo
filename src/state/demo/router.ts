@@ -381,6 +381,8 @@ export async function handle(method: string, url: string, body: unknown): Promis
       }
       if (parts[1] === 'sign-out') return ok();
       if (parts[1] === 'password') {
+        // Reading when it last changed is a fair question; changing it is not.
+        if (method === 'GET') return ok({ changedAt: '', mustChange: false });
         return fail(400, 'Passwords cannot be changed in the demo — everyone shares one.');
       }
       return fail(404, 'Not found.');

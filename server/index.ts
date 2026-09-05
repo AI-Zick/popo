@@ -41,6 +41,7 @@ import { registerBookingRoutes } from './bookings';
 import { registerRetentionRoutes, listSeals } from './retention';
 import { registerMfaRoutes } from './mfa';
 import {
+  createAttemptGuard,
   createRateLimiter,
   installGracefulShutdown,
   installHealthCheck,
@@ -102,7 +103,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
   // Per-account lockout slows guessing at one username; this slows an attacker
   // spreading attempts across many usernames from one address.
   const signInLimiter = createRateLimiter({ windowMs: 60_000, max: 10, name: 'sign-in' });
-  const passwordLimiter = createRateLimiter({ windowMs: 60_000, max: 5, name: 'password' });
+  const passwordGuard = createAttemptGuard({ windowMs: 60_000, max: 5 });
 
   app.post('/api/auth/sign-in', signInLimiter, async (req: Request, res: Response) => {
     const { username, password } = req.body ?? {};
@@ -151,8 +152,37 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     });
   });
 
-  app.post('/api/auth/password', passwordLimiter, requireAuth, async (req: Request, res: Response) => {
+  /**
+   * When this account last changed its password.
+   *
+   * Its own endpoint rather than another field on the sign-in payload: it is
+   * read on one settings screen and nowhere else, and every field added to the
+   * thing every client fetches on every start is paid for on every start.
+   */
+  app.get('/api/auth/password', requireAuth, (req: Request, res: Response) => {
+    const credential = getCredential(db, req.user!.id);
+    res.json({
+      changedAt: credential?.passwordChangedAt ?? '',
+      mustChange: credential?.mustChangePassword ?? false,
+    });
+  });
+
+  app.post('/api/auth/password', requireAuth, async (req: Request, res: Response) => {
     const user = req.user!;
+    /*
+      Asked before anything is read, spent only where the current password was
+      wrong. Somebody working through the policy — too short, then contains
+      their name, then too close to the old one — is not guessing, and must not
+      be locked out of the screen that exists to help them.
+    */
+    const wait = passwordGuard.waitSeconds(req);
+    if (wait > 0) {
+      res.setHeader('Retry-After', String(wait));
+      res.status(429).json({
+        error: `Too many attempts. Wait ${wait} second${wait === 1 ? '' : 's'} and try again.`,
+      });
+      return;
+    }
     const { current, next } = req.body ?? {};
     const credential = getCredential(db, user.id);
     if (!credential) {
@@ -161,6 +191,7 @@ export function createApp(db: DatabaseSync, config: ServerConfig) {
     }
 
     if (credential.passwordHash && !(await verifyPassword(String(current ?? ''), credential.passwordHash))) {
+      passwordGuard.spend(req);
       res.status(400).json({ error: 'That is not your current password.' });
       return;
     }
