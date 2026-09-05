@@ -196,6 +196,23 @@ Those numbers are from a small database. Re-time it on a real one, and write
 the number down where whoever is on call can find it — the useful thing about
 a rehearsal is knowing how long the outage will be before you are in one.
 
+## Upgrading
+
+The database records every schema change it has been through, in
+`schema_migrations`, with the name and the time. Changes run once, in order, in
+a transaction — a half-applied schema change is the one failure that leaves an
+installation neither on the old shape nor the new.
+
+Downgrades are refused. Starting an older build against a database that has been
+through a change it has never heard of throws before anything is read: running
+today's code against tomorrow's shape is how a rollback becomes a corruption.
+The message says what to do — deploy the newer build, or restore a backup taken
+before the upgrade, which is one more reason for the backup to have been
+rehearsed.
+
+Take a backup before upgrading. It is thirty seconds and it is the difference
+between a rollback and an incident.
+
 ## Taking everything out
 
 A backup is a SQLite file for putting back into this software. An export is for

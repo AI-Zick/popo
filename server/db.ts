@@ -644,14 +644,122 @@ function addMissingColumns(db: DatabaseSync): void {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Migrations                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Changes to the shape of the database, in order, each run once.
+ *
+ * Everything up to now has been additive — a new table, or a new column with a
+ * default — and `CREATE TABLE IF NOT EXISTS` plus the list above handles that
+ * without knowing what a given database has already seen. The first change
+ * that is not additive cannot work that way: renaming a column, splitting a
+ * table, or rewriting the contents of one has to happen exactly once, and
+ * something has to remember that it did.
+ *
+ * So each migration is recorded when it runs. Add to the end of this list,
+ * never edit or renumber what is in it: an entry that has already run on a
+ * customer's database cannot be changed by editing the source, and quietly
+ * altering one means two installations with the same version number and
+ * different schemas.
+ *
+ * Migrations run in a transaction. A half-applied schema change is the one
+ * failure that leaves an installation neither on the old shape nor the new.
+ */
+interface Migration {
+  id: number;
+  name: string;
+  up: (db: DatabaseSync) => void;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    id: 1,
+    name: 'columns added before migrations were recorded',
+    /*
+      Everything the additive list above adds. Idempotent, and safe on a
+      database that already has all of them — which is every database that
+      existed before this table did.
+    */
+    up: addMissingColumns,
+  },
+];
+
+/** The highest migration this build knows how to apply. */
+export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.id ?? 0;
+
+export class SchemaFromTheFuture extends Error {
+  constructor(
+    readonly databaseVersion: number,
+    readonly buildVersion: number,
+  ) {
+    super(
+      `This database has been through schema change ${databaseVersion}, and this build only knows about ${buildVersion}. ` +
+        'It is newer than the software. Refusing to open it: running an older build against a newer schema is how data gets quietly mangled. ' +
+        'Deploy the newer build, or restore a backup taken before the upgrade.',
+    );
+    this.name = 'SchemaFromTheFuture';
+  }
+}
+
+function applyMigrations(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+  )`);
+
+  const rows = db.prepare('SELECT id FROM schema_migrations ORDER BY id').all() as { id: number }[];
+  const applied = new Set(rows.map((row) => row.id));
+
+  /*
+    A database that has been through a change this build has never heard of is
+    from a newer release. Opening it anyway means running today's code against
+    tomorrow's shape, which is how a rollback turns into a corruption. Refuse.
+  */
+  const highest = rows.length > 0 ? Math.max(...rows.map((row) => row.id)) : 0;
+  if (highest > SCHEMA_VERSION) throw new SchemaFromTheFuture(highest, SCHEMA_VERSION);
+
+  const record = db.prepare('INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)');
+  for (const migration of MIGRATIONS) {
+    if (applied.has(migration.id)) continue;
+    db.exec('BEGIN');
+    try {
+      migration.up(db);
+      record.run(migration.id, migration.name, new Date().toISOString());
+      db.exec('COMMIT');
+    } catch (problem) {
+      db.exec('ROLLBACK');
+      throw new Error(
+        `Schema change ${migration.id} (${migration.name}) failed and was rolled back: ` +
+          `${problem instanceof Error ? problem.message : String(problem)}`,
+      );
+    }
+  }
+}
+
+/** What this database has been through, for the operator asking. */
+export function schemaHistory(
+  db: DatabaseSync,
+): { id: number; name: string; appliedAt: string }[] {
+  try {
+    const rows = db
+      .prepare('SELECT id, name, applied_at FROM schema_migrations ORDER BY id')
+      .all() as { id: number; name: string; applied_at: string }[];
+    return rows.map((row) => ({ id: row.id, name: row.name, appliedAt: row.applied_at }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Removes the mail password from a stored agency profile.
  *
  * It used to live there, and briefly did on any installation that configured
  * mail before this was fixed. Leaving it would defeat the point of moving it
  * to the environment: the copy in the database is the one that ends up on a
- * backup tape. Runs once at boot and does nothing on a profile that never had
- * one.
+ * backup tape. Runs at boot and does nothing on a profile that never had one.
  */
 function scrubStoredSecrets(db: DatabaseSync): void {
   const row = db.prepare('SELECT doc FROM agency WHERE id = ?').get('default') as
@@ -676,7 +784,14 @@ export function openDatabase(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
-  addMissingColumns(db);
+  try {
+    applyMigrations(db);
+  } catch (problem) {
+    // Closed before rethrowing, so a refused open does not leave a handle on
+    // a database the caller is about to be told not to use.
+    db.close();
+    throw problem;
+  }
   scrubStoredSecrets(db);
   return db;
 }
